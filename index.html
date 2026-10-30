@@ -2032,6 +2032,15 @@ button{font:inherit;color:inherit}
 #board .node.ah-cell-effect-squall{background:linear-gradient(145deg,#0877d5,#03418f)!important;border:4px solid #55baff!important;box-shadow:inset 0 0 28px #001d62cc,0 0 0 3px #147ce0,0 0 24px 8px #087fff!important;color:white!important;animation:ah-real-cell-flash 1.9s ease-in-out both}
 #board .node.ah-cell-effect-typhoon{background:linear-gradient(145deg,#fff,#dce8f2)!important;border:4px solid #fff!important;box-shadow:inset 0 0 22px #a9c4df,0 0 0 3px #91abc5,0 0 24px 8px #fff!important;color:#26384c!important;text-shadow:none!important;animation:ah-real-cell-flash 1.8s ease-in-out both}
 @keyframes ah-real-cell-flash{0%,100%{filter:brightness(1)}12%,78%{filter:brightness(1.3)}}
+
+/* Point award animation: keep labels and particles inside the effect layer. */
+#fx .ah-point-score-fx{position:fixed;z-index:100000;left:50%;top:42%;transform:translate(-50%,-50%) scale(var(--score-scale,1));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:130px;padding:14px 22px;border-radius:18px;background:radial-gradient(ellipse,#fff9df 0%,#ffdf78ee 48%,#e89b24cc 100%);border:3px solid #fff2b0;box-shadow:0 0 0 3px #9c5b1a99,0 8px 30px #0009;color:#63350b;font-weight:900;text-align:center;pointer-events:none;animation:ah-point-score-pop 2.2s cubic-bezier(.18,.75,.25,1) both}
+#fx .ah-point-score-fx.negative{background:radial-gradient(ellipse,#fff0ed 0%,#ff9b8fee 48%,#c92c25dd 100%);border-color:#ffd3c9;box-shadow:0 0 0 3px #7e171799,0 8px 30px #0009;color:#74140f}
+#fx .ah-point-score-fx span{display:block;font-size:clamp(14px,3.5vw,19px);line-height:1.2;white-space:nowrap}
+#fx .ah-point-score-fx strong{display:block;font-size:clamp(28px,7vw,48px);line-height:1.05;white-space:nowrap;text-shadow:0 2px 0 #fff9}
+#fx .ah-point-score-fx i{position:absolute;left:50%;top:50%;display:block;font-style:normal;font-size:clamp(16px,4vw,25px);line-height:1;transform:rotate(var(--angle)) translateY(calc(-1 * var(--distance)));animation:ah-point-score-spark 1.3s ease-out var(--delay) both;pointer-events:none}
+@keyframes ah-point-score-pop{0%{opacity:0;scale:.45}12%,78%{opacity:1;scale:1}100%{opacity:0;scale:.82}}
+@keyframes ah-point-score-spark{0%{opacity:0}15%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateY(calc(-1.35 * var(--distance))) scale(.55)}}
 </style>
 </head>
 <body>
