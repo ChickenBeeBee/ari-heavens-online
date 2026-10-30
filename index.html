@@ -2655,7 +2655,7 @@ function heavenAttach(id){
  const p=cur(),c=getC(id);
  if(!c||!S.heaven||S.heaven.player!==p||S.heaven.used>=6||S.hand[p]<=0)return false;
  recordUndo('アリヘブンズで手元からつける');S.hand[p]--;c.att[p]++;S.heaven.used++;
- log(`🐜 ${NAMES[p]}が${c.type.name}へ手元から1匹つけた。`);render();return true;
+ log(`🐜 アリヘブンズ：${NAMES[p]}が${c.type.name}へ手元から1匹（計${S.heaven.used}/6匹）つけた。`,'card');render();return true;
 }
 
 function cpuAvoidAntlion(){
@@ -2833,17 +2833,17 @@ function prior_useCard(p,key){
  render();return true;
  }
  if(key==='gold'){
- S.candies.push({id:S.nextId++,type:{...GOLD},node:'C',att:{A:0,B:0}});play('gold');
- }else if(key==='jaw'){S.jaw=p;play('jaw');
+ S.candies.push({id:S.nextId++,type:{...GOLD},node:'C',att:{A:0,B:0}});play('gold');log('🥇 ゴールドチョコが中央マスに出現！運搬には自分のアリが3匹必要。','card');
+ }else if(key==='jaw'){S.jaw=p;play('jaw');log(`💪 ${NAMES[p]}のアゴ強化が有効に。次の自分のアリバトルの最初のダイスに＋3。`,'card');
  }else if(key==='gale'){
- S.candies.forEach(c=>{if(c.att.A+c.att.B===0)c.node='C';});shakeBoard();
- }else if(key==='heaven'){S.heaven={player:p,used:0};
+ const before=S.candies.filter(c=>c.att.A+c.att.B===0).length;S.candies.forEach(c=>{if(c.att.A+c.att.B===0)c.node='C';});shakeBoard();log(`🌪️ 荒風！アリのついていないお菓子${before}個を中央マスへ移動。`,'card');
+ }else if(key==='heaven'){S.heaven={player:p,used:0};log(`🐜 アリヘブンズ発動！このターン、手元から最大6匹をお菓子へ直接配置できる。`,'card');
  }else if(key==='block'){S.shortcutBlock[opp(p)]=3;log('🚫 相手の次の番から3手番、近道を封鎖。','card');
  }else if(key==='pheromone'){
  const total=Math.min(3,S.hand[p]),counts={};
  for(let i=0;i<total;i++){const n=p+(Math.random()<.5?'2':'3');S.hand[p]--;S.free[n][p]++;counts[n]=(counts[n]||0)+1;}
  log(`🌸 ${Object.entries(counts).map(([n,k])=>NODE_LABEL[n]+'へ'+k+'匹').join('、')}`,'card');
- }else if(key==='inspire'){S.inspire={player:p,turn:S.turnCount,events:[]};
+ }else if(key==='inspire'){S.inspire={player:p,turn:S.turnCount,events:[]};log(`📣 ${NAMES[p]}が鼓舞！この番のアリバトル勝利ごとに＋1点。`,'card');
  }else if(key==='antlion'){
  if(!S.antlions)S.antlions=[];
  const id=`${S.gid}:${S.turnCount}:${p}:${++S.cardEventSeq}`;
@@ -2851,14 +2851,14 @@ function prior_useCard(p,key){
  log(`☠ ${NAMES[p]}がアリジゴクを設置。3ターン経過後、予測できないタイミングで発動する。`,'card');
  }else if(key==='sortie'){
  const n=S.free[p+'2'][p];S.free[p+'2'][p]=0;S.free.C[p]+=n;
- log(`🚩 出撃！ ${NODE_LABEL[p+'2']}から${n}匹が中央へ。`,'card');
+ log(`🚩 出撃！ ${NODE_LABEL[p+'2']}から自由アリ${n}匹が中央へ移動。`,'card');
  }else if(key==='sugar'){
  const total=1+Math.floor(Math.random()*3),nodes=['A2','A3','B2','B3'];
  for(let i=0;i<total;i++)S.candies.push({id:S.nextId++,type:{...TYPES[0]},node:nodes[Math.floor(Math.random()*4)],att:{A:0,B:0}});
- log(`🍬 金平糖が${total}個、新たに出現！`,'card');
+ log(`🍬 金平糖降らし！${total}個が出現。`,'card');
  }else if(key==='powder'){
- S.candies.forEach(c=>{c.type={...TYPES.find(t=>t.name==='クッキー')};});
- log('🍪 場のお菓子がすべてクッキーになった！','card');
+ const changed=S.candies.length;S.candies.forEach(c=>{c.type={...TYPES.find(t=>t.name==='クッキー')};});
+ log(`🍪 クッキーパウダー！場のお菓子${changed}個をクッキーに変化させた。`,'card');
  }
  S.cpuTarget=null;render();tutorialAfterAction('card',{key});return true;
 }
@@ -5202,7 +5202,7 @@ function ahTyphoonTick(){
 function tickStrongPheromoneStart(){
  const x=S?.strongPheromone;if(!x||x.remainingStarts<=0)return;
  const p=cur(),entrance=p+'1',space=Math.max(0,(CAP[entrance]||0)-nodeCount(entrance)),n=Math.min(space,S.hand[p]);
- if(n>0){S.hand[p]-=n;S.free[entrance][p]+=n;log(`🌺 強烈フェロモン！ ${NAMES[p]}の塚入口に${n}匹が集まった。`,'card');}
+ if(n>0){S.hand[p]-=n;S.free[entrance][p]+=n;log(`🌺 強烈フェロモン発動！ ${NAMES[p]}の塚入口に${n}匹が集まった。`,'card');}
  x.remainingStarts--;
  if(x.remainingStarts<=0){S.strongPheromone=null;log('🌺 強烈フェロモンの効果が終了した。','card');}
 }
@@ -5232,7 +5232,7 @@ function useCard(p,k){
  for(const q of ['A','B'])for(const card of S.decks[q])if(card!=='revive')S.cards[q][card]=false;
  log('♻ 両者のカードが復活。発動中の効果は継続。','card');
  }else if(k==='summon'){
- S.candies.push({id:S.nextId++,node:'C',att:{A:0,B:0},type:{...TYPES.find(t=>t.bomb)}});
+ S.candies.push({id:S.nextId++,node:'C',att:{A:0,B:0},type:{...TYPES.find(t=>t.bomb)}});log('💣 アリボム召喚！中央マスに新しいアリボムが出現。','card');
  }else if(k==='showdown'){
  render();startShowdown(p);return true;
  }
@@ -5241,7 +5241,7 @@ function useCard(p,k){
 function startHungryDice(p){
  const fx={eventId:`hungry-${S.gid}-${++battleFxCounter}-${Date.now()}`,gameId:S.gid,kind:'hungry',physicsDice:true,attacker:p,defender:opp(p),rolls:[],summary:'',resultTitle:'🍽️ ハングリー'};
  fx.rolls.push({ra:1,rd:1,draw:false,line:'サイコロを投げています…'});
- showDiceRoll(fx,{interactive:isHuman(p),remotePreview:false});
+ log(`🍽️ ${NAMES[p]}がハングリーのサイコロを振る。`,'card');showDiceRoll(fx,{interactive:isHuman(p),remotePreview:false});
 }
 function startShowdown(p){
  const attackCount=fieldAnts(p),defendCount=fieldAnts(opp(p));if(!attackCount||!defendCount)return false;
@@ -5267,7 +5267,7 @@ function applyPhysicsBattleResult(state,roll){
  if(roll.draw||state.remotePreview||fx.physicsApplied)return;
  const out=physicsBattleSummary(fx,roll),removed=randomFieldCasualties(out.loser,out.kill);
  fx.physicsApplied=true;fx.casualties=removed;
- fx.summary=`決戦：${NAMES[out.loser]}の場のアリがランダムに${removed.length}匹退場！`;roll.summary=fx.summary;
+ fx.summary=`決戦：${NAMES[out.loser]}の場のアリがランダムに${removed.length}匹退場！`;roll.summary=fx.summary;log(`⚔️ 決戦の結果：${NAMES[out.loser]}の場から${removed.length}匹が退場。`,'card');
  if(fx.jawBonus)S.jaw=null;for(const r of fx.rolls)log(r.line||'決戦ダイス','battle');log(fx.summary,'battle');
  awardInspire(opp(out.loser),fx.eventId);shakeBoard();render();
 }
