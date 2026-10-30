@@ -2000,6 +2000,12 @@ button{font:inherit;color:inherit}
 .ah-card-event.typhoon{background:linear-gradient(135deg,#537fa8f2,#294764f2);border:2px solid #c5dfef;animation:ah-card-soft-in 1.55s both}
 .ah-card-event .ah-event-particles{font-size:clamp(17px,3vw,23px);letter-spacing:4px;animation:none}
 @keyframes ah-card-soft-in{0%{opacity:0;transform:translate(-50%,-46%)}12%,82%{opacity:1;transform:translate(-50%,-50%)}100%{opacity:0;transform:translate(-50%,-53%)}}
+/* Keep the mobile event panel fully inside the viewport instead of near the top edge. */
+@media(max-width:600px){
+ .ah-card-event{top:50%;transform:translate(-50%,-50%);max-height: min(62dvh, 420px);overflow-y:auto;overscroll-behavior:contain}
+ @keyframes ah-card-soft-in{0%{opacity:0;transform:translate(-50%,-46%) scale(.96)}12%,82%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-53%) scale(1)}}
+}
+
 </style>
 
 <style id="ah-board-effect-visibility-fix">
