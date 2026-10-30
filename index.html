@@ -2081,7 +2081,7 @@ button{font:inherit;color:inherit}
       <button class="btn hc primary" data-hc="0">なし</button>
       <button class="btn hc" data-hc="1">最初の1ターンだけ行動1回</button>
     </div>
-    <div class="dbtns"><button class="btn primary" id="btnStart">バトル開始</button><button class="btn ghost" data-title-back>戻る</button></div>
+    <div class="dbtns"><button class="btn primary" id="btnStart">ゲーム開始（先攻・後攻を抽選）</button><button class="btn ghost" data-title-back>戻る</button></div>
   </section>
   <section id="titleMultiSetup" hidden>
     <h3 class="title-subhead">👥 二人で遊ぶ</h3>
@@ -3035,8 +3035,7 @@ function showDiceRoll(fx,{interactive=false,remotePreview=false}={}){
   activeDiceRoll=state;dialogOpen=true;
   const $roll=$('#diceRoll');
   const initialInstruction=multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…';
-  const tutorialBattle=!!(tutorial&&tutorial.active&&fx.kind==='battle');
-  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?(tutorialBattle?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>'):'';
+  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>':'';
   const attackPlayer=isInitiative?'A':fx.attacker,defendPlayer=isInitiative?'B':fx.defender;
   const initialLeftPlayer=mode==='online'?localPlayer:mode==='local'?firstRollPlayer:'A';
   $roll.querySelector('.box').innerHTML=`<h3>${isInitiative?'🎲 先攻・後攻を決めよう':'⚔ アリバトル！ サイコロを投げよう'}</h3>
@@ -3266,17 +3265,7 @@ function startDiceToss(state,throwX,throwY,duration){
 function finishDiceStep(state){
   if(activeDiceRoll!==state||state.finished)return;
   state.animating=false;state.timer=null;
-  const fx=state.fx;
-  // Tutorial battle faces are intentionally fixed for teaching, but still travel
-  // through the full 3-D throw animation. Reassert them before resolving the round
-  // so the visible faces and the displayed arithmetic cannot get out of sync.
-  if(tutorial&&tutorial.active&&fx.kind==='battle'&&[7,8].includes(tutorial.step)&&fx.attacker==='A'){
-    for(const player of [fx.attacker,fx.defender]){
-      const fixed=tutorialFixedBattleFace(fx,player);
-      if(fixed!==null)state.roundValues.set(player,fixed);
-    }
-  }
-  const roll=fx.physicsDice?makePhysicsRound(state):fx.rolls[state.index];
+  const fx=state.fx,roll=fx.physicsDice?makePhysicsRound(state):fx.rolls[state.index];
   if(!roll)return;
   const result=$('#diceRollResult'),instruction=$('#diceInstruction'),stage=$('#diceStage');
   stage.classList.remove('is-rolling');
@@ -3342,16 +3331,7 @@ function finishDiceRoll(state,skip){
       closeDialog();
       if(!S||S.gid!==state.gameId)return;
       for(const p of ['A','B']){if(alive(p)===0){finish(opp(p),`${NAMES[p]}のアリが全滅しました`);return;}}
-      if(tutorial&&tutorial.active&&[7,8].includes(tutorial.step)){
-        // Tutorial battles must resolve on the board, not merely report a winner.
-        // If a result dialog is reached before the casualty callback completed,
-        // apply the settled dice result once before advancing the lesson.
-        if(fx.kind==='battle'&&!fx.physicsApplied){
-          const settled=fx.rolls&&fx.rolls[fx.rolls.length-1];
-          if(settled&&!settled.draw)applyPhysicsBattleResult({fx,remotePreview:false,physicsApplied:false},settled);
-        }
-        render();tutorialCelebrate(tutorial.step+1,0);return;
-      }
+      if(tutorial&&tutorial.active&&[7,8].includes(tutorial.step)){tutorialCelebrate(tutorial.step+1,0);return;}
       if(fx.trigger==='carry'){actCarry(fx.candyId,fx.dir,true);}else render();
     }}]});
 }
