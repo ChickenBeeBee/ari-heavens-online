@@ -2821,7 +2821,7 @@ function resolveRain(p,node){
 }
 function prior_useCard(p,key){
  if(!tutorialAllowsAction('card',{key})||!canUseCard(p,key)||cardUnavailable(p,key))return false;
- recordUndo(`手札「${CARDS[key].name}」を使う`);
+ recordUndo(`手札「${CARDS[key].name}」を使う`);if(['hungry','pheromone','antlion','sugar'].includes(key))clearUndoHistory();
  S.cards[p][key]=true;S.cardUsed=true;S.sel=null;
  log(`${CARDS[key].emo} ${NAMES[p]}が手札「${CARDS[key].name}」を使った！`,'card');
  play('card');cardNotice(p,CARDS[key]);cardImpactFx(key,CARDS[key]);
@@ -5209,7 +5209,7 @@ function tickStrongPheromoneStart(){
 function useCard(p,k){
  if(k==='typhoon'||k==='strongPheromone'){
   if(!tutorialAllowsAction('card',{key:k})||!canUseCard(p,k)||cardUnavailable(p,k))return false;
-  recordUndo(`手札「${CARDS[k].name}」を使う`);S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
+  recordUndo(`手札「${CARDS[k].name}」を使う`);if(['typhoon','squall'].includes(k))clearUndoHistory();S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
   log(`${CARDS[k].emo} ${NAMES[p]}が手札「${CARDS[k].name}」を使った！`,'card');play('card');cardNotice(p,CARDS[k]);cardImpactFx(k,CARDS[k]);
   if(k==='typhoon'){
    S.typhoon={player:p,castTurn:S.turnCount};S.typhoonLocked[p]=true;
@@ -5860,7 +5860,7 @@ function ahPlayNextCardPresentation(){
  const particles=document.createElement('span');particles.className='ah-event-particles';
  const title=document.createElement('strong');const detail=document.createElement('small');
  if(event.type==='antlion'){
-  play('antlion');
+  rainFx();play('rain');play('antlion');
   const cell=document.querySelector('#board [data-node="C"]');
   if(cell){const r=cell.getBoundingClientRect();const ring=document.createElement('div');ring.className='ah-antlion-ring';setFixedRect(ring,{left:r.left-5,top:r.top-5,width:r.width+10,height:r.height+10});document.body.appendChild(ring);
    const label=document.createElement('div');label.className='ah-antlion-label';label.textContent=`☠ アリジゴク発動！ A ${event.counts.A}匹／B ${event.counts.B}匹が退場`;label.style.left=Math.max(8,Math.min(r.left+r.width/2-115,window.innerWidth-238))+'px';label.style.top=Math.max(8,r.top-43)+'px';document.body.appendChild(label);
@@ -5873,11 +5873,11 @@ function ahPlayNextCardPresentation(){
   detail.textContent=`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
   play('card');
  }else if(event.type==='typhoon'){
-  play('typhoon');
-  particles.textContent='🌀 💨 🌀';title.textContent='台風';
+  rainFx();play('rain');play('typhoon');
+  particles.textContent='🌧️ 🌀 💧 🌀 🌧️';title.textContent='台風';
   detail.textContent=`${NODE_LABEL[event.node]}からアリ${event.ants}匹・お菓子${event.candies}個が移動`;
  }else if(event.type==='weather'){
-  particles.textContent='⛈️ 💧 ⚡ 💧 ⛈️';title.textContent='ゲリラ豪雨！';
+  rainFx();particles.textContent='🌧️ 💧 ⛈️ 💧 🌧️';title.textContent='ゲリラ豪雨！';
   detail.textContent=`${NODE_LABEL[event.node]}：A ${event.counts.A}匹・B ${event.counts.B}匹が手元へ`;
   play('rain');
  }
