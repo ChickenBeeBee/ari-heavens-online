@@ -163,7 +163,7 @@ button{font:inherit;color:inherit}
 #battleTicker .bt-event.sys{background:#e9dfc4;border-left:4px solid #9a7447}
 #actionbar{position:relative;bottom:auto;z-index:5;display:flex;flex-direction:column;gap:6px;padding:8px;background:#fff8e6f5;border:3px solid var(--edge);border-radius:14px;box-shadow:0 3px 0 #a88a4c}
 #controlDock #hint{text-align:left;padding:0 3px;}
-@media(max-width:600px){#controlDock{gap:4px;padding-top:3px}#battleTicker{padding:5px 6px;gap:3px}.bt-topline{font-size:10px;gap:4px}.bt-chip{padding:2px 5px}.bt-player{font-size:10px;padding:3px 5px}.bt-event{font-size:10px;min-height:17px}#controlDock .tutorial-panel.active{max-height:18vh;overflow-y:auto;overscroll-behavior:contain;padding:6px 8px}#controlDock .tutorial-head{font-size:11px;gap:4px}#controlDock .tutorial-stepcount{font-size:10px;padding:2px 5px}#controlDock .tutorial-progress{height:4px;margin:3px 0}#controlDock .tutorial-panel h3{font-size:14px;margin:2px 0 3px}#controlDock .tutorial-panel p{font-size:11px;line-height:1.3;margin:2px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}#controlDock .tutorial-tip{display:none}#controlDock .tutorial-actions{margin-top:4px}#controlDock .tutorial-actions .btn{min-height:27px;padding:2px 7px;font-size:10px}#controlDock #btRole{display:none}#controlDock #btEvent{display:-webkit-box;-webkit-line-clamp:1;min-height:17px;padding:3px 5px}}
+@media(max-width:600px){#app{width:100%;max-width:100vw;min-width:0}#main.is-tutorial{width:100%;max-width:100%;min-width:0;overflow-x:hidden}#main.is-tutorial #board{display:grid;grid-template-columns:clamp(22px,7vw,32px) minmax(0,1fr) clamp(10px,3vw,15px);gap:2px;padding:3px;min-width:0;width:100%;max-width:100%;box-sizing:border-box;overflow:hidden}#main.is-tutorial #board>*{min-width:0;max-width:100%;box-sizing:border-box}#main.is-tutorial #board .node{min-width:0;max-width:100%;padding-left:1px;padding-right:1px;box-sizing:border-box}#controlDock{gap:4px;padding-top:3px}#battleTicker{padding:5px 6px;gap:3px}.bt-topline{font-size:10px;gap:4px}.bt-chip{padding:2px 5px}.bt-player{font-size:10px;padding:3px 5px}.bt-event{font-size:10px;min-height:17px}#controlDock .tutorial-panel.active{max-height:18vh;overflow-y:auto;overscroll-behavior:contain;padding:6px 8px}#controlDock .tutorial-head{font-size:11px;gap:4px}#controlDock .tutorial-stepcount{font-size:10px;padding:2px 5px}#controlDock .tutorial-progress{height:4px;margin:3px 0}#controlDock .tutorial-panel h3{font-size:14px;margin:2px 0 3px}#controlDock .tutorial-panel p{font-size:11px;line-height:1.3;margin:2px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}#controlDock .tutorial-tip{display:none}#controlDock .tutorial-actions{margin-top:4px}#controlDock .tutorial-actions .btn{min-height:27px;padding:2px 7px;font-size:10px}#controlDock #btRole{display:none}#controlDock #btEvent{display:-webkit-box;-webkit-line-clamp:1;min-height:17px;padding:3px 5px}}
 #cardRow,#btnRow{display:flex;gap:6px}
 #btnRow{gap:8px}
 #btnRow .btn{flex:1;min-height:52px;font-size:15px;line-height:1.15}
@@ -1951,6 +1951,20 @@ button{font:inherit;color:inherit}
 @media(min-width:700px){#app.is-tutorial #tutorialPanel{width:100%;max-width:none;padding:14px 18px;}#app.is-tutorial #tutorialPanel .tutorial-chat{max-width:none;} }
 @media(max-width:600px){#tutorialPanel .tutorial-chat{padding:10px 12px;margin:6px 0;}#tutorialPanel .tutorial-chat p{font-size:15px!important;line-height:1.42!important;}#tutorialPanel .tutorial-actions .btn{min-height:40px;font-size:14px;}}
 
+@media(max-width:600px){#main.is-tutorial #board .node *{max-width:100%;box-sizing:border-box}#main.is-tutorial #board .node{overflow-wrap:anywhere}}
+
+/* Tutorial mobile board: use the same responsive board proportions as normal battle. */
+@media (max-width: 600px) {
+  #app.is-tutorial { width:100%; max-width:100%; min-width:0; padding-left:4px; padding-right:4px; }
+  #app.is-tutorial #main.is-tutorial { width:100%; max-width:100%; min-width:0; overflow-x:visible; }
+  #app.is-tutorial #main.is-tutorial #board {
+    display:grid; width:100%; min-width:0; max-width:100%;
+    grid-template-columns:44px minmax(0,1fr) 18px;
+    gap:3px; padding:5px; overflow:visible;
+  }
+  #app.is-tutorial #main.is-tutorial #board > * { min-width:0; max-width:100%; }
+  #app.is-tutorial #main.is-tutorial #board .node { min-width:0; max-width:100%; padding:2px 3px; overflow-wrap:normal; }
+}
 </style>
 </head>
 <body>
@@ -2067,7 +2081,7 @@ button{font:inherit;color:inherit}
       <button class="btn hc primary" data-hc="0">なし</button>
       <button class="btn hc" data-hc="1">最初の1ターンだけ行動1回</button>
     </div>
-    <div class="dbtns"><button class="btn primary" id="btnStart">ゲーム開始（先攻・後攻を抽選）</button><button class="btn ghost" data-title-back>戻る</button></div>
+    <div class="dbtns"><button class="btn primary" id="btnStart">バトル開始</button><button class="btn ghost" data-title-back>戻る</button></div>
   </section>
   <section id="titleMultiSetup" hidden>
     <h3 class="title-subhead">👥 二人で遊ぶ</h3>
@@ -3317,7 +3331,16 @@ function finishDiceRoll(state,skip){
       closeDialog();
       if(!S||S.gid!==state.gameId)return;
       for(const p of ['A','B']){if(alive(p)===0){finish(opp(p),`${NAMES[p]}のアリが全滅しました`);return;}}
-      if(tutorial&&tutorial.active&&[7,8].includes(tutorial.step)){tutorialCelebrate(tutorial.step+1,0);return;}
+      if(tutorial&&tutorial.active&&[7,8].includes(tutorial.step)){
+        // Tutorial battles must resolve on the board, not merely report a winner.
+        // If a result dialog is reached before the casualty callback completed,
+        // apply the settled dice result once before advancing the lesson.
+        if(fx.kind==='battle'&&!fx.physicsApplied){
+          const settled=fx.rolls&&fx.rolls[fx.rolls.length-1];
+          if(settled&&!settled.draw)applyPhysicsBattleResult({fx,remotePreview:false,physicsApplied:false},settled);
+        }
+        render();tutorialCelebrate(tutorial.step+1,0);return;
+      }
       if(fx.trigger==='carry'){actCarry(fx.candyId,fx.dir,true);}else render();
     }}]});
 }
@@ -3446,14 +3469,13 @@ function startGame(){
 
 /* ---------- interactive tutorial ---------- */
 const TUTORIAL_STEPS=[
- {title:'ステップ1　塚入り口のセット',pages:[
-  {text:'ステップ1！ まずは塚入り口にアリを出します。'},
-  {text:'アリを出しましょう。'},
-  {text:'下の「アリを出す」を押して、塚入り口を選びましょう。',focus:['#btnPlace','#board [data-node="A1"]'],action:'placeA1'}
+ {title:'ステップ１　塚入り口のセット',pages:[
+  {text:'アリを「塚入り口」にセットします'},
+  {text:'下のボタンを押して，塚入り口を選びましょう',focus:['#btnPlace','#board [data-node="A1"]'],action:'placeA1'}
  ],success:'塚入り口には2匹までアリがセットできます'},
- {title:'ステップ2　待機所のセット',pages:[
-  {text:'次は待機所にアリを置きましょう。'},
-  {text:'「アリを出す」を押して、待機所を選びましょう。',focus:['#btnPlace','#board [data-node="Aw"]'],action:'placeAw'}
+ {title:'ステップ２　待機所のセット',pages:[
+  {text:'今度はアリを「待機所」にセットします'},
+  {text:'下のボタンを押して，待機所を選びましょう',focus:['#btnPlace','#board [data-node="Aw"]'],action:'placeAw'}
  ],success:'待機所には1匹までアリがセットできます'},
  {title:'ステップ3　塚入り口からアリを動かす',pages:[
   {text:'塚入り口にいる自分のアリを選びましょう。',focus:['#board [data-node="A1"]'],action:'selectA1'},
@@ -3468,9 +3490,9 @@ const TUTORIAL_STEPS=[
   {text:'金平糖をタップして、「アリをつける」を選びましょう。',focus:['#board [data-candy="0"]'],action:'attachCandy'}
  ],success:'アリが付きましたね．アリは自分の番なら何度もつけ外せます'},
  {title:'ステップ6　お菓子を運ぶ',pages:[
-  {text:'この「金平糖」はアリ1匹で運べます。'},
-  {text:'金平糖をタッチ（クリック）して「自陣方向へ」を押しましょう。',focus:['#board [data-candy="0"]'],action:'carryCandy'}
- ],success:'お菓子が移動しましたね．'},
+  {text:'この「金平糖」はアリ1匹で運べます'},
+  {text:'お菓子をタッチ（クリック）して「自陣方向へ」を押しましょう',focus:['#board [data-candy="0"]'],action:'carryCandy'}
+ ],success:'お菓子が移動しましたね。'},
  {title:'ステップ7　お菓子を塚に放り込もう',pages:[
   {text:'盤面を整えました。金平糖を自分の塚まで運んで得点を取りましょう。'},
   {text:'アリが付いている金平糖を選び、「自陣方向へ」を押しましょう。',focus:['#board [data-candy="0"]'],action:'scoreCandy'}
@@ -3598,7 +3620,7 @@ function renderTutorialPanel(){
  const total=TUTORIAL_STEPS.length,step=tutorial.step;
  if(tutorial.phase==='welcome'){panel.innerHTML=`<div class="tutorial-head"><span>🎓 チュートリアル</span><span class="tutorial-stepcount">全${total}ステップ</span><button class="btn ghost tutorial-exit-btn" data-tutorial-exit>中断</button></div><div class="tutorial-chat"><h3>チュートリアル</h3><p>チュートリアルで、ゲームの基本を学びましょう。</p></div><div class="tutorial-actions"><button class="btn primary" id="btnTutorialBegin">▼ はじめる</button></div>`;return;}
  if(tutorial.phase==='success'){
-  panel.innerHTML=`<div class="tutorial-head"><span>🎓 ${Math.min(step+1,total)}/${total}</span><button class="btn ghost tutorial-exit-btn" data-tutorial-exit>中断</button></div><div class="tutorial-success tutorial-chat"><div class="big">🎉✨🐜✨🎉</div><h3>${TUTORIAL_STEPS[step]?.success||'できました！'}</h3><p>${step===5?'相手の番をはさんでから、自分の番に戻ることも覚えました。':''}</p><div class="tutorial-actions"><button class="btn primary" id="btnTutorialNext">▼ 次へ</button></div></div>`;return;
+  panel.innerHTML=`<div class="tutorial-head"><span>🎓 ${Math.min(step+1,total)}/${total}</span><button class="btn ghost tutorial-exit-btn" data-tutorial-exit>中断</button></div><div class="tutorial-success tutorial-chat"><div class="big">🎉✨🐜✨🎉</div><h3>${TUTORIAL_STEPS[step]?.success||'できました！'}</h3><div class="tutorial-actions"><button class="btn primary" id="btnTutorialNext">▼ 次へ</button></div></div>`;return;
  }
  if(tutorial.phase==='opponentTurn'){
   panel.innerHTML=`<div class="tutorial-head"><span>🎓 チュートリアル</span><button class="btn ghost tutorial-exit-btn" data-tutorial-exit>中断</button></div><div class="tutorial-chat"><h3>相手の番です</h3><p>実戦では相手が操作します。この練習では相手の番を省略して、自分の番に戻ります。</p></div><div class="tutorial-actions"><button class="btn primary" id="btnTutorialReturnTurn">▼ 自分の番へ</button></div>`;return;
@@ -3796,7 +3818,8 @@ function renderTutorialControlVisibility(){
   if(!active){cardRow.style.display='';btnRow.style.display='';bar.style.display='';place.style.display='';undo.style.display='';end.style.display='';return;}
   const step=tutorial.step,cardStep=false,showEnd=step===5&&TUTORIAL_STEPS[step]?.pages[tutorial.page]?.action==='endTurn'&&S&&S.actions===0;
   cardRow.style.display=cardStep?'flex':'none';
-  place.style.display=([0,1].includes(step)&&tutorial.phase==='guided'&&step<TUTORIAL_STEPS.length)?'':'none';
+  const placePage=TUTORIAL_STEPS[step]?.pages[tutorial.page];
+  place.style.display=(tutorial.phase==='guided'&&['placeA1','placeAw'].includes(placePage?.action))?'':'none';
   undo.style.display='none';
   end.style.display=showEnd?'':'none';
   const showButtons=[0,1].includes(step)||showEnd;
@@ -5594,3 +5617,4 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
 </script>
 </body>
 </html>
+
