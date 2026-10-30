@@ -3035,7 +3035,8 @@ function showDiceRoll(fx,{interactive=false,remotePreview=false}={}){
   activeDiceRoll=state;dialogOpen=true;
   const $roll=$('#diceRoll');
   const initialInstruction=multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…';
-  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>':'';
+  const tutorialBattle=!!(tutorial&&tutorial.active&&fx.kind==='battle');
+  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?(tutorialBattle?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>'):'';
   const attackPlayer=isInitiative?'A':fx.attacker,defendPlayer=isInitiative?'B':fx.defender;
   const initialLeftPlayer=mode==='online'?localPlayer:mode==='local'?firstRollPlayer:'A';
   $roll.querySelector('.box').innerHTML=`<h3>${isInitiative?'🎲 先攻・後攻を決めよう':'⚔ アリバトル！ サイコロを投げよう'}</h3>
@@ -3265,7 +3266,17 @@ function startDiceToss(state,throwX,throwY,duration){
 function finishDiceStep(state){
   if(activeDiceRoll!==state||state.finished)return;
   state.animating=false;state.timer=null;
-  const fx=state.fx,roll=fx.physicsDice?makePhysicsRound(state):fx.rolls[state.index];
+  const fx=state.fx;
+  // Tutorial battle faces are intentionally fixed for teaching, but still travel
+  // through the full 3-D throw animation. Reassert them before resolving the round
+  // so the visible faces and the displayed arithmetic cannot get out of sync.
+  if(tutorial&&tutorial.active&&fx.kind==='battle'&&[7,8].includes(tutorial.step)&&fx.attacker==='A'){
+    for(const player of [fx.attacker,fx.defender]){
+      const fixed=tutorialFixedBattleFace(fx,player);
+      if(fixed!==null)state.roundValues.set(player,fixed);
+    }
+  }
+  const roll=fx.physicsDice?makePhysicsRound(state):fx.rolls[state.index];
   if(!roll)return;
   const result=$('#diceRollResult'),instruction=$('#diceInstruction'),stage=$('#diceStage');
   stage.classList.remove('is-rolling');
