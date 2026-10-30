@@ -2713,6 +2713,12 @@ function actDetach(id){
   play('detach');
   log(`${NAMES[p]}のアリが${c.type.name}から離れました。`);render();
 }
+function showPointScoreFx(player,points,label){
+ const fx=$('#fx');if(!fx)return;const amount=Math.abs(points),scale=Math.min(1.9,0.82+amount*.13),el=document.createElement('div');el.className='ah-point-score-fx '+(points<0?'negative':'positive');
+ const name=document.createElement('span');name.textContent=label||NAMES[player];const value=document.createElement('strong');value.textContent=(points>0?'+':'')+points+'点';el.append(name,value);
+ const count=Math.min(34,10+amount*4);for(let i=0;i<count;i++){const p=document.createElement('i');p.textContent=['✨','⭐','🍬','💫'][i%4];p.style.setProperty('--angle',(i*360/count)+'deg');p.style.setProperty('--distance',(55+amount*8+(i%3)*13)+'px');p.style.setProperty('--delay',(i%5)*.035+'s');el.appendChild(p);}
+ el.style.setProperty('--score-scale',scale);fx.appendChild(el);setTimeout(()=>el.remove(),2200+amount*100);
+}
 function actCarry(id,dir,noBattle){
   if(!tutorialAllowsAction('carry',{id,dir}))return;
   if(!canAct())return;const p=cur(),q=opp(p),c=getC(id);if(!c)return;
@@ -2731,12 +2737,12 @@ function actCarry(id,dir,noBattle){
     const pts=c.type.pts,back=c.att[p];
     S.score[p]+=pts;S.hand[p]+=back;S.candies=S.candies.filter(x=>x!==c);sheetId=null;scored=true;
     log(`🎉 ${NAMES[p]}が${c.type.name}を塚へ運びました！ +${pts}点（アリ${back}匹が手元に戻る）`,'score');
-    play('score');burst(c.type.gold?['🥇','✨','🎉','⭐']:['🎉','⭐','🍬','✨'],c.type.gold?40:24);banner(`🎉 ${NAMES[p]} +${pts}点！`,'score');
+    play('score');showPointScoreFx(p,pts,`${c.type.name}獲得！`);burst(c.type.gold?['🥇','✨','🎉','⭐']:['🎉','⭐','🍬','✨'],Math.min(64,18+pts*5));banner(`🎉 ${NAMES[p]} +${pts}点！`,'score');
     finished=S.candies.length===0;
   }else if(bombHit){
     const back=c.att[p];S.score[q]-=4;S.hand[p]+=back;S.candies=S.candies.filter(x=>x!==c);sheetId=null;scored=true;
     log(`💣💨 ${NAMES[p]}がアリボムを${NAMES[q]}の塚へ投げ込んだ！（運搬アリ${back}匹は手元へ戻る）`,'score');
-    play('score');smokeBombFx();
+    play('score');showPointScoreFx(q,-4,'アリボム！');smokeBombFx();
     finished=S.candies.length===0;
   }else{play('carry');log(`${NAMES[p]}が${c.type.name}を${NODE_LABEL[t]}へ運びました。`);}
   render();
@@ -4573,7 +4579,7 @@ function hHarvest(info){
     if(x.n>=3&&missing>0)sc*=Math.pow(0.68,missing);             // don't start an expensive heavy-candy project
     if(x.n>=3&&missing===0)sc*=1.15;                             // prepared heavy candy is worth finishing
     if(x.m>0)sc*=1.22;                                           // continue meaningful progress
-    if(x.gold)sc*=(atSite>=6)?1:0.42;                            // don't sink ants into an unfinished 7-point bait
+    if(x.gold){const goldCanFinish=x.m+x.cAt>=3||x.m+x.cNear>=3||x.m+x.cAt>=2&&S.hand[CPU]>=1;sc*=goldCanFinish?2.25:1.05;if(x.m>0||x.cAt>0)sc*=1.35;}                            // don't sink ants into an unfinished 7-point bait
     else if(lured)sc*=1.35;                                      // exploit the human's gold fixation moderately
     if(S.hm&&S.hm.harvestTarget===x.c.id)sc*=1.12;
     if(sc>bs){bs=sc;best=x;}
