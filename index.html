@@ -4989,26 +4989,23 @@ async function createPeer(peerId,role){
     setOnlineStatus('オンライン対戦にはHTTPSのURLが必要です。HTMLファイルを直接開いている場合は、GitHub PagesなどHTTPS対応の場所に公開して開いてください。');
     return;
   }
-  // Local matches still use lightweight public STUN discovery during connection setup.
-  // This does not relay gameplay traffic: data continues directly peer-to-peer.
-  // TURN remains disabled for local mode to avoid external relaying and extra traffic.
+  // Prefer direct host/srflx routes. TURN is included as a fallback for restrictive
+  // iOS/PC Wi-Fi combinations; ICE selects a direct route when one is reachable.
   let iceServers=[
     {urls:'stun:stun.l.google.com:19302'},
     {urls:'stun:stun1.l.google.com:19302'}
   ];
   try{
-    if(!localPeerMode){
-    setOnlineStatus('TURN接続情報を取得しています…');
+    setOnlineStatus(localPeerMode?'近距離接続の経路を準備しています（直接接続を優先）…':'TURN接続情報を取得しています…');
     const res=await fetch('/api/turn',{cache:'no-store'});
     if(res.ok){
       const data=await res.json();
       if(Array.isArray(data)&&data.length){
         iceServers=iceServers.concat(data);
-        console.log('[TURN] Xirsys ICE serversを取得しました');
-      }else{console.warn('[TURN] /api/turnは応答しましたが、iceServersが空です');}
-    }else{console.warn('[TURN] /api/turnが失敗しました：',res.status);}
-    }
-  }catch(err){console.warn('[TURN] /api/turnへのアクセスに失敗しました：',err);}
+        ahConnectionLog(localPeerMode?'ローカル対戦：直接接続優先＋TURN予備経路を取得':'Xirsys TURN予備経路を取得');
+      }else{ahConnectionLog('TURN予備経路なし。STUN／直接接続のみで続行');}
+    }else{ahConnectionLog('TURN取得失敗 HTTP '+res.status+'。STUN／直接接続のみで続行');}
+  }catch(err){ahConnectionLog('TURN取得エラー '+(err&&err.message?err.message:'')+'。STUN／直接接続のみで続行');}
   let PeerCtor;
   try{PeerCtor=await ensurePeerJS();}
   catch(err){
@@ -5083,16 +5080,41 @@ async function createPeer(peerId,role){
         setOnlineStatus('そのIDの部屋が見つかりません。相手が部屋を作成済みか、IDが正しいか確認してください。');
       }
     }else if(type==='network'||type==='server-error'){
-      enableOnlineButtons();
-      setOnlineStatus('PeerJSの通信サーバーに接続できません。CDNの読み込みは成功しましたが、通信サーバーへの接続が失敗しました。ネットワーク/VPN/フィルターを確認してください。');
+      ahConnectionLog('PeerJS signaling error：'+type+' '+(err&&err.message?err.message:''));
+      if(conn&&conn.open&&onlineConnected){
+        ahConnectionLog('DataConnection open済みのため対局を継続');
+        setOnlineStatus('端末間の直接通信は継続中です（接続準備サーバーから切断）。');
+      }else{
+        enableOnlineButtons();
+        setOnlineStatus('PeerJSの接続準備サーバーが切断されました。診断ログを確認し、部屋を作り直して再試行してください。');
+      }
     }else{
       enableOnlineButtons();
       setOnlineStatus('接続エラー：'+(err&&err.message?err.message:'もう一度お試しください。'));
     }
   });
+  let signalingRecoveryUsed=false;
   p.on('disconnected',()=>{
+    if(peer!==p||generation!==peerGeneration)return;
     ahConnectionLog(`${role==='host'?'HOST':'GUEST'}: PeerJS signaling server disconnected`);
-    if(peer===p)setOnlineStatus('通信サーバーとの接続が切れました。ページを再読み込みして再接続してください。');
+    // Once the data channel is open, signaling is not needed for an active P2P match.
+    if(conn&&conn.open&&onlineConnected){
+      ahConnectionLog('P2Pデータ通信はopenのため、シグナリング切断後も対局を継続');
+      setOnlineStatus('端末間の直接通信は継続中です。');
+      return;
+    }
+    if(!signalingRecoveryUsed&&typeof p.reconnect==='function'){
+      signalingRecoveryUsed=true;
+      setOnlineStatus('接続準備サーバーが一時切断されました。自動復旧を試しています…');
+      ahConnectionLog('PeerJS reconnect()を1回実行');
+      try{p.reconnect();}
+      catch(err){
+        ahConnectionLog('PeerJS reconnect失敗：'+(err&&err.message?err.message:err));
+        setOnlineStatus('接続準備サーバーへの復旧に失敗しました。部屋を作り直してください。');
+      }
+    }else{
+      setOnlineStatus('接続準備サーバーとの通信が復旧しませんでした。部屋を作り直して再試行してください。');
+    }
   });
 }
 function createOnlineRoom(){
