@@ -2014,6 +2014,15 @@ button{font:inherit;color:inherit}
 .ah-antlion-label{position:fixed;z-index:100000;padding:7px 13px;border-radius:12px;background:#33230bea;border:2px solid #e5bc61;color:#fff4d1;font-weight:900;font-size:clamp(14px,2.5vw,20px);box-shadow:0 4px 15px #0008;pointer-events:none;white-space:nowrap}
 @keyframes ah-antlion-ring-pulse{from{box-shadow:0 0 0 3px #3b260866,0 0 12px 3px #f0c35c66}to{box-shadow:0 0 0 8px #3b260866,0 0 28px 12px #f0c35cdd}}
 #board .node.typhoon-affected{position:relative;z-index:2;background:#f3d46a!important;border-color:#d58a16!important;box-shadow:inset 0 0 0 4px #fff3a8,0 0 0 4px #e49b24,0 0 22px 8px #ffc94dcc!important;filter:saturate(1.5);transition:background .12s,box-shadow .12s}
+
+.ah-effect-cell-mark{position:fixed;z-index:99997;pointer-events:none;box-sizing:border-box;border-radius:12px}
+.ah-effect-cell-mark.antlion{background:radial-gradient(ellipse,#8a5929aa,#35200fcc);border:5px solid #b77a39;box-shadow:inset 0 0 25px #2c170cdd,0 0 24px #9a642e;animation:ah-sink-cell 1.9s both}
+.ah-effect-cell-mark.squall{background:#0754b5b8;border:5px solid #168aff;box-shadow:inset 0 0 28px #003c9ddd,0 0 0 4px #003b91,0 0 30px 10px #168aff;animation:ah-blue-cell 1.9s both}
+.ah-effect-cell-mark.typhoon{background:#ffffffc9;border:5px solid white;box-shadow:inset 0 0 24px #dceeff,0 0 0 4px #9db8d9,0 0 30px 10px white;animation:ah-white-cell 1.8s both}
+.ah-antlion-sink{position:fixed;z-index:99998;left:50%;top:50%;width:0;height:0;pointer-events:none}.ah-antlion-sink:before{content:'';position:absolute;width:clamp(100px,20vw,210px);height:clamp(100px,20vw,210px);border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(ellipse,#21150de8,#67401fc9 38%,#9a6b3780 60%,transparent 72%);animation:ah-sink-hole 1.8s ease-in both}
+.ah-antlion-sink i{position:absolute;left:0;top:0;font-style:normal;font-size:clamp(16px,3vw,30px);color:#9b6b38;text-shadow:0 2px 3px #1e1209;animation:ah-rock-sink 1.5s ease-in both}
+.ah-typhoon-streak-layer{position:fixed;inset:0;z-index:99998;overflow:hidden;pointer-events:none}.ah-typhoon-streak-layer i{position:absolute;display:block;width:3px;height:38px;border-radius:99px;opacity:0;animation:ah-streak 1.15s ease-in both}.ah-typhoon-streak-layer .water{background:linear-gradient(transparent,#42baff,#eafaff);box-shadow:0 0 7px #65cfff}.ah-typhoon-streak-layer .wind{width:42px;height:3px;background:linear-gradient(90deg,transparent,#fff,#b5dfff,transparent);box-shadow:0 0 8px white}
+@keyframes ah-sink-cell{0%,100%{opacity:0}12%,78%{opacity:1}}@keyframes ah-blue-cell{0%,100%{opacity:0}10%,85%{opacity:1}}@keyframes ah-white-cell{0%,100%{opacity:0}10%,80%{opacity:1}}@keyframes ah-sink-hole{0%{opacity:0;scale:.25}20%{opacity:1;scale:1.15}80%{opacity:1;scale:.75}100%{opacity:0;scale:.1}}@keyframes ah-rock-sink{0%{opacity:0;transform:rotate(var(--a)) translateX(var(--d)) scale(1)}20%{opacity:1}100%{opacity:0;transform:rotate(var(--a)) translateX(0) scale(.05)}}@keyframes ah-streak{0%{opacity:0;transform:translate(0,0) rotate(18deg)}15%{opacity:.95}100%{opacity:0;transform:translate(var(--sx),var(--sy)) rotate(18deg)}}
 </style>
 </head>
 <body>
@@ -5847,6 +5856,9 @@ function ahQueueCardPresentation(event){
  ahCardPresentationQueue.push({...event,gid:S.gid});
  ahPlayNextCardPresentation();
 }
+function ahAddStormStreaks(fx){const layer=document.createElement('div');layer.className='ah-typhoon-streak-layer';for(let i=0;i<34;i++){const e=document.createElement('i');e.className=i%3===0?'wind':'water';e.style.left=(Math.random()*110-5)+'vw';e.style.top=(Math.random()*110-5)+'vh';e.style.setProperty('--sx',(Math.random()*260-130)+'px');e.style.setProperty('--sy',(Math.random()*260-130)+'px');e.style.animationDelay=(Math.random()*.45)+'s';layer.appendChild(e);}fx.appendChild(layer);setTimeout(()=>layer.remove(),1800);}
+function ahMarkEffectCell(node,kind,duration=1900){const cell=document.querySelector('#board [data-node="'+node+'"]');if(!cell)return;const mark=document.createElement('div');mark.className='ah-effect-cell-mark '+kind;setFixedRect(mark,cell.getBoundingClientRect());document.body.appendChild(mark);const update=()=>{const c=document.querySelector('#board [data-node="'+node+'"]');if(c)setFixedRect(mark,c.getBoundingClientRect());};trackViewportEffect(mark,update,duration);setTimeout(()=>mark.remove(),duration);}
+function ahAntlionSink(fx){const layer=document.createElement('div');layer.className='ah-antlion-sink';for(let i=0;i<16;i++){const e=document.createElement('i');e.textContent=i%3===0?'🪨':'●';e.style.setProperty('--a',(i*22.5)+'deg');e.style.setProperty('--d',(35+Math.random()*105)+'px');e.style.animationDelay=(Math.random()*.35)+'s';layer.appendChild(e);}fx.appendChild(layer);setTimeout(()=>layer.remove(),1900);}
 function ahPlayNextCardPresentation(){
  if(ahCardPresentationBusy)return;
  let event=null;
@@ -5860,24 +5872,18 @@ function ahPlayNextCardPresentation(){
  const particles=document.createElement('span');particles.className='ah-event-particles';
  const title=document.createElement('strong');const detail=document.createElement('small');
  if(event.type==='antlion'){
-  rainFx();play('rain');play('antlion');
-  const cell=document.querySelector('#board [data-node="C"]');
-  if(cell){const r=cell.getBoundingClientRect();const ring=document.createElement('div');ring.className='ah-antlion-ring';setFixedRect(ring,{left:r.left-5,top:r.top-5,width:r.width+10,height:r.height+10});document.body.appendChild(ring);
-   const label=document.createElement('div');label.className='ah-antlion-label';label.textContent=`☠ アリジゴク発動！ A ${event.counts.A}匹／B ${event.counts.B}匹が退場`;label.style.left=Math.max(8,Math.min(r.left+r.width/2-115,window.innerWidth-238))+'px';label.style.top=Math.max(8,r.top-43)+'px';document.body.appendChild(label);
-   el.dataset.antlion='1';el.appendChild(particles);el.append(title,detail);particles.textContent='☠';title.textContent='';detail.textContent=`中央マスのアリが退場（A ${event.counts.A}匹／B ${event.counts.B}匹）`;
-   const duration=1800;setTimeout(()=>{ring.remove();label.remove();el.remove();blocker.remove();ahCardPresentationBusy=false;ahPlayNextCardPresentation();},duration);return;
-  }
-  particles.textContent='☠';title.textContent='アリジゴク';detail.textContent=`A ${event.counts.A}匹／B ${event.counts.B}匹が退場`;
+  play('antlion');ahMarkEffectCell('C','antlion',1900);ahAntlionSink(fx);
+  particles.textContent='🪨  ●  🪨';title.textContent='アリジゴク発動！';detail.textContent=`中央マスのアリが吸い込まれた（A ${event.counts.A}匹／B ${event.counts.B}匹）`;
  }else if(event.type==='pheromone'){
   particles.textContent='🌺 🐜 🌺';title.textContent='強烈フェロモン';
   detail.textContent=`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
   play('card');
  }else if(event.type==='typhoon'){
-  rainFx();play('rain');play('typhoon');
-  particles.textContent='🌧️ 🌀 💧 🌀 🌧️';title.textContent='台風';
+  play('typhoon');ahAddStormStreaks(fx);ahMarkEffectCell(event.node,'typhoon',1800);
+  particles.textContent='💨 🌊 💨';title.textContent='台風';
   detail.textContent=`${NODE_LABEL[event.node]}からアリ${event.ants}匹・お菓子${event.candies}個が移動`;
  }else if(event.type==='weather'){
-  rainFx();particles.textContent='🌧️ 💧 ⛈️ 💧 🌧️';title.textContent='ゲリラ豪雨！';
+  rainFx();ahMarkEffectCell(event.node,'squall',1900);particles.textContent='💧 🌧️ 💧 ⛈️ 💧 🌧️ 💧';title.textContent='ゲリラ豪雨！';
   detail.textContent=`${NODE_LABEL[event.node]}：A ${event.counts.A}匹・B ${event.counts.B}匹が手元へ`;
   play('rain');
  }
