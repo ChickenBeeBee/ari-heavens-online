@@ -6094,6 +6094,45 @@ pairs.push(
 ['中央の大マスに、アリがついていないアリボムを1個追加します。','Adds one Ant Bomb with no ants attached to the central space.']
 );
 
+
+/* Additional coverage for dynamic UI and descriptions. Keep presentation/effect
+   code untouched; only translate visible text nodes and attributes. */
+pairs.push(
+['道の説明','Path Guide'],['現在の戦況','Current Match Status'],['自分の手番中、直前の操作を取り消します','Undo your most recent action during your turn.'],
+['例：A7K2Q9','Example: A7K2Q9'],['🐜 どこに出す？','🐜 Where should the ant enter?'],['手元のアリを出す入口を選んでください。','Choose an entrance for an ant from your hand.'],['待機所は中央への近道です（上限1匹）。','The Waiting Area is a shortcut to the center (limit: 1 ant).'],['待機所（','Waiting Area ('],['塚入口（','Nest Entrance ('],
+['アリを出す入口を選んでください','Choose where to deploy the ant.'],['アリを「塚入り口」にセットします','Place an ant at the “Nest Entrance”.'],['今度はアリを「待機所」にセットします','Now place an ant in the “Waiting Area”.'],
+['下のボタンを押して，塚入り口を選びましょう','Press the button below, then select the Nest Entrance.'],['下のボタンを押して，待機所を選びましょう','Press the button below, then select the Waiting Area.'],
+['塚入り口には2匹までアリがセットできます','The Nest Entrance can hold up to 2 ants.'],['待機所には1匹までアリがセットできます','The Waiting Area can hold up to 1 ant.'],
+['アリが付きましたね．アリは自分の番なら何度もつけ外せます','The ant is attached! You can attach and detach ants freely during your turn.'],
+['お菓子が移動しましたね。','The candy has moved.'],['1点をゲットしました！','You scored 1 point!'],
+['相手の番です','Opponent’s Turn'],['実戦では相手が操作します。この練習では相手の番','In a real match, your opponent acts here. In this practice, the opponent’s turn'],
+['補足','Extra Tip'],['全','Total '],['ステップ','Steps'],['選択中','Selected'],['カードセット','Card Set'],
+['現在のゲームを破棄して最初からやり直しますか？','Discard the current game and start over?'],['この対戦は終了しています。次の操作を選んでください。','This match has ended. Choose what to do next.'],
+['新しいゲーム','New Game'],['やり直す','Restart'],['キャンセル','Cancel'],['タイトルへ戻る','Return to Title'],['結果を見る','View Results'],['盤面に戻る','Return to Board'],
+['獲得','Earned'],['場所：','Location: '],['必要 ','Required '],['匹 ／ ',' ants / '],['点！',' points!'],['＋ つける','＋ Attach'],['－ 外す','－ Detach'],['（残り ',' ('],['匹）',' left)'],['（ついている ',' (attached: '],['自陣方向','Toward Your Nest'],['相手方向','Toward Opponent'],['ひとつ戻す','Undo'],['とじる','Close'],['選べます',' available'],['あなた','You'],['練習相手','Practice Opponent'],['自分側','Your Side'],['相手側','Opponent Side'],['残り','Remaining'],['手持ち','In Hand'],['退場','Out'],['待機','Waiting'],['中央スペース','Central Space'],['メニュー','Menu'],
+['部屋を作成','Create Room'],['部屋に参加','Join Room'],['接続ID','Room Code'],['接続IDを入力','Enter Room Code'],['相手に伝えてください','Share this code with your opponent.'],['部屋を作成しています','Creating room…'],['接続しています','Connecting…'],['接続状況','Connection Status'],['モード選択へ戻る','Back to Mode Selection'],['ゲストとして参加','Join as Guest'],['ホスト','Host'],['ゲスト','Guest'],
+['サイコロを投げています…','Rolling the die…'],['先攻・後攻を決めよう','Determine First Player'],['AとBの出目を比べます。同じ目ならもう一度投げます。','Compare A and B’s rolls. Roll again if tied.'],['攻撃側','Attacker'],['防御側','Defender'],['投げてください','Roll the die'],['先攻プレイヤー','First Player'],['先攻が決まりました','First player determined'],['はじめる','Begin'],
+['アリバトル！ サイコロを投げよう','Ant Battle! Roll the Dice'],['サイコロをドラッグして投げる！','Drag the die to roll!'],['各プレイヤーが自分のサイコロを投げてください','Each player: roll your own die.'],['結果を判定中…','Determining the result…'],
+['アリがついていないお菓子を、すべて中央の大マスへ戻します。','Move all candy with no ants attached to the central space.'],
+['雨を降らせる層を1つ選びます。その層にいるアリは、お菓子についていようといまい関係なく、すべて手元に戻ります。','Choose one layer to rain on. All ants in that layer return to hand, whether or not they are attached to candy.'],
+['サイコロを振り、その目の数だけ相手の近道を封鎖します。封鎖は相手の次の番から始まります。','Roll a die to block the opponent’s shortcut for that many turns, starting on their next turn.'],
+['この番、アリバトルに勝利するたび自分の得点を＋1します。引き分けの振り直しでは加点されません。','Gain 1 point each time you win an Ant Battle this turn. Tie re-rolls do not score.'],
+['使用した番から3ターン経過した後、予測できないタイミングで1度発動。中央の大マスの両者のアリを、お菓子についているアリも含めすべて退場させます。お菓子は残ります。','Triggers once at an unpredictable time after 3 turns. Removes all ants from the central space, including ants attached to candy. Candy remains.'],
+['自分側の2層目にいる自分の自由アリを、すべて中央の大マスへ移します。お菓子についているアリは移しません。','Move all your unattached ants from your Layer 2 space to the central space. Ants attached to candy do not move.'],
+['1〜3個の金平糖が新たに出現します。配置先は両者の2層目・3層目から毎回ランダムに選びます。同じマスに複数出現することもあります。','Spawn 1–3 Konpeito candies at random on either player’s Layer 2 or Layer 3 spaces. Multiple candies may appear in the same space.'],
+['場にあるすべてのお菓子をクッキー（必要2匹・2点）に変えます。位置と、ついている両者のアリ数は変わりません。','Turn every candy on the board into a Cookie (2 ants required, 2 points). Positions and attached ant counts remain unchanged.'],
+['自分の得点が相手より低いときに使用可能。サイコロを1個振り、出目の数だけ自分の手元から自分側2層目にアリを配置します。手元が足りない場合は配置できる匹数まで。','Usable when your score is lower than your opponent’s. Roll one die and deploy that many ants from your hand to your Layer 2 space, up to the number available.'],
+['相手のアリが4匹以上ついているお菓子を1つ選び、自分の手元からアリを最大4匹（手元が4匹未満なら全て）配置します。配置後のアリバトルは通常どおり自分で操作します。','Choose candy with at least 4 enemy ants attached. Deploy up to 4 ants from your hand (or all if fewer than 4). Then resolve the Ant Battle normally.'],
+['使用すると自分のすべてのカードが使用不能になります。バトル終了まで、毎ターン終了時に25％の確率で発生。待機所・塚入口以外のマスがランダムに選ばれ、そのマスにいるアリとお菓子が、それぞれ別々のランダムなマスへ移動します。','Locks all of your cards. Until the match ends, there is a 25% chance at each turn end that a random space (excluding Waiting Areas and Nest Entrances) is selected. Its ants and candies move to independently chosen random spaces.'],
+['使用後5ターンの間、お互いの番のはじめに、塚入口に入れるだけのアリを手持ちから設置します。','For the next 5 turns, at the start of each player’s turn, deploy as many ants from their hand as can fit in their Nest Entrance.'],
+['この番の終了時から計5回、ターン終了時に40％の確率で発動。塚入口・待機所を除く5層からランダムに1層を選び、自由アリ・お菓子についている両者のアリをすべて手元に戻します。空の層が選ばれることもあります。','Starting at the end of this turn, this has 5 chances to trigger, each with a 40% chance at turn end. A random layer (excluding Nest Entrances and Waiting Areas) is chosen; all ants there return to hand, including ants attached to candy. The chosen layer may be empty.'],
+['両者のセットカードを、発動中のカードも含め再使用可能にします。両者の「カード復活」は対象外。進行中の効果や予約は残り、1ターン1枚の制限は解除しません。','Refreshes both players’ set cards, including cards currently in effect. Card Revival itself is excluded. Ongoing effects and scheduled events remain, and the one-card-per-turn limit still applies.'],
+['第20ターン以降に使用可能。場の自由アリ・お菓子についているアリを両者それぞれ合計し、1回のアリバトルを行います。敗者の退場アリは場からランダムに選ばれます。手元は対象外。行動は消費しません。','Available from turn 20. Total each player’s free ants and ants attached to candy, then resolve one Ant Battle. Losing ants are randomly selected from the board. Ants in hand are excluded. Costs no action.'],
+['中央の大マスに、アリがついていないアリボムを1個追加します。','Adds one Ant Bomb with no ants attached to the central space.'],
+['AI評価情報が未登録のため温存。','Saved because no AI evaluation data is registered.'],['カードの効果と盤面を比較。','Comparing the card effect with the board.'],['得点につながる盤面があるため使用候補。','Candidate: the current board offers a scoring opportunity.'],['戦力差からバトルの利益を評価。','Evaluating the battle based on the strength difference.'],['相手の優勢を崩せるか評価。','Evaluating whether it can break the opponent’s advantage.'],['次の得点行動に必要な準備として評価。','Evaluating it as preparation for the next scoring move.'],['残りターン数を見て再利用価値を評価。','Evaluating its future value based on turns remaining.'],
+['接続診断','Connection Diagnostics'],['診断内容をコピーしました。','Diagnostics copied.'],['コピーできませんでした。詳細欄を長押ししてコピーしてください。','Could not copy. Long-press the details to copy them.'],['通信エラーが発生しました。接続し直してください。','A network error occurred. Please reconnect.'],['ホストかゲストのどちらかを選んでください。','Choose Host or Guest.'],['部屋を作りました。表示中の接続IDを相手に伝えてください。相手の接続を待っています。','Room created. Share the displayed room code with your opponent and wait for them to connect.'],['接続先を探しています…','Searching for the room…'],['接続しました。ゲーム開始！','Connected. The game is starting!'],['相手との接続が切れました。戻って接続し直してください。','Connection to your opponent was lost. Return and reconnect.'],['接続を確認してください。','Please check your connection.'],['PeerJSライブラリを読み込んでいます','Loading PeerJS library'],['読み込みがタイムアウトしました','Loading timed out'],['不明なエラー','Unknown error']
+);
+
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
