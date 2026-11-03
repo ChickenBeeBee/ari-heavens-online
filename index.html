@@ -3834,7 +3834,7 @@ function nodeClasses(n,targets,p,extra){
 }
 function nodeCell(n,targets,p){
   const isT=n==='A1'||n==='B1',isC=n==='C';
-  const cap=CAP[n]!==undefined?`<span class="ncap">${nodeCount(n)}/${CAP[n]}</span>`:(n==='A2'||n==='B2')?`<span class="ncap route-label"><svg class="route-inline-icon" viewBox="0 0 12 8" aria-hidden="true"><path d="M4 2 2 4l2 2M2 4h8M8 2l2 2-2 2"/></svg>裏道</span>`:'';
+  const cap=CAP[n]!==undefined?`<span class="ncap">${nodeCount(n)}/${CAP[n]}</span>`:(n==='A2'||n==='B2')?`<span class="ncap route-label"><svg class="route-inline-icon" viewBox="0 0 12 8" aria-hidden="true"><path d="M4 2 2 4l2 2M2 4h8M8 2l2 2-2 2"/></svg>${EN()?'Shortcut':'裏道'}</span>`:'';
   const icon=isT?'🏠':isC?'🌸':'🌿';
   const cs=candyAt(n).map(c=>candyTile(c,n!=='C')).join('');
   const cls=nodeClasses(n,targets,p,[isC?'center':isT?'tsuka '+n[0]:'path'])+(cs?' has-candy':'');
@@ -3857,7 +3857,7 @@ const BD={B2:'top',B3:'mid',C:'mid',A3:'mid',A2:'bot'};
 function bdCell(n,mirror=false){
   let k=BD[n];if(!k)return '<div class="bd"></div>';
   if(mirror){if(k==='top')k='bot';else if(k==='bot')k='top';}
-  return `<div class="bd ${k}" aria-label="${n==='C'?'裏道。アリのみ通行可能':'裏道の接続路'}">${n==='C'?'<small>裏道・アリのみ</small>':''}</div>`;
+  return `<div class="bd ${k}" aria-label="${EN()?'Shortcut; ants only':'裏道。アリのみ通行可能'}">${n==='C'?`<small>${EN()?'Shortcut · Ants Only':'裏道・アリのみ'}</small>`:''}</div>`;
 }
 function fitCandyLayerRows(board){
   if(!board)return;
@@ -5420,6 +5420,7 @@ function tutorialApplyFocus(){
  selectors.forEach(sel=>document.querySelectorAll(sel).forEach(el=>el.classList.add('tutorial-focus')));
 }
 function render(){prior_render();if(S&&S.started)renderWeatherCountdown();tutorialApplyFocus();}
+document.addEventListener('ah-language-change',()=>{if(S&&S.started)render();if(typeof refreshOptions==='function')refreshOptions();});
 
 
 const cpuOddsCache=new Map();
@@ -6256,7 +6257,7 @@ function apply(){
  document.querySelectorAll('#btnLanguageJa,#btnLanguageEn').forEach(b=>b.classList.toggle('primary',b.id===(lang==='en'?'btnLanguageEn':'btnLanguageJa')));
  scan(document.body);
 }
-function setLanguage(next){lang=next==='en'?'en':'ja';try{localStorage.setItem(KEY,lang);}catch(_){}apply();}
+function setLanguage(next){lang=next==='en'?'en':'ja';try{localStorage.setItem(KEY,lang);}catch(_){}apply();document.dispatchEvent(new Event('ah-language-change'));}
 document.addEventListener('click',e=>{const b=e.target.closest('#btnLanguageJa,#btnLanguageEn');if(b)setLanguage(b.id==='btnLanguageEn'?'en':'ja');});
 const observer=new MutationObserver(records=>{if(lang!=='en')return;for(const rec of records){if(rec.type==='characterData')translateNode(rec.target);rec.addedNodes&&rec.addedNodes.forEach(scan);}});
 observer.observe(document.body,{subtree:true,childList:true,characterData:true});
