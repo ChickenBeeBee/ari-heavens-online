@@ -3348,7 +3348,7 @@ function onDicePointerDown(e){
   dicePointer={id:e.pointerId,startX:e.clientX,startY:e.clientY,lastX:e.clientX,lastY:e.clientY,startTime:performance.now(),die};
   die.classList.add('grabbed');die.style.setProperty('--drag-x','0px');die.style.setProperty('--drag-y','0px');
   try{e.currentTarget.setPointerCapture(e.pointerId);}catch(_){}
-  $('#diceInstruction').textContent='そのままスワイプして投げてください！';
+  $('#diceInstruction').textContent=EN()?'Keep swiping to roll the die!':'そのままスワイプして投げてください！';
 }
 function onDicePointerMove(e){
   if(!dicePointer||e.pointerId!==dicePointer.id)return;
@@ -3434,15 +3434,15 @@ function finishDiceStep(state){
 function battleResultHtml(fx){
   const last=[...(fx.rolls||[])].reverse().find(r=>!r.draw&&Number.isFinite(r.va)&&Number.isFinite(r.vd));
   const rounds=(fx.rolls||[]).map((r,i)=>`<div class="rl" style="animation-delay:${i*.48}s"><b>第${i+1}回</b>　${r.line}${r.note?`<div>${r.note}</div>`:''}</div>`).join('');
-  if(!last)return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'}（${NAMES[fx.attacker]}が攻撃）</div>${rounds}<div class="battle-result-outcome">${fx.summary||'結果を確認してください。'}</div>`;
+  if(!last)return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'} (${NAMES[fx.attacker]} ${EN()?'attacks':'が攻撃'})</div>${rounds}<div class="battle-result-outcome">${fx.summary|| (EN()?'Check the result.':'結果を確認してください。')}</div>`;
   const bonus=last.j||0;
   const equation=(p,isAttack)=>{
     const die=isAttack?last.ra:last.rd, ants=isAttack?(last.attackAnts??fx.attackCount):(last.defendAnts??fx.defendCount), total=isAttack?last.va:last.vd;
     const jaw=isAttack&&bonus?` ＋ アゴ強化 ${bonus}`:'';
-    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${p===fx.attacker?'（攻撃側）':'（防御側）'}</div><div class="battle-result-equation">サイコロ <b>${die}</b> ＋ アリ <b>${ants}匹</b>${jaw}<br>合計 <span class="battle-result-total">${total}</span></div></div>`;
+    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
   };
   const loser=last.va<last.vd?fx.attacker:fx.defender, diff=Math.abs(last.va-last.vd), available=loser===fx.attacker?fx.attackCount:fx.defendCount, kill=Math.min(diff,available);
-  return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'}で対決</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?'⚖ 同点・振り直し':`🏁 ${NAMES[loser]}：${kill}匹退場（差 ${diff}）`}</div>`;
+  return `<div class="rl">${fx.candyEmo||'🍬'} ${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[fx.candyName]||fx.candyName||'Candy'):(fx.candyName||'対象')} ${EN()?'Battle':'で対決'}</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?(EN()?'⚖ Tie — roll again':'⚖ 同点・振り直し'):`🏁 ${NAMES[loser]}: ${kill}${EN()?' ants eliminated':'匹退場'} (${EN()?'difference':'差'} ${diff})`}</div>`;
 }
 function finishDiceRoll(state,skip){
   if(activeDiceRoll!==state||state.finished)return;
@@ -3454,9 +3454,9 @@ function finishDiceRoll(state,skip){
   const fx=state.fx;
   if(state.remotePreview){
     if(state.multiRoll){
-      openDialog({title:fx.resultTitle||'⚔ アリバトル結果',
+      openDialog({title:EN()?'⚔ Ant Battle Result':(fx.resultTitle||'⚔ アリバトル結果'),
         html:battleResultHtml(fx),
-        buttons:[{label:'OK',cls:'primary',fn:closeDialog}]});
+        buttons:[{label:EN()?'OK':'OK',cls:'primary',fn:closeDialog}]});
     }
     return;
   }
@@ -3492,9 +3492,9 @@ function finishDiceRoll(state,skip){
 /* ---------- battle ---------- */
 function offerBattle(id,trigger,dir){
   const p=cur(),q=opp(p),c=getC(id);if(!c)return;
-  openDialog({title:'⚔ アリバトルを仕掛けますか？',
-    html:`<div>${c.type.emo}${c.type.name}に ${NAMES[q]} のアリがついています。</div><div>自分 <b class="c${p}">${c.att[p]}匹</b> vs 相手 <b class="c${q}">${c.att[q]}匹</b></div>${S.jaw===p?'<div>💪 アゴ強化：攻撃側の最初の合計に+3（振り直しは対象外）</div>':''}`,
-    buttons:[{label:'仕掛ける',cls:'primary',fn:()=>{closeDialog();doBattle(id,trigger,dir);}},{label:'やめる',fn:closeDialog}]});
+  openDialog({title:EN()?'⚔ Start an Ant Battle?':'⚔ アリバトルを仕掛けますか？',
+    html:`<div>${c.type.emo}${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[c.type.name]||c.type.name):c.type.name} ${EN()?'has '+NAMES[q]+' ants attached.':`に ${NAMES[q]} のアリがついています。`}</div><div>${EN()?'You':'自分'} <b class="c${p}">${c.att[p]}${EN()?' ants':'匹'}</b> vs ${EN()?'Opponent':'相手'} <b class="c${q}">${c.att[q]}${EN()?' ants':'匹'}</b></div>${S.jaw===p?`<div>💪 ${EN()?'Jaw Upgrade: +3 to your first attack total (not on re-rolls).':'アゴ強化：攻撃側の最初の合計に+3（振り直しは対象外）'}</div>`:''}`,
+    buttons:[{label:EN()?'Start Battle':'仕掛ける',cls:'primary',fn:()=>{closeDialog();doBattle(id,trigger,dir);}},{label:EN()?'Cancel':'やめる',fn:closeDialog}]});
 }
 function doBattle(id,trigger,dir){
   const att=cur(),def=opp(att),c=getC(id);if(!c)return;
@@ -3507,7 +3507,7 @@ function doBattle(id,trigger,dir){
     eventId,gameId:S.gid,kind:'battle',physicsDice:true,candyId:id,attacker:att,defender:def,
     candyName:c.type.name,candyEmo:c.type.emo,attackCount:attackCountBefore,defendCount:defendCountBefore,
     bonus,jawBonus,rolls:[],summary:'',trigger:trigger||'attach',dir:dir||null,
-    resultTitle:'⚔ アリバトル結果'
+    resultTitle:EN()?'⚔ Ant Battle Result':'⚔ アリバトル結果'
   };
   fx.rolls.push(physicsRollPlaceholder(fx));
   // Don't apply casualties or clear the jaw bonus before the throw. Actual faces
