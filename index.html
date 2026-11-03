@@ -6208,6 +6208,31 @@ pairs.push(
  ['（退場数は残りのアリ数が上限）。','(up to the number of ants remaining).']
 );
 
+
+/* Follow-up localization: dice completion/draw states, route labels, carry actions,
+   compact card status, online controls and language option copy. */
+pairs.push(
+ ['両方のサイコロが揃いました！','Both dice have landed!'],
+ ['引き分け！ 次はもう一度、2人とも投げてください','It’s a tie! Both players, roll again.'],
+ ['引き分け！ 振り直し！','Tie! Roll again!'],
+ ['引き分け！ 振り直し','Tie! Roll again'],
+ ['引き分け！','It’s a tie!'],
+ ['AとBの出目を比べます。同じ目ならもう一度投げます。','Compare A and B’s rolls. If they match, roll again.'],
+ ['攻撃','Attack'],['防御','Defense'],['匹退場',' ants lost'],['差 ','Difference: '],
+ ['Aの塚入口','A Nest Entrance'],['Bの塚入口','B Nest Entrance'],['A側2層目','A Layer 2'],['A側3層目','A Layer 3'],['B側2層目','B Layer 2'],['B側3層目','B Layer 3'],['中央の大マス','Central Space'],['A待機所','A Waiting Area'],['B待機所','B Waiting Area'],
+ ['茶色の道：待機所から中央へ進む一方通行。紫色の道：A側2層目とB側2層目を結ぶ裏道。','Brown path: one-way from the Waiting Area to the center. Purple path: shortcut connecting A Layer 2 and B Layer 2.'],
+ ['茶色の道','Brown Path'],['紫色の道','Purple Path'],['裏道','Shortcut'],['近道','Shortcut'],['一方通行','One-way path'],
+ ['A側2層目へ','To A Layer 2'],['A側3層目へ','To A Layer 3'],['B側2層目へ','To B Layer 2'],['B側3層目へ','To B Layer 3'],['中央の大マスへ','To Central Space'],['Aの塚入口へ','To A Nest Entrance'],['Bの塚入口へ','To B Nest Entrance'],
+ ['発動中！','Active!'],['使用済み','Used'],['使用可能','Available'],['各カード1ゲーム1回／1ターン1枚／行動消費なし','Each card: once per game / 1 per turn / no action cost'],['各カード1ゲーム1回','Once per game per card'],['1ターン1枚','1 card per turn'],['行動消費なし','No action cost'],['手元：','In hand: '],['配置可能：','Deployable: '],['相手の封鎖：残り','Opponent shortcut blocked for '],['手番',' turns'],
+ ['🌐 表示言語','🌐 Language'],['表示言語はこのブラウザに保存されます。','Your language preference is saved in this browser.'],['日本語','日本語'],['English','English'],
+ ['🔊 効果音の音量','🔊 Sound Volume'],['0%で消音。効果音のON／OFFもここで切り替えられます。','Set to 0% to mute. You can also toggle sound effects here.'],['効果音の音量','Sound Volume'],['CPUの行動スピード','CPU Speed'],['CPUが考えて行動する間隔を変更します。','Adjust how long the CPU thinks before acting.'],
+ ['🌐 オンライン対戦（2台で遊ぶ）','🌐 Online Match (Two Devices)'],['ホストが部屋を作り、表示された6文字のIDを相手に伝えてください。相手が接続すると自動で対戦が始まります。','The host creates a room and shares the 6-character code. The match starts automatically when the opponent connects.'],['※通信にはインターネット接続が必要です。','※ An internet connection is required.'],
+ ['🏠 部屋を作る（先攻）','🏠 Create Room (First Player)'],['相手にこの接続IDを伝えてください','Share this room code with your opponent.'],['相手の接続を待っています。この画面を開いたままにしてください。','Waiting for your opponent. Keep this screen open.'],['ゲスト（後攻）','Guest (Second Player)'],['相手から受け取った接続IDを入力してください。','Enter the room code you received from your opponent.'],['接続IDを入力','Enter Room Code'],['接続','Connect'],['📋 IDをコピー','📋 Copy ID'],['モード選択へ戻る','Back to Mode Selection'],['オンライン対戦','Online Match'],['ローカル対戦','Local Match'],
+ ['部屋を作る','Create Room'],['参加（後攻）','Join (Second Player)'],['PCとスマホで同じサーバーのゲームを開いてください。','Open the game on both your PC and phone using the same server.'],['部屋を作るか、相手のコードで参加してください。','Create a room or join using your opponent’s code.'],
+ ['プレイヤーAが','Player A '],['プレイヤーBが','Player B '],['が勝利して',' won and '],['匹退場',' ants eliminated'],['がアリバトルを仕掛けた！',' started an Ant Battle!'],['がアリバトルに勝利！',' won the Ant Battle!'],['がアリバトルで敗北…',' lost the Ant Battle…'],
+ ['Aが先攻です。','A goes first.'],['Bが先攻です。','B goes first.'],['（同点・再抽選）',' (Tie — roll again)'],['（同 pts・再抽選）',' (Tie — roll again)']
+);
+
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
