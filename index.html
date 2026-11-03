@@ -1965,6 +1965,7 @@ button{font:inherit;color:inherit}
   #app.is-tutorial #main.is-tutorial #board > * { min-width:0; max-width:100%; }
   #app.is-tutorial #main.is-tutorial #board .node { min-width:0; max-width:100%; padding:2px 3px; overflow-wrap:normal; }
 }
+@media (max-height:600px) and (orientation:landscape){#actionMeter{display:flex!important;min-width:112px;flex:0 1 148px}.action-head{font-size:10px}}
 </style>
 
 <style id="ah-card-effect-presentation-css">
@@ -2261,7 +2262,8 @@ const CHAIN=['A1','A2','A3','C','B3','B2','B1'];
 const ROWS=['B1','B2','B3','C','A3','A2','A1'];
 const NAMES={A:'プレイヤーA',B:'プレイヤーB'};
 const HUMAN='A',CPU='B';
-const NODE_LABEL={A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'};
+const EN=()=>document.documentElement.lang==='en';
+const NODE_LABEL=EN()?{A1:'A Nest Entrance',A2:'A Layer 2',A3:'A Layer 3',C:'Central Space',B3:'B Layer 3',B2:'B Layer 2',B1:'B Nest Entrance',Aw:'A Waiting Area',Bw:'B Waiting Area'}:{A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'};
 const CAP={A1:2,B1:2,Aw:1,Bw:1};
 const TYPES=[
   {name:'金平糖',need:1,pts:1,emo:'🍬',n:3},
@@ -2902,7 +2904,7 @@ function askCard(key){
  const C=CARDS[key],buttons=[];
  const reason=cardUnavailable(p,key);
  if(canAct()&&isHuman(cur())&&cur()===p&&canUseCard(p,key)&&!reason&&tutorialAllowsAction('card',{key})){
- buttons.push({label:'使う',cls:'primary',fn:()=>{closeDialog();useCard(p,key);}});
+ buttons.push({label:EN()?'Use':'使う',cls:'primary',fn:()=>{closeDialog();useCard(p,key);}});
  }
  buttons.push({label:'閉じる',fn:closeDialog});
  openDialog({title:`${C.emo} ${C.name}`,html:`<div>${C.desc}</div><p>${cardStatusText(key,p)}</p><p>各カード1ゲーム1回／1ターン1枚／行動消費なし${S.cards[p][key]?'／使用済み':''}</p>`,buttons});
@@ -3170,8 +3172,8 @@ function showDiceRoll(fx,{interactive=false,remotePreview=false}={}){
     multiRoll,activeRollPlayer:firstRollPlayer,roundValues:new Map(),pendingPeerRolls:new Map(),roundThrown:new Set(),roundAnimationDone:new Set(),roundAnimating:new Set(),roundResolved:false,rollTimers:new Map(),dieAnimations:new Map(),dieSettleTimers:new Map()};
   activeDiceRoll=state;dialogOpen=true;
   const $roll=$('#diceRoll');
-  const initialInstruction=isHungry?(interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロを転がしています…'):multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…';
-  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>':'';
+  const initialInstruction=EN()?(interactive?'Swipe the die to throw it!':'Rolling the die…'):(isHungry?(interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロを転がしています…'):multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…');
+  const initialControls=multiRoll?`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${EN()?'Roll the Die':'サイコロを投げる'}</button>`:interactive?`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${EN()?'Tap to Roll':'タップして投げる'}</button><button class="btn ghost" type="button" id="btnDiceSkip">${EN()?'Skip Animation':'演出をスキップ'}</button>`:'';
   const attackPlayer=isInitiative?'A':fx.attacker,defendPlayer=isInitiative?'B':fx.defender;
   const initialLeftPlayer=mode==='online'?localPlayer:mode==='local'?firstRollPlayer:'A';
   $roll.querySelector('.box').innerHTML=`<h3>${isHungry?'🍽️ ハングリー！ サイコロを投げよう':isInitiative?'🎲 先攻・後攻を決めよう':'⚔ アリバトル！ サイコロを投げよう'}</h3>
@@ -3331,7 +3333,7 @@ function finishMultiDiceStep(state){
     const modifier=`${roll.bonus?` ＋アリ数補正${roll.bonus}`:''}${roll.j?` ＋💪2`:''}`;
     result.innerHTML=`攻撃 <strong>🎲${roll.ra}＋${roll.attackAnts??state.fx.attackCount}匹${roll.j?'＋💪2':''}＝${roll.va}</strong> ／ 防御 <strong>🎲${roll.rd}＋${roll.defendAnts??state.fx.defendCount}匹＝${roll.vd??(roll.rd+state.fx.defendCount)}</strong><br>${roll.draw?'引き分け！ 振り直し！':state.fx.summary}`;
   }
-  instruction.textContent=roll.draw?'引き分け！ 次はもう一度、2人とも投げてください':'両方のサイコロが揃いました！';
+  instruction.textContent=EN()?(roll.draw?'It’s a tie! Both players, roll again.':'Both dice have landed!'):(roll.draw?'引き分け！ 次はもう一度、2人とも投げてください':'両方のサイコロが揃いました！');
   if(!roll.draw&&state.fx.kind!=='initiative')play('battle');
   if(roll.draw&&(state.fx.physicsDice||state.index<state.fx.rolls.length-1)){
     state.timer=setTimeout(()=>beginNextDiceRound(state),750);return;
@@ -3944,7 +3946,7 @@ window.addEventListener('resize',()=>{requestAnimationFrame(()=>fitCandyLayerRow
 // Route cues are rendered as small arrows in the connector gutters; no SVG overlays cover the map.
 function drawBoardRoutes(){ /* intentionally no overlay */ }
 function chips(p){
-  return '<div class="chips">'+(S.decks&&S.decks[p]||[]).map(k=>`<span class="chip${S.cards[p][k]?' used':''}${(k==='jaw'&&S.jaw===p)?' on':''}">${CARDS[k].emo}${CARDS[k].short}</span>`).join('')+'</div>';
+  return `<div class="chips" aria-label="${EN()?'Cards and usage status':'所持カードと使用状況'}">${(S.decks&&S.decks[p]||[]).map(k=>`<span class="chip${S.cards[p][k]?' used':''}${(k==='jaw'&&S.jaw===p)?' on':''}">${CARDS[k].emo}${EN()?({gold:'Gold',jaw:'Jaw Boost',rain:'Rain Dance',gale:'Strong Wind',heaven:'Ant Heavens',block:'Shortcut Block',pheromone:'Pheromone',inspire:'Inspiration',antlion:'Antlion',sortie:'Sortie',sugar:'Sugar',powder:'Powder',squall:'Squall',revive:'Revive',showdown:'Showdown',summon:'Summon',typhoon:'Typhoon',strongPheromone:'Strong Pheromone',hungry:'Hungry',stronghold:'Stronghold'}[k]||CARDS[k].short)+' · '+(S.cards[p][k]?'Used':(k==='jaw'&&S.jaw===p?'Active':'Ready')):CARDS[k].short}</span>`).join('')}</div>`;
 }
 function renderPanel(p){
   const el=$('#p'+p);
@@ -4074,6 +4076,7 @@ function prior_render(){
   $('#actionPips').innerHTML=[0,1].map(i=>`<span class="action-pip${!S.over&&i<S.actions?' on':''}"></span>`).join('');
   $('#actionNote').textContent=S.over?'この対戦は終了しました':S.actions===0?'行動を使い切りました。ターン終了できます。':`${turnLabel} · あと${S.actions}回行動できます`;
   $('#actionMeter').classList.toggle('waiting',!isMine&&!S.over);
+  if(EN()){$('#actionsLabel').textContent=isMine?'Actions Left':'Opponent Actions';$('#actionNote').textContent=S.over?'Match finished':S.actions===0?'No actions left. End your turn.':`${turnLabel} · ${S.actions} action(s) remaining`;}
   renderPanel('A');renderPanel('B');renderBoard();renderLog();renderBattleTicker();renderCards();
   const H=mode==='local'?p:(mode==='online'?localPlayer:HUMAN),mt=!S.over&&isHuman(p)&&(mode!=='online'||(onlineConnected&&onlineStarted));
   $('#btnPlace').disabled=!mt||S.actions<=0||S.hand[H]<=0||(!canEnter(H+'1')&&!canEnter(H+'w'))||(tutorial&&tutorial.active&&![0,1].includes(tutorial.step));
@@ -5713,7 +5716,7 @@ function refreshOptions(){
   const value=$('#volumeValue');if(value)value.textContent=`${Math.round(soundVolume*100)}%`;
   const soundBtn=$('#btnOptionSound');if(soundBtn)soundBtn.textContent=muted?'🔇 効果音：OFF':'🔊 効果音：ON';
   document.querySelectorAll('[data-cpu-speed]').forEach(b=>b.classList.toggle('selected',b.dataset.cpuSpeed===cpuSpeed));
-  const desc=$('#cpuSpeedDescription');if(desc)desc.textContent=cpuSpeed==='slow'?'ゆっくり考えて行動します。手順を確認しながら遊びたいときに。':cpuSpeed==='fast'?'短い間隔でテンポよく行動します。':'標準の行動間隔です。';
+  const desc=$('#cpuSpeedDescription');if(desc)desc.textContent=EN()?(cpuSpeed==='slow'?'Thinks and acts slowly, giving you time to follow each move.':cpuSpeed==='fast'?'Acts at short intervals for a faster pace.':'Uses the standard action interval.'):(cpuSpeed==='slow'?'ゆっくり考えて行動します。手順を確認しながら遊びたいときに。':cpuSpeed==='fast'?'短い間隔でテンポよく行動します。':'標準の行動間隔です。');
 }
 function openOptions(){refreshOptions();$('#optionsOverlay').classList.add('open');}
 function closeOptions(){$('#optionsOverlay').classList.remove('open');}
