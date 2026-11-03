@@ -6136,10 +6136,16 @@ pairs.push(
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
-function translateNode(n){
- if(n.nodeType===Node.TEXT_NODE){const v=tr(n.nodeValue);if(v!==n.nodeValue)n.nodeValue=v;return;}
+const originalText=new WeakMap(),originalAttrs=new WeakMap();
+function translateNode(n,restore=false){
+ if(n.nodeType===Node.TEXT_NODE){
+  if(!originalText.has(n))originalText.set(n,n.nodeValue);
+  const source=originalText.get(n),v=lang==='en'?tr(source):source;
+  if(n.nodeValue!==v)n.nodeValue=v;return;
+ }
  if(n.nodeType!==Node.ELEMENT_NODE)return;
- for(const a of ['placeholder','title','aria-label']){const v=n.getAttribute(a);if(v){const z=tr(v);if(z!==v)n.setAttribute(a,z);}}
+ let attrs=originalAttrs.get(n);if(!attrs){attrs={};for(const a of ['placeholder','title','aria-label'])attrs[a]=n.getAttribute(a);originalAttrs.set(n,attrs);}
+ for(const a of ['placeholder','title','aria-label']){const source=attrs[a];if(source!==null){const v=lang==='en'?tr(source):source;if(n.getAttribute(a)!==v)n.setAttribute(a,v);}}
 }
 function scan(root){if(root.nodeType===Node.TEXT_NODE){translateNode(root);return;}translateNode(root);root.childNodes&&root.childNodes.forEach(scan);}
 function apply(){
