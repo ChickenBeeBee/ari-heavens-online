@@ -3217,6 +3217,7 @@ function updateMultiDicePrompt(state){
   const leftPlayer=mode==='online'?localPlayer:mode==='local'?state.activeRollPlayer:'A';
   orientDicePairForPlayer(state,leftPlayer);
   const instruction=$('#diceInstruction'),controls=$('#diceControls');if(!instruction||!controls)return;
+  const english=document.documentElement.lang==='en';
   controls.innerHTML='';
   const permittedPlayer=mode==='online'?localPlayer:state.activeRollPlayer;
   document.querySelectorAll('#diceRoll .die').forEach(die=>{
@@ -3229,23 +3230,23 @@ function updateMultiDicePrompt(state){
   });
   if(mode==='online'){
     const me=localPlayer,other=opp(me);
-    if(state.roundAnimating.has(me))instruction.textContent=`${NAMES[me]}のサイコロが転がっています…`;
-    else if(state.roundAnimationDone.has(me)&&!state.roundAnimationDone.has(other))instruction.textContent=`あなたは投げました。${NAMES[other]}がサイコロを投げるのを待っています…`;
-    else if(state.roundAnimationDone.has(other)&&!state.roundThrown.has(me))instruction.textContent=`${NAMES[other]}は投げました。あなたの番です！スワイプで方向を決めましょう。`;
-    else if(state.roundThrown.has(me)&&!state.roundAnimationDone.has(me))instruction.textContent='サイコロが転がっています…';
-    else instruction.textContent=`あなた（${NAMES[me]}）のサイコロをスワイプして投げてください（ボタンでもOK）`;
-    if(!state.roundThrown.has(me)&&!state.roundAnimating.has(me))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${NAMES[me]}のサイコロを投げる</button>`;
+    if(state.roundAnimating.has(me))instruction.textContent=english?`${NAMES[me]}'s die is rolling…`:`${NAMES[me]}のサイコロが転がっています…`;
+    else if(state.roundAnimationDone.has(me)&&!state.roundAnimationDone.has(other))instruction.textContent=english?`You have rolled. Waiting for ${NAMES[other]} to roll…`:`あなたは投げました。${NAMES[other]}がサイコロを投げるのを待っています…`;
+    else if(state.roundAnimationDone.has(other)&&!state.roundThrown.has(me))instruction.textContent=english?`${NAMES[other]} has rolled. Your turn! Swipe to choose your direction.`:`${NAMES[other]}は投げました。あなたの番です！スワイプで方向を決めましょう。`;
+    else if(state.roundThrown.has(me)&&!state.roundAnimationDone.has(me))instruction.textContent=english?'The die is rolling…':'サイコロが転がっています…';
+    else instruction.textContent=english?`Swipe ${NAMES[me]}'s die to roll (or use the button).`:`あなた（${NAMES[me]}）のサイコロをスワイプして投げてください（ボタンでもOK）`;
+    if(!state.roundThrown.has(me)&&!state.roundAnimating.has(me))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${english?`Roll ${NAMES[me]}'s Die`:`${NAMES[me]}のサイコロを投げる`}</button>`;
   }else{
     const player=state.activeRollPlayer;
     if(mode==='cpu'&&state.multiRoll&&state.roundThrown.has(HUMAN)&&!state.roundAnimationDone.has(CPU)){
-      instruction.textContent=state.roundAnimating.has(CPU)?`${NAMES[CPU]}のサイコロが転がっています…`:`${NAMES[CPU]}がサイコロを投げています…`;
+      instruction.textContent=state.roundAnimating.has(CPU)?(english?`${NAMES[CPU]}'s die is rolling…`:`${NAMES[CPU]}のサイコロが転がっています…`):(english?`${NAMES[CPU]} is rolling the die…`:`${NAMES[CPU]}がサイコロを投げています…`);
       controls.innerHTML='';return;
     }
-    if(mode==='cpu'&&state.fx.kind==='initiative'&&player===CPU){instruction.textContent=`${NAMES[CPU]}がサイコロを投げています…`;controls.innerHTML='';return;}
-    if(state.roundAnimating.has(player))instruction.textContent=`${NAMES[player]}のサイコロが転がっています…`;
-    else if(state.roundAnimationDone.has(player))instruction.textContent='次のプレイヤーの番です';
-    else instruction.textContent=`${NAMES[player]}の番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。`;
-    if(!state.roundThrown.has(player)&&!state.roundAnimating.has(player))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${NAMES[player]}が投げる</button>`;
+    if(mode==='cpu'&&state.fx.kind==='initiative'&&player===CPU){instruction.textContent=english?`${NAMES[CPU]} is rolling the die…`:`${NAMES[CPU]}がサイコロを投げています…`;controls.innerHTML='';return;}
+    if(state.roundAnimating.has(player))instruction.textContent=english?`${NAMES[player]}'s die is rolling…`:`${NAMES[player]}のサイコロが転がっています…`;
+    else if(state.roundAnimationDone.has(player))instruction.textContent=english?`Next player's turn.`:'次のプレイヤーの番です';
+    else instruction.textContent=english?`${NAMES[player]}'s turn. Swipe the die to choose a direction and roll (or use the button).`:`${NAMES[player]}の番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。`;
+    if(!state.roundThrown.has(player)&&!state.roundAnimating.has(player))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${english?`${NAMES[player]}: Roll the Die`:`${NAMES[player]}が投げる`}</button>`;
   }
   const button=$('#btnDiceTapThrow');if(button)button.onclick=()=>{
     if(activeDiceRoll!==state)return;
