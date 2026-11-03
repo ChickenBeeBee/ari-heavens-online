@@ -2263,7 +2263,7 @@ const ROWS=['B1','B2','B3','C','A3','A2','A1'];
 const NAMES={A:'プレイヤーA',B:'プレイヤーB'};
 const HUMAN='A',CPU='B';
 const EN=()=>document.documentElement.lang==='en';
-const NODE_LABEL=EN()?{A1:'A Nest Entrance',A2:'A Layer 2',A3:'A Layer 3',C:'Central Space',B3:'B Layer 3',B2:'B Layer 2',B1:'B Nest Entrance',Aw:'A Waiting Area',Bw:'B Waiting Area'}:{A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'};
+const NODE_LABEL=new Proxy({A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'},{get:(o,k)=>EN()?({A1:'A Nest Entrance',A2:'A Layer 2',A3:'A Layer 3',C:'Central Space',B3:'B Layer 3',B2:'B Layer 2',B1:'B Nest Entrance',Aw:'A Waiting Area',Bw:'B Waiting Area'}[k]||o[k]):o[k]});
 const CAP={A1:2,B1:2,Aw:1,Bw:1};
 const TYPES=[
   {name:'金平糖',need:1,pts:1,emo:'🍬',n:3},
