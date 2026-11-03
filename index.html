@@ -2117,6 +2117,7 @@ button{font:inherit;color:inherit}
 </div></div>
 <div id="optionsOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="optionsTitle"><div class="box">
   <h3 id="optionsTitle">⚙ オプション</h3>
+  <div class="option-row"><div class="option-label">🌐 表示言語</div><div class="option-buttons"><button class="btn" id="btnLanguageJa" type="button">日本語</button><button class="btn" id="btnLanguageEn" type="button">English</button></div><div class="option-sub">表示言語はこのブラウザに保存されます。</div></div>
   <div class="option-row"><div class="option-label">🔊 効果音の音量 <strong id="volumeValue">70%</strong></div><div class="volume-control"><span>🔈</span><input id="volumeSlider" type="range" min="0" max="100" step="5" value="70" aria-label="効果音の音量"><span>🔊</span></div><div class="option-sub">0%で消音。効果音のON／OFFもここで切り替えられます。</div><div class="option-buttons"><button class="btn" id="btnOptionSound">🔊 効果音：ON</button></div></div>
   <div class="option-row"><div class="option-label">🤖 CPUの行動スピード</div><div class="option-buttons" id="cpuSpeedButtons"><button class="btn" data-cpu-speed="slow">おそい</button><button class="btn" data-cpu-speed="normal">ふつう</button><button class="btn" data-cpu-speed="fast">はやい</button></div><div class="option-sub" id="cpuSpeedDescription">CPUが考えて行動する間隔を変更します。</div></div>
   <div class="dbtns"><button class="btn primary" id="btnOptionsClose">閉じる</button></div>
@@ -6010,6 +6011,81 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 </script>
+
+<script>
+/* AH_LANGUAGE_SWITCH_V1
+ * UI-only localization layer. Game state, network packets, rules and saved decks remain language-neutral.
+ */
+(()=>{
+'use strict';
+const KEY='ah_language_v1';
+let lang='ja';
+try{lang=localStorage.getItem(KEY)==='en'?'en':'ja';}catch(_){}
+const pairs=[
+['アリヘブンズ ルール一覧','Ant Heavens — Rules'],['読みながら確認するか、実際に操作して覚えるか選んでください。','Read the rules or learn by playing.'],
+['対戦は一時停止しません。オンライン対戦では、相手の手番も進行する場合があります。','The match does not pause. In online play, your opponent may continue taking turns.'],
+['最初の1ターンだけ行動1回','One action on the first turn only'],['CPUが考えて行動する間隔を変更します。','Changes how quickly the CPU takes its turns.'],
+['0%で消音。効果音のON／OFFもここで切り替えられます。','Set to 0% to mute. You can also turn sound effects on or off here.'],
+['対戦で使う3枚を選んでください。選んだ内容はこのブラウザに保存され、次回も反映されます。セットしたカードは相手にも公開されます。','Choose 3 cards for the match. Your selection is saved in this browser and shown to your opponent.'],
+['詳しい説明を読みたいときはこちら。チュートリアルはタイトル画面の「操作しながら学ぶ」から始められます。','Read the detailed rules here. Start the tutorial from “Learn to Play” on the title screen.'],
+['自分のターンでは、基本的に行動を2回行えます。アリを出す・移動する・お菓子を運ぶ操作は行動を1回消費します。','You usually have 2 actions per turn. Deploying ants, moving them, and carrying candy each cost 1 action.'],
+['アリをお菓子につける／外す操作は、行動回数を消費しません。','Attaching or detaching ants from candy does not use an action.'],
+['1手番中に行った直前の操作は「↶ 1つ戻す」で取り消せます。ただし、バトル実行後やターン終了後は戻せません。','You can undo your most recent action with “↶ Undo”. Battles and ended turns cannot be undone.'],
+['金平糖：必要1匹・1点、クッキー：2匹・2点、板チョコ：3匹・3点、ロリポップ：5匹・5点。','Konpeito: 1 ant / 1 point; Cookie: 2 / 2; Chocolate Bar: 3 / 3; Lollipop: 5 / 5.'],
+['必要数以上の自分のアリがついているお菓子を、自分の塚入口へ1層ずつ運ぶと得点になり、ついていた自分のアリは手元へ戻ります。','Carry candy with enough of your ants one layer at a time to your nest entrance to score. Your ants return to your hand.'],
+['相手のアリがついているお菓子は、そのままでは運べません。自分のアリもつけるとバトルを仕掛けられます。','You cannot carry candy with enemy ants attached. Attach your own ants too to challenge them to battle.'],
+['通常の道は隣のマスへ1層ずつ移動します。','Move one space at a time along regular paths.'],
+['茶色の道は待機所から中央へ向かう一方通行です。待機所は各プレイヤー1匹まで。','The brown path is one-way from the Waiting Area to the center. Each Waiting Area holds 1 ant.'],
+['紫色の裏道はA側2層目とB側2層目をつなぎます。アリだけが通れます。','The purple shortcut connects the second layers on both sides. Only ants can use it.'],
+['攻撃側・防御側ともに「自分のアリの数＋自分が投げたサイコロの出目（＋アゴ強化などの例外）」で合計を比べます。','Both attacker and defender compare their ant count plus their own die roll (with bonuses such as Jaw Boost).'],
+['合計が同じなら両者とも振り直しです。合計の差が退場するアリの数になり、負けた側のお菓子についているアリが退場します（退場数は残りのアリ数が上限）。','If totals tie, both players roll again. The difference is the number of losing ants removed from the candy, up to the number attached.'],
+['お菓子をすべて運び終えるか、片方のアリが全滅すると勝敗が決まります。最長24ラウンド（48ターン）で終了した場合は得点を比べ、同点なら残りアリ数で決めます。','The game ends when all candy is delivered or one player loses all ants. After 24 rounds (48 turns), the higher score wins; ties are broken by remaining ants.'],
+['このターン中に起きるアリバトルで、最初に投げる自分のダイス1回だけ出目を「+3」します（引き分けの振り直しは対象外）。バトルが起きなければ無駄になります。','Adds +3 to your first die roll in an ant battle this turn. Does not affect tie re-rolls. If no battle occurs, the effect is wasted.'],
+['雨を降らせる層を1つ選びます。その層にいるアリは、お菓子についていようといまい関係なく、すべて手元に戻ります。','Choose a layer. All ants on that layer return to their owners’ hands, whether attached to candy or not.'],
+['アリがついていないお菓子を、すべて中央の大マスへ戻します。','Move all candy with no ants attached to the central space.'],
+['このターン、手元の自分のアリを6匹まで、場のお菓子に直接つけられます。手持ちアリが12匹以下のときに使えます。','If you have 12 or fewer ants in hand, attach up to 6 of them directly to any candy on the board this turn.'],
+['サイコロを振り、その目の数だけ相手の近道を封鎖します。封鎖は相手の次の番から始まります。','Roll a die to block the opponent’s shortcut for that many turns, starting on their next turn.'],
+['カードは行動回数を消費しませんが、1ターンに使えるのは1枚までです。雨ごいは盤面にアリがいるときに使えます。','Cards do not cost actions, but you can play only 1 card per turn. Rain Dance requires ants on the board.'],
+['中央の大マスに、6点の特別な「ゴールドチョコ」が登場します。運ぶには自分のアリが3匹必要です。','A special 6-point Golden Chocolate appears in the center. It requires 3 of your ants to carry.'],
+['2匹で運べる特殊なお菓子。相手の塚へ運び終えると相手が4点失い、運んだアリは手元へ戻ります。煙の演出が発生し、アリボムをめぐるアリバトルもできます。','A special candy carried by 2 ants. Deliver it to the enemy nest to make them lose 4 points; your ants return to your hand. Ant battles can occur over it.'],
+['このターン中、最初の攻撃ダイス1回に＋3します。','Adds +3 to your first attack die roll this turn.'],
+['手持ちアリが12匹以下のときに使うと、このターンは手元のアリを6匹まで場のお菓子に直接つけられます。','When you have 12 or fewer ants in hand, attach up to 6 ants directly to candy this turn.'],
+['カード（各プレイヤー1ゲーム1回）','Cards (once per player per game)'],
+['アリの行動','Ant Actions'],['お菓子を運ぶ','Carrying Candy'],['道のつながり','Paths'],['アリバトル','Ant Battle'],['勝敗','Winning the Game'],
+['一人で遊ぶ','Solo Play'],['二人で遊ぶ','Two Players'],['カードをセットする','Choose Cards'],['遊び方を学ぶ','Learn to Play'],['オプション','Options'],
+['CPUの難易度','CPU Difficulty'],['先攻のハンデ','First Player Handicap'],['バトル開始','Start Battle'],['戻る','Back'],['なし','None'],['かんたん','Easy'],['ふつう','Normal'],['つよい','Hard'],['とてもつよい','Very Hard'],
+['オンラインで離れた人と遊ぶ','Online — Play Remotely'],['ローカルで近い人と別端末で遊ぶ','Local Network — Nearby Devices'],['同じ端末で2人で遊ぶ','2 Players on This Device'],
+['ルールブックを見る','Read the Rules'],['遊ぶチュートリアル','Interactive Tutorial'],['閉じる','Close'],['対戦メニュー','Match Menu'],['対戦に戻る','Resume Match'],['効果音：ON','Sound: ON'],['効果音：OFF','Sound: OFF'],['対戦ログ','Match Log'],['サレンダー','Surrender'],['新規／やり直す','New Game / Restart'],['ルールを見る','View Rules'],['効果音の音量','Sound Volume'],['CPUの行動スピード','CPU Speed'],['おそい','Slow'],['はやい','Fast'],['進行ログ','Game Log'],['見どころ','Highlights'],
+['選択中','Selected'],['保存せず戻る','Cancel'],['初期セットに戻す','Reset to Default'],['保存して戻る','Save'],['カードを3枚選んでください','Please select 3 cards.'],['カードセットを保存しました','Card set saved.'],
+['Aの塚入口','A Nest Entrance'],['Bの塚入口','B Nest Entrance'],['A側2層目','A Layer 2'],['A側3層目','A Layer 3'],['B側2層目','B Layer 2'],['B側3層目','B Layer 3'],['中央の大マス','Central Space'],['A待機所','A Waiting Area'],['B待機所','B Waiting Area'],
+['金平糖','Konpeito'],['クッキー','Cookie'],['板チョコ','Chocolate Bar'],['ロリポップ','Lollipop'],['ゴールドチョコ','Golden Chocolate'],['アリボム','Ant Bomb'],
+['ゴールド','Golden'],['ゴールドチョコ','Golden Chocolate'],['アゴ強化','Jaw Boost'],['雨ごい','Rain Dance'],['荒風','Gust'],['アリヘブンズ','Ant Heavens'],['近道封鎖','Shortcut Block'],['フェロモン','Pheromone'],['強烈フェロモン','Powerful Pheromone'],['決戦','Showdown'],['アリジゴク','Antlion'],['出撃','Sortie'],['金平糖降らし','Konpeito Shower'],['クッキーパウダー','Cookie Powder'],['ゲリラ豪雨','Squall'],['カード復活','Card Revival'],['台風','Typhoon'],['ハングリー','Hungry'],['強奪','Heist'],['アリボム召喚','Summon Ant Bomb'],
+['待機中','Waiting'],['競合中','Contested'],['Aが運べる','A can carry'],['Bが運べる','B can carry'],['あと','Need '],['匹',' ants'],['点',' pts'],['必要','Need '],['手元','In Hand'],['待機所','Waiting Area'],['塚入口','Nest Entrance'],['裏道','Shortcut'],['行動回数がありません','No actions remaining.'],['手元にアリがいません','No ants in hand.'],['が満員です',' is full.'],['塚入口も待機所も満員です','Both the nest entrance and waiting area are full.'],['バトルには自分と相手のアリが1匹以上必要です','Both players need at least 1 ant to battle.'],['雨を降らせる層を選んでください','Choose a layer for the rain.'],['相手のアリが4匹以上いるお菓子を選んでください','Choose candy with at least 4 enemy ants.'],
+['アリを出す','Deploy Ant'],['移動する','Move'],['お菓子を運ぶ','Carry Candy'],['バトル開始','Start Battle'],['アリをつける','Attach Ants'],['アリを外す','Detach Ants'],['ターン終了','End Turn'],['1つ戻す','Undo'],['次へ','Next'],['中断','Exit'],['最初からやり直す','Restart from the Beginning'],['続ける','Continue'],
+['プレイヤーA','Player A'],['プレイヤーB','Player B'],['先攻','First'],['後攻','Second'],['ターン','Turn'],['ラウンド','Round'],['得点','Score'],['アリ','Ants'],['カード','Card'],['使用可能','Available'],['使用済み','Used']
+];
+const map=new Map(pairs);
+const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
+function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
+function translateNode(n){
+ if(n.nodeType===Node.TEXT_NODE){const v=tr(n.nodeValue);if(v!==n.nodeValue)n.nodeValue=v;return;}
+ if(n.nodeType!==Node.ELEMENT_NODE)return;
+ for(const a of ['placeholder','title','aria-label']){const v=n.getAttribute(a);if(v){const z=tr(v);if(z!==v)n.setAttribute(a,z);}}
+}
+function scan(root){if(root.nodeType===Node.TEXT_NODE){translateNode(root);return;}translateNode(root);root.childNodes&&root.childNodes.forEach(scan);}
+function apply(){
+ document.documentElement.lang=lang==='en'?'en':'ja';
+ document.querySelectorAll('#btnLanguageJa,#btnLanguageEn').forEach(b=>b.classList.toggle('primary',b.id===(lang==='en'?'btnLanguageEn':'btnLanguageJa')));
+ scan(document.body);
+}
+function setLanguage(next){lang=next==='en'?'en':'ja';try{localStorage.setItem(KEY,lang);}catch(_){}apply();}
+document.addEventListener('click',e=>{const b=e.target.closest('#btnLanguageJa,#btnLanguageEn');if(b)setLanguage(b.id==='btnLanguageEn'?'en':'ja');});
+const observer=new MutationObserver(records=>{if(lang!=='en')return;for(const rec of records){if(rec.type==='characterData')translateNode(rec.target);rec.addedNodes&&rec.addedNodes.forEach(scan);}});
+observer.observe(document.body,{subtree:true,childList:true,characterData:true});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();
+})();
+</script>
+
 </body>
 </html>
 
