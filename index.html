@@ -6158,6 +6158,15 @@ pairs.push(
 ['サイコロをつかんで、指／マウスで勢いよく投げてください','Grab the die and flick it with your finger or mouse.'],['サイコロをドラッグ／スワイプすると、投げる方向と勢いが変わります。','Drag or swipe the die to control the direction and power of your throw.'],
 ['🎲 先攻・後攻の抽選結果','🎲 First Player Selection Result'],['先攻：A 🎲','First: A 🎲'],['攻撃','Attack'],['防御','Defense'],['匹退場',' ants lost'],['差 ','Difference: '],['Aが先攻です。','A goes first.'],['Bが先攻です。','B goes first.'],['（先攻の最初のターンは行動1回）','(The first player has only 1 action on their first turn.)'],['はじめる','Begin']
 );
+pairs.push(
+['Player Aの番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。','Player A’s turn. Swipe the die to choose a direction and roll (or use the button).'],
+['Player Bの番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。','Player B’s turn. Swipe the die to choose a direction and roll (or use the button).'],
+['🎲 Player Aが投げる','🎲 Player A: Roll the Die'],
+['🎲 Player Bが投げる','🎲 Player B: Roll the Die'],
+['Player Aのサイコロが転がっています…','Player A’s die is rolling…'],
+['Player Bのサイコロが転がっています…','Player B’s die is rolling…'],
+['次のプレイヤーの番です','It’s the next player’s turn.']
+);
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
