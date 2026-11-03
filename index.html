@@ -6168,6 +6168,46 @@ pairs.push(
 ['Player Bのサイコロが転がっています…','Player B’s die is rolling…'],
 ['次のプレイヤーの番です','It’s the next player’s turn.']
 );
+
+/* Dynamic gameplay text coverage: hints, battle prompts/logs, tutorial phases and online help. */
+pairs.push(
+ ['自分のアリがいるマスをタップして選択 ／ お菓子をタップで詳細・着脱・運搬','Tap a space with your ants to select it / Tap candy for details, attach, detach, or carry.'],
+ ['自分のアリがいるマスをタップして選択 ／ お菓子をタップで詳細・着脱・運搬','Tap a space with your ants to select it / Tap candy for details, attach, detach, or carry.'],
+ ['🤖 CPUが考え中…（お菓子をタップすると状況を見られます）','🤖 CPU is thinking… (Tap candy to view its status.)'],
+ ['🌐 相手の操作を待っています…','🌐 Waiting for your opponent…'],
+ ['光っているマスをタップして移動（もう一度タップで選択解除）','Tap a highlighted space to move. Tap again to deselect.'],
+ ['🎓 操作の説明はすぐ上に表示されます。','🎓 Instructions are shown just above the board.'],
+ ['相手が雨ごいの対象を選んでいます','Your opponent is choosing a layer for Rain Dance.'],
+ ['🌧 青く光るマスを選んでください','🌧 Choose a highlighted space.'],
+ ['ホストが部屋を作り、表示された6文字のIDを相手に伝えてください。相手が接続すると自動で対戦が始まります。','The host creates a room and shares the 6-character code. The match starts automatically when the opponent connects.'],
+ ['※通信にはインターネット接続が必要です。','※ An internet connection is required.'],
+ ['同じWi-Fi、または一方のスマホのテザリングに両方の端末を接続してください。部屋を作った側の6文字IDを相手に伝えると対戦が始まります。','Connect both devices to the same Wi-Fi network or to one phone’s hotspot. Share the 6-character room code to start the match.'],
+ ['対局データは端末同士で直接送ります。接続時の相手探しにだけ外部通信を使い、STUN／TURN中継は利用しません。','Game data is sent directly between devices. External communication is used only to find the peer; STUN/TURN relays are not used.'],
+ ['※接続にはインターネット通信が必要です。ブラウザによっては同じネットワーク内でも接続できない場合があります。','※ An internet connection is required. Some browsers may not connect even on the same network.'],
+ ['⚔ アリバトル！ サイコロを投げよう','⚔ Ant Battle! Roll the Dice'],
+ ['攻撃側','Attacker'],['防御側','Defender'],
+ ['匹 vs 防御 ',' ants vs. Defense '],['匹 vs 防御',' ants vs. Defense'],['攻撃 ','Attack '],['匹 vs ',' ants vs. '],['匹',' ants'],
+ ['アリバトルを仕掛けた','started an Ant Battle'],['アリバトル！','Ant Battle!'],['アリバトルに勝利','won the Ant Battle'],['アリバトルで敗北','lost the Ant Battle'],
+ ['がアリバトルを仕掛けた！',' started an Ant Battle!'],['がアリバトルに勝利！',' won the Ant Battle!'],['がアリバトルで敗北…',' lost the Ant Battle…'],
+ ['相手のアリがついているため運べません。','You cannot carry candy while enemy ants are attached.'],
+ ['お菓子をめぐってバトルを仕掛けます。まず金平糖を選び、自分のアリを付けましょう。','Challenge your opponent for the candy. First select the Konpeito and attach your ants.'],
+ ['「バトルを仕掛ける」を押しましょう。','Press “Start Ant Battle”.'],
+ ['「バトルを仕掛ける」を押して、サイコロを投げましょう。','Press “Start Ant Battle” and roll the die.'],
+ ['これで相手のアリがいなくなりました．','Your opponent’s ants have been removed.'],
+ ['相手の番です','Opponent’s Turn'],
+ ['実戦では相手が操作します。この練習では相手の番を省略して、自分の番に戻ります。','In a real match, your opponent takes their turn. In this practice, their turn is skipped and play returns to you.'],
+ ['チュートリアルで、ゲームの基本を学びましょう。','Learn the basics of the game in this tutorial.'],
+ ['🎓 チュートリアル','🎓 Tutorial'],['全10ステップ','10 Steps'],['全','Total: '],['ステップ','Steps'],
+ ['中断','Exit'],['補足','Extra'],['できました！','Well done!'],['次へ','Next'],['自分の番へ','My Turn'],
+ ['この対戦は終了しました。','This match has ended.'],['🏆 結果を見る','🏆 View Results'],['↩ タイトルへ戻る','↩ Return to Title'],
+ ['ゲーム終了・結果を見る','Game Over · View Results'],
+ ['攻撃側・防御側ともに','Both attacker and defender'],['自分のアリの数','your ant count'],['自分が投げたサイコロの出目','your own die roll'],
+ ['合計が同じなら両者とも振り直しです。','If the totals are tied, both players roll again.'],
+ ['合計の差が退場するアリの数になり','The difference between totals is the number of ants removed'],
+ ['負けた側のお菓子についているアリが退場します','ants attached to the losing side’s candy are removed'],
+ ['（退場数は残りのアリ数が上限）。','(up to the number of ants remaining).']
+);
+
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
