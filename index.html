@@ -194,6 +194,8 @@ button{font:inherit;color:inherit}
 #main.viewer-B #controlDock{order:5}
 #board.perspective-B .rail.join{flex-direction:column-reverse}
 #log .l{padding:3px 6px;border-radius:6px;background:#fff9;line-height:1.4}
+/* Allow copying match logs and highlights even though the game UI disables selection globally. */
+#log .l,#logOverlayContent .l{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;cursor:text}
 #log .l.battle{background:#ffe0d6;border-left:4px solid #e4572e}
 #log .l.score{background:#e0f3d4;border-left:4px solid #4f9a2f;font-weight:700}
 #log .l.card{background:#fff0c2;border-left:4px solid #f5a623;font-weight:700}
@@ -1965,6 +1967,7 @@ button{font:inherit;color:inherit}
   #app.is-tutorial #main.is-tutorial #board > * { min-width:0; max-width:100%; }
   #app.is-tutorial #main.is-tutorial #board .node { min-width:0; max-width:100%; padding:2px 3px; overflow-wrap:normal; }
 }
+@media (max-height:600px) and (orientation:landscape){#actionMeter{display:flex!important;min-width:112px;flex:0 1 148px}.action-head{font-size:10px}}
 </style>
 
 <style id="ah-card-effect-presentation-css">
@@ -1981,20 +1984,66 @@ button{font:inherit;color:inherit}
 
 <style id="ah-card-presentation-refinement">
 .ah-card-event{width:min(350px,calc(100vw - 40px));padding:12px 15px;border-radius:15px;box-shadow:0 5px 22px #0005;animation:ah-card-soft-in 1.55s both}
+/* Mobile card-result readability: keep every event type on an opaque panel. */
+.ah-card-event{background:linear-gradient(145deg,#263b58f5,#101d32f7);border:2px solid #d6e8ff;color:#fff;text-shadow:0 2px 5px #000b;z-index:100001}
+.ah-card-event.weather{background:linear-gradient(145deg,#176b91f5,#082b4ff7);border-color:#9be8ff}
+.ah-card-event.antlion{background:linear-gradient(145deg,#76501cf5,#30200df7);border-color:#f2cf7a}
+@media(max-width:600px){
+ .ah-card-event{top:calc(env(safe-area-inset-top,0px) + 14px);left:50%;transform:translate(-50%,0);width:calc(100vw - 24px);max-width:420px;padding:12px 14px;border-radius:16px}
+ .ah-card-event strong{font-size:clamp(20px,6vw,27px);line-height:1.2}
+ .ah-card-event small{display:block;font-size:clamp(13px,3.7vw,16px);line-height:1.45;overflow-wrap:anywhere}
+ .ah-card-event .ah-event-particles{font-size:clamp(18px,5vw,24px);letter-spacing:3px}
+ .ah-card-event.weather,.ah-card-event.typhoon{box-shadow:0 5px 24px #000b}
+ .ah-antlion-label{max-width:calc(100vw - 16px);white-space:normal;text-align:center;box-sizing:border-box}
+}
+
 .ah-card-event strong{font-size:clamp(19px,3.6vw,27px);margin:2px 0 4px}
 .ah-card-event small{font-size:clamp(12px,1.7vw,14px)}
 .ah-card-event.pheromone{background:linear-gradient(135deg,#9b4d83f2,#56345ff2);border:2px solid #e9b9d8;animation:ah-card-soft-in 1.45s both}
 .ah-card-event.typhoon{background:linear-gradient(135deg,#537fa8f2,#294764f2);border:2px solid #c5dfef;animation:ah-card-soft-in 1.55s both}
 .ah-card-event .ah-event-particles{font-size:clamp(17px,3vw,23px);letter-spacing:4px;animation:none}
 @keyframes ah-card-soft-in{0%{opacity:0;transform:translate(-50%,-46%)}12%,82%{opacity:1;transform:translate(-50%,-50%)}100%{opacity:0;transform:translate(-50%,-53%)}}
+/* Keep the mobile event panel fully inside the viewport instead of near the top edge. */
+@media(max-width:600px){
+ .ah-card-event{top:50%;left:50%;transform:translate(-50%,-50%);width:calc(100vw - 20px);max-width:440px;max-height:min(48dvh,340px);overflow-y:auto;overscroll-behavior:contain;padding:clamp(14px,4vw,20px);border-width:3px;border-radius:18px;box-shadow:0 8px 32px #000e,0 0 0 2px #ffffff40;animation:ah-card-mobile-visible 4.3s ease-in-out both}
+ .ah-card-event strong{font-size:clamp(22px,6.2vw,30px);line-height:1.25;margin:7px 0 9px}
+ .ah-card-event small{display:block;font-size:clamp(15px,4.2vw,18px);line-height:1.5;overflow-wrap:anywhere}
+ .ah-card-event .ah-event-particles{font-size:clamp(23px,6vw,30px);letter-spacing:clamp(3px,1vw,6px);line-height:1.35}
+ @keyframes ah-card-mobile-visible{0%{opacity:0;transform:translate(-50%,-46%) scale(.96)}10%,88%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-52%) scale(.98)}}
+}
+
 </style>
 
 <style id="ah-board-effect-visibility-fix">
-.ah-presentation-blocker{position:fixed;inset:0;z-index:99990;background:transparent;pointer-events:auto;touch-action:none;cursor:wait}
+.ah-presentation-blocker{position:fixed;inset:0;z-index:99990;background:transparent;pointer-events:auto;touch-action:pan-x pan-y;cursor:wait}
 .ah-antlion-ring{position:fixed;z-index:99999;border:4px solid #d6a43c;border-radius:18px;box-shadow:0 0 0 5px #3b260866,0 0 24px 9px #f0c35caa;pointer-events:none;animation:ah-antlion-ring-pulse .55s ease-in-out 3 alternate}
 .ah-antlion-label{position:fixed;z-index:100000;padding:7px 13px;border-radius:12px;background:#33230bea;border:2px solid #e5bc61;color:#fff4d1;font-weight:900;font-size:clamp(14px,2.5vw,20px);box-shadow:0 4px 15px #0008;pointer-events:none;white-space:nowrap}
 @keyframes ah-antlion-ring-pulse{from{box-shadow:0 0 0 3px #3b260866,0 0 12px 3px #f0c35c66}to{box-shadow:0 0 0 8px #3b260866,0 0 28px 12px #f0c35cdd}}
 #board .node.typhoon-affected{position:relative;z-index:2;background:#f3d46a!important;border-color:#d58a16!important;box-shadow:inset 0 0 0 4px #fff3a8,0 0 0 4px #e49b24,0 0 22px 8px #ffc94dcc!important;filter:saturate(1.5);transition:background .12s,box-shadow .12s}
+
+.ah-effect-cell-mark{position:fixed;z-index:99997;pointer-events:none;box-sizing:border-box;border-radius:12px}
+.ah-effect-cell-mark.antlion{background:radial-gradient(ellipse,#8a5929aa,#35200fcc);border:5px solid #b77a39;box-shadow:inset 0 0 25px #2c170cdd,0 0 24px #9a642e;animation:ah-sink-cell 1.9s both}
+.ah-effect-cell-mark.squall{background:#0754b5b8;border:5px solid #168aff;box-shadow:inset 0 0 28px #003c9ddd,0 0 0 4px #003b91,0 0 30px 10px #168aff;animation:ah-blue-cell 1.9s both}
+.ah-effect-cell-mark.typhoon{background:#ffffffc9;border:5px solid white;box-shadow:inset 0 0 24px #dceeff,0 0 0 4px #9db8d9,0 0 30px 10px white;animation:ah-white-cell 1.8s both}
+.ah-antlion-sink{position:fixed;z-index:99998;left:50%;top:50%;width:0;height:0;pointer-events:none}.ah-antlion-sink:before{content:'';position:absolute;width:clamp(100px,20vw,210px);height:clamp(100px,20vw,210px);border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(ellipse,#21150de8,#67401fc9 38%,#9a6b3780 60%,transparent 72%);animation:ah-sink-hole 4s ease-in both}
+.ah-antlion-sink i{position:absolute;left:0;top:0;font-style:normal;font-size:clamp(16px,3vw,30px);color:#9b6b38;text-shadow:0 2px 3px #1e1209;animation:ah-rock-sink 3.8s ease-in both}
+.ah-typhoon-streak-layer{position:fixed;inset:0;z-index:99998;overflow:hidden;pointer-events:none}.ah-typhoon-streak-layer i{position:absolute;display:block;width:3px;height:38px;border-radius:99px;opacity:0;animation:ah-streak 3.6s ease-in both}.ah-typhoon-streak-layer .water{background:linear-gradient(transparent,#42baff,#eafaff);box-shadow:0 0 7px #65cfff}.ah-typhoon-streak-layer .wind{width:42px;height:3px;background:linear-gradient(90deg,transparent,#fff,#b5dfff,transparent);box-shadow:0 0 8px white}
+@keyframes ah-sink-cell{0%,100%{opacity:0}12%,78%{opacity:1}}@keyframes ah-blue-cell{0%,100%{opacity:0}10%,85%{opacity:1}}@keyframes ah-white-cell{0%,100%{opacity:0}10%,80%{opacity:1}}@keyframes ah-sink-hole{0%{opacity:0;scale:.25}20%{opacity:1;scale:1.15}80%{opacity:1;scale:.75}100%{opacity:0;scale:.1}}@keyframes ah-rock-sink{0%{opacity:0;transform:rotate(var(--a)) translateX(var(--d)) scale(1)}20%{opacity:1}100%{opacity:0;transform:rotate(var(--a)) translateX(0) scale(.05)}}@keyframes ah-streak{0%{opacity:0;transform:translate(0,0) rotate(18deg)}15%{opacity:.95}100%{opacity:0;transform:translate(var(--sx),var(--sy)) rotate(18deg)}}
+
+/* Card target effects color the actual board cell; resolve before the caption appears. */
+#board .node.ah-cell-effect-antlion{background:radial-gradient(ellipse at center,#bd8748 0%,#855126 65%,#563316 100%)!important;border:4px solid #e0a45b!important;box-shadow:inset 0 0 28px #321a0cbb,0 0 18px #a86b32!important;color:#fff4df!important;animation:ah-real-cell-flash 1.9s ease-in-out both}
+#board .node.ah-cell-effect-squall{background:linear-gradient(145deg,#0877d5,#03418f)!important;border:4px solid #55baff!important;box-shadow:inset 0 0 28px #001d62cc,0 0 0 3px #147ce0,0 0 24px 8px #087fff!important;color:white!important;animation:ah-real-cell-flash 1.9s ease-in-out both}
+#board .node.ah-cell-effect-typhoon{background:linear-gradient(145deg,#fff,#dce8f2)!important;border:4px solid #fff!important;box-shadow:inset 0 0 22px #a9c4df,0 0 0 3px #91abc5,0 0 24px 8px #fff!important;color:#26384c!important;text-shadow:none!important;animation:ah-real-cell-flash 1.8s ease-in-out both}
+@keyframes ah-real-cell-flash{0%,100%{filter:brightness(1)}12%,78%{filter:brightness(1.3)}}
+
+/* Point award animation: keep labels and particles inside the effect layer. */
+#fx .ah-point-score-fx{position:fixed;z-index:100000;left:50%;top:42%;transform:translate(-50%,-50%) scale(var(--score-scale,1));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:130px;padding:14px 22px;border-radius:18px;background:radial-gradient(ellipse,#fff9df 0%,#ffdf78ee 48%,#e89b24cc 100%);border:3px solid #fff2b0;box-shadow:0 0 0 3px #9c5b1a99,0 8px 30px #0009;color:#63350b;font-weight:900;text-align:center;pointer-events:none;animation:ah-point-score-pop 2.2s cubic-bezier(.18,.75,.25,1) both}
+#fx .ah-point-score-fx.negative{background:radial-gradient(ellipse,#fff0ed 0%,#ff9b8fee 48%,#c92c25dd 100%);border-color:#ffd3c9;box-shadow:0 0 0 3px #7e171799,0 8px 30px #0009;color:#74140f}
+#fx .ah-point-score-fx span{display:block;font-size:clamp(14px,3.5vw,19px);line-height:1.2;white-space:nowrap}
+#fx .ah-point-score-fx strong{display:block;font-size:clamp(28px,7vw,48px);line-height:1.05;white-space:nowrap;text-shadow:0 2px 0 #fff9}
+#fx .ah-point-score-fx i{position:absolute;left:50%;top:50%;display:block;font-style:normal;font-size:clamp(16px,4vw,25px);line-height:1;transform:rotate(var(--angle)) translateY(calc(-1 * var(--distance)));animation:ah-point-score-spark 1.3s ease-out var(--delay) both;pointer-events:none}
+@keyframes ah-point-score-pop{0%{opacity:0;scale:.45}12%,78%{opacity:1;scale:1}100%{opacity:0;scale:.82}}
+@keyframes ah-point-score-spark{0%{opacity:0}15%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateY(calc(-1.35 * var(--distance))) scale(.55)}}
 </style>
 </head>
 <body>
@@ -2071,6 +2120,7 @@ button{font:inherit;color:inherit}
 </div></div>
 <div id="optionsOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="optionsTitle"><div class="box">
   <h3 id="optionsTitle">⚙ オプション</h3>
+  <div class="option-row"><div class="option-label">🌐 表示言語</div><div class="option-buttons"><button class="btn" id="btnLanguageJa" type="button">日本語</button><button class="btn" id="btnLanguageEn" type="button">English</button></div><div class="option-sub">表示言語はこのブラウザに保存されます。</div></div>
   <div class="option-row"><div class="option-label">🔊 効果音の音量 <strong id="volumeValue">70%</strong></div><div class="volume-control"><span>🔈</span><input id="volumeSlider" type="range" min="0" max="100" step="5" value="70" aria-label="効果音の音量"><span>🔊</span></div><div class="option-sub">0%で消音。効果音のON／OFFもここで切り替えられます。</div><div class="option-buttons"><button class="btn" id="btnOptionSound">🔊 効果音：ON</button></div></div>
   <div class="option-row"><div class="option-label">🤖 CPUの行動スピード</div><div class="option-buttons" id="cpuSpeedButtons"><button class="btn" data-cpu-speed="slow">おそい</button><button class="btn" data-cpu-speed="normal">ふつう</button><button class="btn" data-cpu-speed="fast">はやい</button></div><div class="option-sub" id="cpuSpeedDescription">CPUが考えて行動する間隔を変更します。</div></div>
   <div class="dbtns"><button class="btn primary" id="btnOptionsClose">閉じる</button></div>
@@ -2172,17 +2222,6 @@ button{font:inherit;color:inherit}
     <li>攻撃側・防御側ともに「自分のアリの数＋自分が投げたサイコロの出目（＋アゴ強化などの例外）」で合計を比べます。</li>
     <li>合計が同じなら両者とも振り直しです。合計の差が退場するアリの数になり、負けた側のお菓子についているアリが退場します（退場数は残りのアリ数が上限）。</li>
   </ul>
-  <h3>🃏 カード（各プレイヤー1ゲーム1回）</h3>
-  <ul>
-    <li>🥇 ゴールドチョコ：中央に6点のお菓子を出します。運ぶにはアリが3匹必要です。</li>
-    <li>💣 アリボム：2匹で運べる特殊なお菓子。相手の塚へ運び終えると相手が4点失い、運んだアリは手元へ戻ります。煙の演出が発生し、アリボムをめぐるアリバトルもできます。</li>
-    <li>💪 アゴ強化：このターン中、最初の攻撃ダイス1回に＋3します。</li>
-    <li>🌧 雨ごい：雨を降らせる層を1つ選びます。その層にいるアリは、お菓子についていようといまい関係なく、すべて手元に戻ります。</li>
-    <li>🌪️ 荒風：アリがついていないお菓子を、すべて中央の大マスへ戻します。</li>
-    <li>🐜 アリヘブンズ：手持ちアリが12匹以下のときに使うと、このターンは手元のアリを6匹まで場のお菓子に直接つけられます。</li>
-    <li>🚫 近道封鎖：サイコロを振り、その目の数だけ相手の近道を封鎖します。封鎖は相手の次の番から始まります。</li>
-    <li>カードは行動回数を消費しませんが、1ターンに使えるのは1枚までです。雨ごいは盤面にアリがいるときに使えます。</li>
-  </ul>
   <h3>🏁 勝敗</h3>
   <p>お菓子をすべて運び終えるか、片方のアリが全滅すると勝敗が決まります。最長24ラウンド（48ターン）で終了した場合は得点を比べ、同点なら残りアリ数で決めます。</p>
   <div class="dbtns"><button class="btn primary" id="btnCloseRules">閉じる</button></div>
@@ -2214,7 +2253,8 @@ const CHAIN=['A1','A2','A3','C','B3','B2','B1'];
 const ROWS=['B1','B2','B3','C','A3','A2','A1'];
 const NAMES={A:'プレイヤーA',B:'プレイヤーB'};
 const HUMAN='A',CPU='B';
-const NODE_LABEL={A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'};
+const EN=()=>document.documentElement.lang==='en';
+const NODE_LABEL=new Proxy({A1:'Aの塚入口',A2:'A側2層目',A3:'A側3層目',C:'中央の大マス',B3:'B側3層目',B2:'B側2層目',B1:'Bの塚入口',Aw:'A待機所',Bw:'B待機所'},{get:(o,k)=>EN()?({A1:'A Nest Entrance',A2:'A Layer 2',A3:'A Layer 3',C:'Central Space',B3:'B Layer 3',B2:'B Layer 2',B1:'B Nest Entrance',Aw:'A Waiting Area',Bw:'B Waiting Area'}[k]||o[k]):o[k]});
 const CAP={A1:2,B1:2,Aw:1,Bw:1};
 const TYPES=[
   {name:'金平糖',need:1,pts:1,emo:'🍬',n:3},
@@ -2449,7 +2489,7 @@ function notifyOpponentLogs(entries){
   const battleStart=entries.find(e=>e&&e.type==='battle'&&/アリバトルを仕掛けた/.test(e.text||''));
   const score=[...entries].reverse().find(e=>e&&e.type==='score');
   const card=entries.find(e=>e&&e.type==='card'&&/が手札「/.test(e.text||''));
-  if(score){if(!/鼓舞/.test(score.text))banner(score.text,'score');return;}
+  if(score){return; /* 得点は専用の金色スコア演出に一本化し、旧通知との重なりを防ぐ */}
   if(battleStart)return;
   if(card){bigCardNotice(card.text);return;}
   if(mobileNoticeMode()){
@@ -2600,11 +2640,11 @@ function actPlace(){
   const opts=[p+'1',p+'w'].filter(canEnter);
   if(opts.length===0)return toast('塚入口も待機所も満員です');
   if(opts.length===1)return placeAt(opts[0]);
-  openDialog({title:'🐜 どこに出す？',
-    html:'<div>手元のアリを出す入口を選んでください。</div><div>待機所は中央への近道です（上限1匹）。</div>',
-    buttons:[{label:`🕳 待機所（${nodeCount(p+'w')}/1）`,cls:'primary',fn:()=>{closeDialog();placeAt(p+'w');}},
-             {label:`🏠 塚入口（${nodeCount(p+'1')}/2）`,fn:()=>{closeDialog();placeAt(p+'1');}},
-             {label:'キャンセル',cls:'ghost',fn:closeDialog}]});
+  openDialog({title:EN()?'🐜 Where to deploy?':'🐜 どこに出す？',
+    html:EN()?'<div>Choose where to deploy your ants.</div><div>The Waiting Area is a shortcut to the center (capacity: 1 ant).</div>':'<div>手元のアリを出す入口を選んでください。</div><div>待機所は中央への近道です（上限1匹）。</div>',
+    buttons:[{label:EN()?`🕳 Waiting Area (${nodeCount(p+'w')}/1)`:`🕳 待機所（${nodeCount(p+'w')}/1）`,cls:'primary',fn:()=>{closeDialog();placeAt(p+'w');}},
+             {label:EN()?`🏠 Nest Entrance (${nodeCount(p+'1')}/2)`:`🏠 塚入口（${nodeCount(p+'1')}/2）`,fn:()=>{closeDialog();placeAt(p+'1');}},
+             {label:EN()?'Cancel':'キャンセル',cls:'ghost',fn:closeDialog}]});
 }
 function actMove(from,to){
   if(!tutorialAllowsAction('move',{from,to}))return;
@@ -2636,7 +2676,7 @@ function heavenAttach(id){
  const p=cur(),c=getC(id);
  if(!c||!S.heaven||S.heaven.player!==p||S.heaven.used>=6||S.hand[p]<=0)return false;
  recordUndo('アリヘブンズで手元からつける');S.hand[p]--;c.att[p]++;S.heaven.used++;
- log(`🐜 ${NAMES[p]}が${c.type.name}へ手元から1匹つけた。`);render();return true;
+ log(`🐜 アリヘブンズ：${NAMES[p]}が${c.type.name}へ手元から1匹（計${S.heaven.used}/6匹）つけた。`,'card');render();return true;
 }
 
 function cpuAvoidAntlion(){
@@ -2676,6 +2716,12 @@ function actDetach(id){
   play('detach');
   log(`${NAMES[p]}のアリが${c.type.name}から離れました。`);render();
 }
+function showPointScoreFx(player,points,label){
+ const fx=$('#fx');if(!fx)return;const amount=Math.abs(points),scale=Math.min(1.9,0.82+amount*.13),el=document.createElement('div');el.className='ah-point-score-fx '+(points<0?'negative':'positive');
+ const name=document.createElement('span');name.textContent=label||NAMES[player];const value=document.createElement('strong');value.textContent=(points>0?'+':'')+points+'点';el.append(name,value);
+ const count=Math.min(34,10+amount*4);for(let i=0;i<count;i++){const p=document.createElement('i');p.textContent=['✨','⭐','🍬','💫'][i%4];p.style.setProperty('--angle',(i*360/count)+'deg');p.style.setProperty('--distance',(55+amount*8+(i%3)*13)+'px');p.style.setProperty('--delay',(i%5)*.035+'s');el.appendChild(p);}
+ el.style.setProperty('--score-scale',scale);fx.appendChild(el);setTimeout(()=>el.remove(),2200+amount*100);
+}
 function actCarry(id,dir,noBattle){
   if(!tutorialAllowsAction('carry',{id,dir}))return;
   if(!canAct())return;const p=cur(),q=opp(p),c=getC(id);if(!c)return;
@@ -2685,7 +2731,7 @@ function actCarry(id,dir,noBattle){
     if(c.att[p]>0&&!noBattle)return offerBattle(id,'carry',dir);
     return toast(c.att[p]>0?'相手のアリがついているため運べません':'相手のアリがついています。自分のアリをつけてバトルを仕掛けましょう');
   }
-  if(c.att[p]<c.type.need)return toast(`運ぶには自分のアリが${c.type.need}匹以上必要です（現在${c.att[p]}匹）`);
+  if(c.att[p]<c.type.need)return toast(EN()?`You need at least ${c.type.need} of your ants to carry this candy (${c.att[p]} attached).`:`運ぶには自分のアリが${c.type.need}匹以上必要です（現在${c.att[p]}匹）`);
   recordUndo(`${c.type.name}を${NODE_LABEL[t]}へ運ぶ`);
   S.actions--;S.sel=null;c.node=t;
   let finished=false,scored=false;
@@ -2694,12 +2740,12 @@ function actCarry(id,dir,noBattle){
     const pts=c.type.pts,back=c.att[p];
     S.score[p]+=pts;S.hand[p]+=back;S.candies=S.candies.filter(x=>x!==c);sheetId=null;scored=true;
     log(`🎉 ${NAMES[p]}が${c.type.name}を塚へ運びました！ +${pts}点（アリ${back}匹が手元に戻る）`,'score');
-    play('score');burst(c.type.gold?['🥇','✨','🎉','⭐']:['🎉','⭐','🍬','✨'],c.type.gold?40:24);banner(`🎉 ${NAMES[p]} +${pts}点！`,'score');
+    play('score');showPointScoreFx(p,pts,`${c.type.name}獲得！`);burst(c.type.gold?['🥇','✨','🎉','⭐']:['🎉','⭐','🍬','✨'],Math.min(64,18+pts*5));
     finished=S.candies.length===0;
   }else if(bombHit){
     const back=c.att[p];S.score[q]-=4;S.hand[p]+=back;S.candies=S.candies.filter(x=>x!==c);sheetId=null;scored=true;
     log(`💣💨 ${NAMES[p]}がアリボムを${NAMES[q]}の塚へ投げ込んだ！（運搬アリ${back}匹は手元へ戻る）`,'score');
-    play('score');smokeBombFx();
+    play('score');showPointScoreFx(q,-4,'アリボム！');smokeBombFx();
     finished=S.candies.length===0;
   }else{play('carry');log(`${NAMES[p]}が${c.type.name}を${NODE_LABEL[t]}へ運びました。`);}
   render();
@@ -2802,7 +2848,7 @@ function resolveRain(p,node){
 }
 function prior_useCard(p,key){
  if(!tutorialAllowsAction('card',{key})||!canUseCard(p,key)||cardUnavailable(p,key))return false;
- recordUndo(`手札「${CARDS[key].name}」を使う`);
+ recordUndo(`手札「${CARDS[key].name}」を使う`);if(['hungry','pheromone','antlion','sugar'].includes(key))clearUndoHistory();
  S.cards[p][key]=true;S.cardUsed=true;S.sel=null;
  log(`${CARDS[key].emo} ${NAMES[p]}が手札「${CARDS[key].name}」を使った！`,'card');
  play('card');cardNotice(p,CARDS[key]);cardImpactFx(key,CARDS[key]);
@@ -2814,17 +2860,17 @@ function prior_useCard(p,key){
  render();return true;
  }
  if(key==='gold'){
- S.candies.push({id:S.nextId++,type:{...GOLD},node:'C',att:{A:0,B:0}});play('gold');
- }else if(key==='jaw'){S.jaw=p;play('jaw');
+ S.candies.push({id:S.nextId++,type:{...GOLD},node:'C',att:{A:0,B:0}});play('gold');log('🥇 ゴールドチョコが中央マスに出現！運搬には自分のアリが3匹必要。','card');
+ }else if(key==='jaw'){S.jaw=p;play('jaw');log(`💪 ${NAMES[p]}のアゴ強化が有効に。次の自分のアリバトルの最初のダイスに＋3。`,'card');
  }else if(key==='gale'){
- S.candies.forEach(c=>{if(c.att.A+c.att.B===0)c.node='C';});shakeBoard();
- }else if(key==='heaven'){S.heaven={player:p,used:0};
+ const before=S.candies.filter(c=>c.att.A+c.att.B===0).length;S.candies.forEach(c=>{if(c.att.A+c.att.B===0)c.node='C';});shakeBoard();log(`🌪️ 荒風！アリのついていないお菓子${before}個を中央マスへ移動。`,'card');
+ }else if(key==='heaven'){S.heaven={player:p,used:0};log(`🐜 アリヘブンズ発動！このターン、手元から最大6匹をお菓子へ直接配置できる。`,'card');
  }else if(key==='block'){S.shortcutBlock[opp(p)]=3;log('🚫 相手の次の番から3手番、近道を封鎖。','card');
  }else if(key==='pheromone'){
  const total=Math.min(3,S.hand[p]),counts={};
  for(let i=0;i<total;i++){const n=p+(Math.random()<.5?'2':'3');S.hand[p]--;S.free[n][p]++;counts[n]=(counts[n]||0)+1;}
  log(`🌸 ${Object.entries(counts).map(([n,k])=>NODE_LABEL[n]+'へ'+k+'匹').join('、')}`,'card');
- }else if(key==='inspire'){S.inspire={player:p,turn:S.turnCount,events:[]};
+ }else if(key==='inspire'){S.inspire={player:p,turn:S.turnCount,events:[]};log(`📣 ${NAMES[p]}が鼓舞！この番のアリバトル勝利ごとに＋1点。`,'card');
  }else if(key==='antlion'){
  if(!S.antlions)S.antlions=[];
  const id=`${S.gid}:${S.turnCount}:${p}:${++S.cardEventSeq}`;
@@ -2832,14 +2878,14 @@ function prior_useCard(p,key){
  log(`☠ ${NAMES[p]}がアリジゴクを設置。3ターン経過後、予測できないタイミングで発動する。`,'card');
  }else if(key==='sortie'){
  const n=S.free[p+'2'][p];S.free[p+'2'][p]=0;S.free.C[p]+=n;
- log(`🚩 出撃！ ${NODE_LABEL[p+'2']}から${n}匹が中央へ。`,'card');
+ log(`🚩 出撃！ ${NODE_LABEL[p+'2']}から自由アリ${n}匹が中央へ移動。`,'card');
  }else if(key==='sugar'){
  const total=1+Math.floor(Math.random()*3),nodes=['A2','A3','B2','B3'];
  for(let i=0;i<total;i++)S.candies.push({id:S.nextId++,type:{...TYPES[0]},node:nodes[Math.floor(Math.random()*4)],att:{A:0,B:0}});
- log(`🍬 金平糖が${total}個、新たに出現！`,'card');
+ log(`🍬 金平糖降らし！${total}個が出現。`,'card');
  }else if(key==='powder'){
- S.candies.forEach(c=>{c.type={...TYPES.find(t=>t.name==='クッキー')};});
- log('🍪 場のお菓子がすべてクッキーになった！','card');
+ const changed=S.candies.length;S.candies.forEach(c=>{c.type={...TYPES.find(t=>t.name==='クッキー')};});
+ log(`🍪 クッキーパウダー！場のお菓子${changed}個をクッキーに変化させた。`,'card');
  }
  S.cpuTarget=null;render();tutorialAfterAction('card',{key});return true;
 }
@@ -2849,7 +2895,7 @@ function askCard(key){
  const C=CARDS[key],buttons=[];
  const reason=cardUnavailable(p,key);
  if(canAct()&&isHuman(cur())&&cur()===p&&canUseCard(p,key)&&!reason&&tutorialAllowsAction('card',{key})){
- buttons.push({label:'使う',cls:'primary',fn:()=>{closeDialog();useCard(p,key);}});
+ buttons.push({label:EN()?'Use':'使う',cls:'primary',fn:()=>{closeDialog();useCard(p,key);}});
  }
  buttons.push({label:'閉じる',fn:closeDialog});
  openDialog({title:`${C.emo} ${C.name}`,html:`<div>${C.desc}</div><p>${cardStatusText(key,p)}</p><p>各カード1ゲーム1回／1ターン1枚／行動消費なし${S.cards[p][key]?'／使用済み':''}</p>`,buttons});
@@ -3117,8 +3163,8 @@ function showDiceRoll(fx,{interactive=false,remotePreview=false}={}){
     multiRoll,activeRollPlayer:firstRollPlayer,roundValues:new Map(),pendingPeerRolls:new Map(),roundThrown:new Set(),roundAnimationDone:new Set(),roundAnimating:new Set(),roundResolved:false,rollTimers:new Map(),dieAnimations:new Map(),dieSettleTimers:new Map()};
   activeDiceRoll=state;dialogOpen=true;
   const $roll=$('#diceRoll');
-  const initialInstruction=isHungry?(interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロを転がしています…'):multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…';
-  const initialControls=multiRoll?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 サイコロを投げる</button>':interactive?'<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 タップして投げる</button><button class="btn ghost" type="button" id="btnDiceSkip">演出をスキップ</button>':'';
+  const initialInstruction=EN()?(interactive?'Swipe the die to throw it!':'Rolling the die…'):(isHungry?(interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロを転がしています…'):multiRoll?(mode==='online'?`あなた（${NAMES[localPlayer]}）のサイコロをドラッグ／スワイプして投げてください`:`${NAMES[fx.attacker]}からサイコロをドラッグ／スワイプして投げてください`):interactive?'サイコロをつかんで、指／マウスで勢いよく投げてください':'サイコロが転がっています…');
+  const initialControls=multiRoll?`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${EN()?'Roll the Die':'サイコロを投げる'}</button>`:interactive?`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${EN()?'Tap to Roll':'タップして投げる'}</button><button class="btn ghost" type="button" id="btnDiceSkip">${EN()?'Skip Animation':'演出をスキップ'}</button>`:'';
   const attackPlayer=isInitiative?'A':fx.attacker,defendPlayer=isInitiative?'B':fx.defender;
   const initialLeftPlayer=mode==='online'?localPlayer:mode==='local'?firstRollPlayer:'A';
   $roll.querySelector('.box').innerHTML=`<h3>${isHungry?'🍽️ ハングリー！ サイコロを投げよう':isInitiative?'🎲 先攻・後攻を決めよう':'⚔ アリバトル！ サイコロを投げよう'}</h3>
@@ -3164,6 +3210,7 @@ function updateMultiDicePrompt(state){
   const leftPlayer=mode==='online'?localPlayer:mode==='local'?state.activeRollPlayer:'A';
   orientDicePairForPlayer(state,leftPlayer);
   const instruction=$('#diceInstruction'),controls=$('#diceControls');if(!instruction||!controls)return;
+  const english=document.documentElement.lang==='en';
   controls.innerHTML='';
   const permittedPlayer=mode==='online'?localPlayer:state.activeRollPlayer;
   document.querySelectorAll('#diceRoll .die').forEach(die=>{
@@ -3176,23 +3223,23 @@ function updateMultiDicePrompt(state){
   });
   if(mode==='online'){
     const me=localPlayer,other=opp(me);
-    if(state.roundAnimating.has(me))instruction.textContent=`${NAMES[me]}のサイコロが転がっています…`;
-    else if(state.roundAnimationDone.has(me)&&!state.roundAnimationDone.has(other))instruction.textContent=`あなたは投げました。${NAMES[other]}がサイコロを投げるのを待っています…`;
-    else if(state.roundAnimationDone.has(other)&&!state.roundThrown.has(me))instruction.textContent=`${NAMES[other]}は投げました。あなたの番です！スワイプで方向を決めましょう。`;
-    else if(state.roundThrown.has(me)&&!state.roundAnimationDone.has(me))instruction.textContent='サイコロが転がっています…';
-    else instruction.textContent=`あなた（${NAMES[me]}）のサイコロをスワイプして投げてください（ボタンでもOK）`;
-    if(!state.roundThrown.has(me)&&!state.roundAnimating.has(me))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${NAMES[me]}のサイコロを投げる</button>`;
+    if(state.roundAnimating.has(me))instruction.textContent=english?`${NAMES[me]}'s die is rolling…`:`${NAMES[me]}のサイコロが転がっています…`;
+    else if(state.roundAnimationDone.has(me)&&!state.roundAnimationDone.has(other))instruction.textContent=english?`You have rolled. Waiting for ${NAMES[other]} to roll…`:`あなたは投げました。${NAMES[other]}がサイコロを投げるのを待っています…`;
+    else if(state.roundAnimationDone.has(other)&&!state.roundThrown.has(me))instruction.textContent=english?`${NAMES[other]} has rolled. Your turn! Swipe to choose your direction.`:`${NAMES[other]}は投げました。あなたの番です！スワイプで方向を決めましょう。`;
+    else if(state.roundThrown.has(me)&&!state.roundAnimationDone.has(me))instruction.textContent=english?'The die is rolling…':'サイコロが転がっています…';
+    else instruction.textContent=english?`Swipe ${NAMES[me]}'s die to roll (or use the button).`:`あなた（${NAMES[me]}）のサイコロをスワイプして投げてください（ボタンでもOK）`;
+    if(!state.roundThrown.has(me)&&!state.roundAnimating.has(me))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${english?`Roll ${NAMES[me]}'s Die`:`${NAMES[me]}のサイコロを投げる`}</button>`;
   }else{
     const player=state.activeRollPlayer;
     if(mode==='cpu'&&state.multiRoll&&state.roundThrown.has(HUMAN)&&!state.roundAnimationDone.has(CPU)){
-      instruction.textContent=state.roundAnimating.has(CPU)?`${NAMES[CPU]}のサイコロが転がっています…`:`${NAMES[CPU]}がサイコロを投げています…`;
+      instruction.textContent=state.roundAnimating.has(CPU)?(english?`${NAMES[CPU]}'s die is rolling…`:`${NAMES[CPU]}のサイコロが転がっています…`):(english?`${NAMES[CPU]} is rolling the die…`:`${NAMES[CPU]}がサイコロを投げています…`);
       controls.innerHTML='';return;
     }
-    if(mode==='cpu'&&state.fx.kind==='initiative'&&player===CPU){instruction.textContent=`${NAMES[CPU]}がサイコロを投げています…`;controls.innerHTML='';return;}
-    if(state.roundAnimating.has(player))instruction.textContent=`${NAMES[player]}のサイコロが転がっています…`;
-    else if(state.roundAnimationDone.has(player))instruction.textContent='次のプレイヤーの番です';
-    else instruction.textContent=`${NAMES[player]}の番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。`;
-    if(!state.roundThrown.has(player)&&!state.roundAnimating.has(player))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${NAMES[player]}が投げる</button>`;
+    if(mode==='cpu'&&state.fx.kind==='initiative'&&player===CPU){instruction.textContent=english?`${NAMES[CPU]} is rolling the die…`:`${NAMES[CPU]}がサイコロを投げています…`;controls.innerHTML='';return;}
+    if(state.roundAnimating.has(player))instruction.textContent=english?`${NAMES[player]}'s die is rolling…`:`${NAMES[player]}のサイコロが転がっています…`;
+    else if(state.roundAnimationDone.has(player))instruction.textContent=english?`Next player's turn.`:'次のプレイヤーの番です';
+    else instruction.textContent=english?`${NAMES[player]}'s turn. Swipe the die to choose a direction and roll (or use the button).`:`${NAMES[player]}の番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。`;
+    if(!state.roundThrown.has(player)&&!state.roundAnimating.has(player))controls.innerHTML=`<button class="btn primary" type="button" id="btnDiceTapThrow">🎲 ${english?`${NAMES[player]}: Roll the Die`:`${NAMES[player]}が投げる`}</button>`;
   }
   const button=$('#btnDiceTapThrow');if(button)button.onclick=()=>{
     if(activeDiceRoll!==state)return;
@@ -3277,7 +3324,7 @@ function finishMultiDiceStep(state){
     const modifier=`${roll.bonus?` ＋アリ数補正${roll.bonus}`:''}${roll.j?` ＋💪2`:''}`;
     result.innerHTML=`攻撃 <strong>🎲${roll.ra}＋${roll.attackAnts??state.fx.attackCount}匹${roll.j?'＋💪2':''}＝${roll.va}</strong> ／ 防御 <strong>🎲${roll.rd}＋${roll.defendAnts??state.fx.defendCount}匹＝${roll.vd??(roll.rd+state.fx.defendCount)}</strong><br>${roll.draw?'引き分け！ 振り直し！':state.fx.summary}`;
   }
-  instruction.textContent=roll.draw?'引き分け！ 次はもう一度、2人とも投げてください':'両方のサイコロが揃いました！';
+  instruction.textContent=EN()?(roll.draw?'It’s a tie! Both players, roll again.':'Both dice have landed!'):(roll.draw?'引き分け！ 次はもう一度、2人とも投げてください':'両方のサイコロが揃いました！');
   if(!roll.draw&&state.fx.kind!=='initiative')play('battle');
   if(roll.draw&&(state.fx.physicsDice||state.index<state.fx.rolls.length-1)){
     state.timer=setTimeout(()=>beginNextDiceRound(state),750);return;
@@ -3292,7 +3339,7 @@ function onDicePointerDown(e){
   dicePointer={id:e.pointerId,startX:e.clientX,startY:e.clientY,lastX:e.clientX,lastY:e.clientY,startTime:performance.now(),die};
   die.classList.add('grabbed');die.style.setProperty('--drag-x','0px');die.style.setProperty('--drag-y','0px');
   try{e.currentTarget.setPointerCapture(e.pointerId);}catch(_){}
-  $('#diceInstruction').textContent='そのままスワイプして投げてください！';
+  $('#diceInstruction').textContent=EN()?'Keep swiping to roll the die!':'そのままスワイプして投げてください！';
 }
 function onDicePointerMove(e){
   if(!dicePointer||e.pointerId!==dicePointer.id)return;
@@ -3377,16 +3424,16 @@ function finishDiceStep(state){
 }
 function battleResultHtml(fx){
   const last=[...(fx.rolls||[])].reverse().find(r=>!r.draw&&Number.isFinite(r.va)&&Number.isFinite(r.vd));
-  const rounds=(fx.rolls||[]).map((r,i)=>`<div class="rl" style="animation-delay:${i*.48}s"><b>第${i+1}回</b>　${r.line}${r.note?`<div>${r.note}</div>`:''}</div>`).join('');
-  if(!last)return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'}（${NAMES[fx.attacker]}が攻撃）</div>${rounds}<div class="battle-result-outcome">${fx.summary||'結果を確認してください。'}</div>`;
+  const rounds=(fx.rolls||[]).map((r,i)=>`<div class="rl" style="animation-delay:${i*.48}s"><b>${EN()?`Round ${i+1}`:`第${i+1}回`}</b>　${r.line}${r.note?`<div>${r.note}</div>`:''}</div>`).join('');
+  if(!last)return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'} (${NAMES[fx.attacker]} ${EN()?'attacks':'が攻撃'})</div>${rounds}<div class="battle-result-outcome">${fx.summary|| (EN()?'Check the result.':'結果を確認してください。')}</div>`;
   const bonus=last.j||0;
   const equation=(p,isAttack)=>{
     const die=isAttack?last.ra:last.rd, ants=isAttack?(last.attackAnts??fx.attackCount):(last.defendAnts??fx.defendCount), total=isAttack?last.va:last.vd;
     const jaw=isAttack&&bonus?` ＋ アゴ強化 ${bonus}`:'';
-    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${p===fx.attacker?'（攻撃側）':'（防御側）'}</div><div class="battle-result-equation">サイコロ <b>${die}</b> ＋ アリ <b>${ants}匹</b>${jaw}<br>合計 <span class="battle-result-total">${total}</span></div></div>`;
+    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
   };
   const loser=last.va<last.vd?fx.attacker:fx.defender, diff=Math.abs(last.va-last.vd), available=loser===fx.attacker?fx.attackCount:fx.defendCount, kill=Math.min(diff,available);
-  return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'}で対決</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?'⚖ 同点・振り直し':`🏁 ${NAMES[loser]}：${kill}匹退場（差 ${diff}）`}</div>`;
+  return `<div class="rl">${fx.candyEmo||'🍬'} ${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[fx.candyName]||fx.candyName||'Candy'):(fx.candyName||'対象')} ${EN()?'Battle':'で対決'}</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?(EN()?'⚖ Tie — roll again':'⚖ 同点・振り直し'):`🏁 ${NAMES[loser]}: ${kill}${EN()?' ants eliminated':'匹退場'} (${EN()?'difference':'差'} ${diff})`}</div>`;
 }
 function finishDiceRoll(state,skip){
   if(activeDiceRoll!==state||state.finished)return;
@@ -3398,9 +3445,9 @@ function finishDiceRoll(state,skip){
   const fx=state.fx;
   if(state.remotePreview){
     if(state.multiRoll){
-      openDialog({title:fx.resultTitle||'⚔ アリバトル結果',
+      openDialog({title:EN()?'⚔ Ant Battle Result':(fx.resultTitle||'⚔ アリバトル結果'),
         html:battleResultHtml(fx),
-        buttons:[{label:'OK',cls:'primary',fn:closeDialog}]});
+        buttons:[{label:EN()?'OK':'OK',cls:'primary',fn:closeDialog}]});
     }
     return;
   }
@@ -3436,9 +3483,9 @@ function finishDiceRoll(state,skip){
 /* ---------- battle ---------- */
 function offerBattle(id,trigger,dir){
   const p=cur(),q=opp(p),c=getC(id);if(!c)return;
-  openDialog({title:'⚔ アリバトルを仕掛けますか？',
-    html:`<div>${c.type.emo}${c.type.name}に ${NAMES[q]} のアリがついています。</div><div>自分 <b class="c${p}">${c.att[p]}匹</b> vs 相手 <b class="c${q}">${c.att[q]}匹</b></div>${S.jaw===p?'<div>💪 アゴ強化：攻撃側の最初の合計に+3（振り直しは対象外）</div>':''}`,
-    buttons:[{label:'仕掛ける',cls:'primary',fn:()=>{closeDialog();doBattle(id,trigger,dir);}},{label:'やめる',fn:closeDialog}]});
+  openDialog({title:EN()?'⚔ Start an Ant Battle?':'⚔ アリバトルを仕掛けますか？',
+    html:`<div>${c.type.emo}${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[c.type.name]||c.type.name):c.type.name} ${EN()?'has '+NAMES[q]+' ants attached.':`に ${NAMES[q]} のアリがついています。`}</div><div>${EN()?'You':'自分'} <b class="c${p}">${c.att[p]}${EN()?' ants':'匹'}</b> vs ${EN()?'Opponent':'相手'} <b class="c${q}">${c.att[q]}${EN()?' ants':'匹'}</b></div>${S.jaw===p?`<div>💪 ${EN()?'Jaw Upgrade: +3 to your first attack total (not on re-rolls).':'アゴ強化：攻撃側の最初の合計に+3（振り直しは対象外）'}</div>`:''}`,
+    buttons:[{label:EN()?'Start Battle':'仕掛ける',cls:'primary',fn:()=>{closeDialog();doBattle(id,trigger,dir);}},{label:EN()?'Cancel':'やめる',fn:closeDialog}]});
 }
 function doBattle(id,trigger,dir){
   const att=cur(),def=opp(att),c=getC(id);if(!c)return;
@@ -3451,7 +3498,7 @@ function doBattle(id,trigger,dir){
     eventId,gameId:S.gid,kind:'battle',physicsDice:true,candyId:id,attacker:att,defender:def,
     candyName:c.type.name,candyEmo:c.type.emo,attackCount:attackCountBefore,defendCount:defendCountBefore,
     bonus,jawBonus,rolls:[],summary:'',trigger:trigger||'attach',dir:dir||null,
-    resultTitle:'⚔ アリバトル結果'
+    resultTitle:EN()?'⚔ Ant Battle Result':'⚔ アリバトル結果'
   };
   fx.rolls.push(physicsRollPlaceholder(fx));
   // Don't apply casualties or clear the jaw bonus before the throw. Actual faces
@@ -3535,8 +3582,8 @@ function actEnd(){
   if(tutorial&&tutorial.active)return toast('まずは光っている場所を操作してみましょう');
   if(!canAct()||S.rainSelect)return;
   if(S.actions>0){
-    openDialog({title:'ターン終了',html:`<div>行動回数があと ${S.actions} 回残っています。ターンを終了しますか？</div>`,
-      buttons:[{label:'終了する',cls:'primary',fn:()=>{closeDialog();endTurnNow();}},{label:'続ける',fn:closeDialog}]});
+    openDialog({title:EN()?'End Turn':'ターン終了',html:`<div>${EN()?`${S.actions} action(s) remaining. End your turn?`:`行動回数があと ${S.actions} 回残っています。ターンを終了しますか？`}</div>`,
+      buttons:[{label:EN()?'End Turn':'終了する',cls:'primary',fn:()=>{closeDialog();endTurnNow();}},{label:EN()?'Continue':'続ける',fn:closeDialog}]});
   }else endTurnNow();
 }
 
@@ -3778,7 +3825,7 @@ function nodeClasses(n,targets,p,extra){
 }
 function nodeCell(n,targets,p){
   const isT=n==='A1'||n==='B1',isC=n==='C';
-  const cap=CAP[n]!==undefined?`<span class="ncap">${nodeCount(n)}/${CAP[n]}</span>`:(n==='A2'||n==='B2')?`<span class="ncap route-label"><svg class="route-inline-icon" viewBox="0 0 12 8" aria-hidden="true"><path d="M4 2 2 4l2 2M2 4h8M8 2l2 2-2 2"/></svg>裏道</span>`:'';
+  const cap=CAP[n]!==undefined?`<span class="ncap">${nodeCount(n)}/${CAP[n]}</span>`:(n==='A2'||n==='B2')?`<span class="ncap route-label"><svg class="route-inline-icon" viewBox="0 0 12 8" aria-hidden="true"><path d="M4 2 2 4l2 2M2 4h8M8 2l2 2-2 2"/></svg>${EN()?'Shortcut':'裏道'}</span>`:'';
   const icon=isT?'🏠':isC?'🌸':'🌿';
   const cs=candyAt(n).map(c=>candyTile(c,n!=='C')).join('');
   const cls=nodeClasses(n,targets,p,[isC?'center':isT?'tsuka '+n[0]:'path'])+(cs?' has-candy':'');
@@ -3786,12 +3833,12 @@ function nodeCell(n,targets,p){
 }
 function waitCell(w,targets,p){
   const o=w[0];
-  return `<div class="${nodeClasses(w,targets,p,['wait'])}" data-node="${w}" aria-label="${o==='A'?'A':'B'}側の待機所"><div class="nhead wait-head"><span>${o==='A'?'🔴':'🔵'}待機</span><span class="ncap">${nodeCount(w)}/1</span></div><div class="ants">${antGroup(o,S.free[w][o],20)}</div></div>`;
+  return `<div class="${nodeClasses(w,targets,p,['wait'])}" data-node="${w}" aria-label="${EN()?(o==='A'?'A Waiting Area':'B Waiting Area'):(o==='A'?'A':'B')+'側の待機所'}"><div class="nhead wait-head"><span>${o==='A'?'🔴':'🔵'}${EN()?'Waiting':'待機'}</span><span class="ncap">${nodeCount(w)}/1</span></div><div class="ants">${antGroup(o,S.free[w][o],20)}</div></div>`;
 }
 function sideCell(n,targets,p){
   if(n==='B1')return waitCell('Bw',targets,p);
   if(n==='A1')return waitCell('Aw',targets,p);
-  if(n==='C')return `<div class="rail join" aria-label="待機所から中央へ向かう一方通行"><span class="route-note">アリのみ通行</span></div>`;
+  if(n==='C')return `<div class="rail join" aria-label="${EN()?'One-way shortcut from the Waiting Area to the center':'待機所から中央へ向かう一方通行'}"><span class="route-note">${EN()?'Ants Only':'アリのみ通行'}</span></div>`;
   // Direction markers are fixed-size SVGs placed only in the empty left track gutter.
   if(n==='B3')return `<div class="rail route-guide down"><span class="route-stop" aria-hidden="true"><svg class="route-arrow" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5"/></svg></span></div>`;
   if(n==='A3')return `<div class="rail route-guide up"><span class="route-stop" aria-hidden="true"><svg class="route-arrow" viewBox="0 0 10 10"><path d="M2 6.5 5 3.5 8 6.5"/></svg></span></div>`;
@@ -3801,7 +3848,7 @@ const BD={B2:'top',B3:'mid',C:'mid',A3:'mid',A2:'bot'};
 function bdCell(n,mirror=false){
   let k=BD[n];if(!k)return '<div class="bd"></div>';
   if(mirror){if(k==='top')k='bot';else if(k==='bot')k='top';}
-  return `<div class="bd ${k}" aria-label="${n==='C'?'裏道。アリのみ通行可能':'裏道の接続路'}">${n==='C'?'<small>裏道・アリのみ</small>':''}</div>`;
+  return `<div class="bd ${k}" aria-label="${EN()?'Shortcut; ants only':'裏道。アリのみ通行可能'}">${n==='C'?`<small>${EN()?'Shortcut · Ants Only':'裏道・アリのみ'}</small>`:''}</div>`;
 }
 function fitCandyLayerRows(board){
   if(!board)return;
@@ -3890,7 +3937,7 @@ window.addEventListener('resize',()=>{requestAnimationFrame(()=>fitCandyLayerRow
 // Route cues are rendered as small arrows in the connector gutters; no SVG overlays cover the map.
 function drawBoardRoutes(){ /* intentionally no overlay */ }
 function chips(p){
-  return '<div class="chips">'+(S.decks&&S.decks[p]||[]).map(k=>`<span class="chip${S.cards[p][k]?' used':''}${(k==='jaw'&&S.jaw===p)?' on':''}">${CARDS[k].emo}${CARDS[k].short}</span>`).join('')+'</div>';
+  return `<div class="chips" aria-label="${EN()?'Cards and usage status':'所持カードと使用状況'}">${(S.decks&&S.decks[p]||[]).map(k=>`<span class="chip${S.cards[p][k]?' used':''}${(k==='jaw'&&S.jaw===p)?' on':''}">${CARDS[k].emo}${EN()?({gold:'Gold',jaw:'Jaw Boost',rain:'Rain Dance',gale:'Strong Wind',heaven:'Ant Heavens',block:'Shortcut Block',pheromone:'Pheromone',inspire:'Inspiration',antlion:'Antlion',sortie:'Sortie',sugar:'Sugar',powder:'Powder',squall:'Squall',revive:'Revive',showdown:'Showdown',summon:'Summon',typhoon:'Typhoon',strongPheromone:'Strong Pheromone',hungry:'Hungry',stronghold:'Stronghold'}[k]||CARDS[k].short)+' · '+(S.cards[p][k]?'Used':(k==='jaw'&&S.jaw===p?'Active':'Ready')):CARDS[k].short}</span>`).join('')}</div>`;
 }
 function renderPanel(p){
   const el=$('#p'+p);
@@ -3963,31 +4010,31 @@ function renderSheet(){
   const myTurn=isHuman(cur());
   const act=!S.over&&S.actions>0&&myTurn;
   const heavenLeft=S.heaven&&S.heaven.player===p?Math.min(6-S.heaven.used,S.hand[p]):0;
-  const lbl=tg=>{if(!tg)return '（運べません）';
-    const x=t.bomb&&tg===q+'1'?`相手の塚へ投げ込む（相手 −4点）`:tg===p+'1'?`塚へ運ぶ（+${t.pts}点）`:`${NODE_LABEL[tg]}へ`;
-    return (theirs>0&&mine>0)?`⚔ ${x}（バトルを仕掛ける）`:x;};
+  const lbl=tg=>{if(!tg)return EN()?'Cannot carry':'（運べません）';
+    const x=t.bomb&&tg===q+'1'?(EN()?`Deliver to opponent's nest (−4 points)`: `相手の塚へ投げ込む（相手 −4点）`):tg===p+'1'?(EN()?`Carry to nest (+${t.pts} points)`:`塚へ運ぶ（+${t.pts}点）`):`${NODE_LABEL[tg]}${EN()?'':'へ'}`;
+    return (theirs>0&&mine>0)?`⚔ ${x}${EN()?' (Start Ant Battle)':'（バトルを仕掛ける）'}`:x;};
   let state;
-  if(theirs>0)state=`⚠ 相手のアリがついているため運べません。${mine>0?'運ぼうとするとアリバトルを仕掛けられます。':'自分のアリをつけるとアリバトルを仕掛けられます。'}`;
-  else if(mine>=t.need)state=t.bomb?'💣 相手の塚へ運べます！（行動1回で1層分）':'✅ 運べます！（行動1回で1層分）';
-  else state=`あと${t.need-mine}匹つけると運べます。`;
+  if(theirs>0)state=EN()?`⚠ You cannot carry this while opponent ants are attached. ${mine>0?'You can start an Ant Battle to carry it.':'Attach your ants to start an Ant Battle.'}`:`⚠ 相手のアリがついているため運べません。${mine>0?'運ぼうとするとアリバトルを仕掛けられます。':'自分のアリをつけるとアリバトルを仕掛けられます。'}`;
+  else if(mine>=t.need)state=t.bomb?(EN()?'💣 Ready to deliver to the opponent’s nest! (One layer per action)':'💣 相手の塚へ運べます！（行動1回で1層分）'):(EN()?'✅ Ready to carry! (One layer per action)':'✅ 運べます！（行動1回で1層分）');
+  else state=EN()?`${t.need-mine} more ants needed to carry.`:`あと${t.need-mine}匹つけると運べます。`;
   el.querySelector('.box').innerHTML=`<h3>${t.emo} ${t.name}</h3>
-  <div class="sub">必要 ${t.need}匹 ／ ${t.bomb?'相手の塚へ運ぶと相手 −4点':`獲得 ${t.pts}点`} ／ 場所：${NODE_LABEL[c.node]}</div>
-  ${heavenLeft>0&&myTurn?`<div class="btnrow"><button class="btn primary" data-act="heavenAttach">🐜 手元からつける（残り${heavenLeft}匹）</button></div>`:''}
+  <div class="sub">${EN()?`Need ${t.need} ants / ${t.bomb?'Opponent loses 4 points when delivered':`Score ${t.pts} points`} / Location: ${NODE_LABEL[c.node]}`:`必要 ${t.need}匹 ／ ${t.bomb?'相手の塚へ運ぶと相手 −4点':`獲得 ${t.pts}点`} ／ 場所：${NODE_LABEL[c.node]}`}</div>
+  ${heavenLeft>0&&myTurn?`<div class="btnrow"><button class="btn primary" data-act="heavenAttach">🐜 ${EN()?`Attach from hand (${heavenLeft} left)`:`手元からつける（残り${heavenLeft}匹）`}</button></div>`:''}
   <div class="btnrow attach-controls">
-    <button class="btn" data-act="attach" ${(S.over||!myTurn||freeHere<=0)?'disabled':''}>＋ つける<br><small>（残り ${freeHere}匹）</small></button>
-    <button class="btn" data-act="detach" ${(S.over||!myTurn||mine<=0)?'disabled':''}>－ 外す<br><small>（ついている ${mine}匹）</small></button>
+    <button class="btn" data-act="attach" ${(S.over||!myTurn||freeHere<=0)?'disabled':''} >${EN()?'＋ Attach':'＋ つける'}<br><small>${EN()?`(${freeHere} left)`:`（残り ${freeHere}匹）`}</small></button>
+    <button class="btn" data-act="detach" ${(S.over||!myTurn||mine<=0)?'disabled':''} >${EN()?'－ Detach':'－ 外す'}<br><small>${EN()?`(${mine} attached)`:`（ついている ${mine}匹）`}</small></button>
   </div>
-  ${theirs>0&&mine>0?`<div class="state battle-ready-note">✅ 「＋つける」で何匹でも追加できます。準備ができたら下のボタンでバトル開始（確認画面なし）。</div><div class="btnrow"><button class="btn danger battle-start-button" data-act="battle" ${(S.over||!myTurn)?'disabled':''}>⚔ バトル開始</button></div>`:''}
+  ${theirs>0&&mine>0?`<div class="state battle-ready-note">${EN()?'✅ You can attach as many ants as you like. When ready, start the battle below (no confirmation).':'✅ 「＋つける」で何匹でも追加できます。準備ができたら下のボタンでバトル開始（確認画面なし）。'}</div><div class="btnrow"><button class="btn danger battle-start-button" data-act="battle" ${(S.over||!myTurn)?'disabled':''}>⚔ ${EN()?'Start Ant Battle':'バトル開始'}</button></div>`:''}
   <div class="attrow">
-    <div class="s A"><b>${NAMES.A}：${c.att.A}匹</b>${Array(Math.min(c.att.A,10)).fill(antSvg('A',22)).join('')||'—'}</div>
-    <div class="s B"><b>${NAMES.B}：${c.att.B}匹</b>${Array(Math.min(c.att.B,10)).fill(antSvg('B',22)).join('')||'—'}</div>
+    <div class="s A"><b>${EN()?`${NAMES.A}: ${c.att.A} ants`:`${NAMES.A}：${c.att.A}匹`}</b>${Array(Math.min(c.att.A,10)).fill(antSvg('A',22)).join('')||'—'}</div>
+    <div class="s B"><b>${EN()?`${NAMES.B}: ${c.att.B} ants`:`${NAMES.B}：${c.att.B}匹`}</b>${Array(Math.min(c.att.B,10)).fill(antSvg('B',22)).join('')||'—'}</div>
   </div>
   <div class="state">${state}</div>
   <div class="btnrow">
-    <button class="btn primary" data-act="carryOwn" ${(!act||!own)?'disabled':''}>⬆ 自陣方向<br><small>${lbl(own)}</small></button>
-    <button class="btn" data-act="carryEnemy" ${(!act||!enm)?'disabled':''}>⬇ 相手方向<br><small>${lbl(enm)}</small></button>
+    <button class="btn primary" data-act="carryOwn" ${(!act||!own)?'disabled':''} >⬆ ${EN()?'Toward Your Nest':'自陣方向'}<br><small>${lbl(own)}</small></button>
+    <button class="btn" data-act="carryEnemy" ${(!act||!enm)?'disabled':''} >⬇ ${EN()?'Toward Opponent':'相手方向'}<br><small>${lbl(enm)}</small></button>
   </div>
-  <div class="btnrow"><button class="btn ghost" data-act="undo" ${!canUndoNow()?'disabled':''}>↶ ひとつ戻す</button><button class="btn ghost" data-act="closeSheet">とじる</button></div>`;
+  <div class="btnrow"><button class="btn ghost" data-act="undo" ${!canUndoNow()?'disabled':''} >↶ ${EN()?'Undo':'ひとつ戻す'}</button><button class="btn ghost" data-act="closeSheet">${EN()?'Close':'とじる'}</button></div>`;
   el.classList.add('open');
 }
 function prior_render(){
@@ -4020,6 +4067,7 @@ function prior_render(){
   $('#actionPips').innerHTML=[0,1].map(i=>`<span class="action-pip${!S.over&&i<S.actions?' on':''}"></span>`).join('');
   $('#actionNote').textContent=S.over?'この対戦は終了しました':S.actions===0?'行動を使い切りました。ターン終了できます。':`${turnLabel} · あと${S.actions}回行動できます`;
   $('#actionMeter').classList.toggle('waiting',!isMine&&!S.over);
+  if(EN()){$('#actionsLabel').textContent=isMine?'Actions Left':'Opponent Actions';$('#actionNote').textContent=S.over?'Match finished':S.actions===0?'No actions left. End your turn.':`${turnLabel} · ${S.actions} action(s) remaining`;}
   renderPanel('A');renderPanel('B');renderBoard();renderLog();renderBattleTicker();renderCards();
   const H=mode==='local'?p:(mode==='online'?localPlayer:HUMAN),mt=!S.over&&isHuman(p)&&(mode!=='online'||(onlineConnected&&onlineStarted));
   $('#btnPlace').disabled=!mt||S.actions<=0||S.hand[H]<=0||(!canEnter(H+'1')&&!canEnter(H+'w'))||(tutorial&&tutorial.active&&![0,1].includes(tutorial.step));
@@ -4536,7 +4584,7 @@ function hHarvest(info){
     if(x.n>=3&&missing>0)sc*=Math.pow(0.68,missing);             // don't start an expensive heavy-candy project
     if(x.n>=3&&missing===0)sc*=1.15;                             // prepared heavy candy is worth finishing
     if(x.m>0)sc*=1.22;                                           // continue meaningful progress
-    if(x.gold)sc*=(atSite>=6)?1:0.42;                            // don't sink ants into an unfinished 7-point bait
+    if(x.gold){const goldCanFinish=x.m+x.cAt>=3||x.m+x.cNear>=3||x.m+x.cAt>=2&&S.hand[CPU]>=1;sc*=goldCanFinish?2.25:1.05;if(x.m>0||x.cAt>0)sc*=1.35;}                            // don't sink ants into an unfinished 7-point bait
     else if(lured)sc*=1.35;                                      // exploit the human's gold fixation moderately
     if(S.hm&&S.hm.harvestTarget===x.c.id)sc*=1.12;
     if(sc>bs){bs=sc;best=x;}
@@ -5183,14 +5231,14 @@ function ahTyphoonTick(){
 function tickStrongPheromoneStart(){
  const x=S?.strongPheromone;if(!x||x.remainingStarts<=0)return;
  const p=cur(),entrance=p+'1',space=Math.max(0,(CAP[entrance]||0)-nodeCount(entrance)),n=Math.min(space,S.hand[p]);
- if(n>0){S.hand[p]-=n;S.free[entrance][p]+=n;log(`🌺 強烈フェロモン！ ${NAMES[p]}の塚入口に${n}匹が集まった。`,'card');}
+ if(n>0){S.hand[p]-=n;S.free[entrance][p]+=n;log(`🌺 強烈フェロモン発動！ ${NAMES[p]}の塚入口に${n}匹が集まった。`,'card');}
  x.remainingStarts--;
  if(x.remainingStarts<=0){S.strongPheromone=null;log('🌺 強烈フェロモンの効果が終了した。','card');}
 }
 function useCard(p,k){
  if(k==='typhoon'||k==='strongPheromone'){
   if(!tutorialAllowsAction('card',{key:k})||!canUseCard(p,k)||cardUnavailable(p,k))return false;
-  recordUndo(`手札「${CARDS[k].name}」を使う`);S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
+  recordUndo(`手札「${CARDS[k].name}」を使う`);if(['typhoon','squall'].includes(k))clearUndoHistory();S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
   log(`${CARDS[k].emo} ${NAMES[p]}が手札「${CARDS[k].name}」を使った！`,'card');play('card');cardNotice(p,CARDS[k]);cardImpactFx(k,CARDS[k]);
   if(k==='typhoon'){
    S.typhoon={player:p,castTurn:S.turnCount};S.typhoonLocked[p]=true;
@@ -5213,7 +5261,7 @@ function useCard(p,k){
  for(const q of ['A','B'])for(const card of S.decks[q])if(card!=='revive')S.cards[q][card]=false;
  log('♻ 両者のカードが復活。発動中の効果は継続。','card');
  }else if(k==='summon'){
- S.candies.push({id:S.nextId++,node:'C',att:{A:0,B:0},type:{...TYPES.find(t=>t.bomb)}});
+ S.candies.push({id:S.nextId++,node:'C',att:{A:0,B:0},type:{...TYPES.find(t=>t.bomb)}});log('💣 アリボム召喚！中央マスに新しいアリボムが出現。','card');
  }else if(k==='showdown'){
  render();startShowdown(p);return true;
  }
@@ -5222,7 +5270,7 @@ function useCard(p,k){
 function startHungryDice(p){
  const fx={eventId:`hungry-${S.gid}-${++battleFxCounter}-${Date.now()}`,gameId:S.gid,kind:'hungry',physicsDice:true,attacker:p,defender:opp(p),rolls:[],summary:'',resultTitle:'🍽️ ハングリー'};
  fx.rolls.push({ra:1,rd:1,draw:false,line:'サイコロを投げています…'});
- showDiceRoll(fx,{interactive:isHuman(p),remotePreview:false});
+ log(`🍽️ ${NAMES[p]}がハングリーのサイコロを振る。`,'card');showDiceRoll(fx,{interactive:isHuman(p),remotePreview:false});
 }
 function startShowdown(p){
  const attackCount=fieldAnts(p),defendCount=fieldAnts(opp(p));if(!attackCount||!defendCount)return false;
@@ -5248,7 +5296,7 @@ function applyPhysicsBattleResult(state,roll){
  if(roll.draw||state.remotePreview||fx.physicsApplied)return;
  const out=physicsBattleSummary(fx,roll),removed=randomFieldCasualties(out.loser,out.kill);
  fx.physicsApplied=true;fx.casualties=removed;
- fx.summary=`決戦：${NAMES[out.loser]}の場のアリがランダムに${removed.length}匹退場！`;roll.summary=fx.summary;
+ fx.summary=`決戦：${NAMES[out.loser]}の場のアリがランダムに${removed.length}匹退場！`;roll.summary=fx.summary;log(`⚔️ 決戦の結果：${NAMES[out.loser]}の場から${removed.length}匹が退場。`,'card');
  if(fx.jawBonus)S.jaw=null;for(const r of fx.rolls)log(r.line||'決戦ダイス','battle');log(fx.summary,'battle');
  awardInspire(opp(out.loser),fx.eventId);shakeBoard();render();
 }
@@ -5363,6 +5411,7 @@ function tutorialApplyFocus(){
  selectors.forEach(sel=>document.querySelectorAll(sel).forEach(el=>el.classList.add('tutorial-focus')));
 }
 function render(){prior_render();if(S&&S.started)renderWeatherCountdown();tutorialApplyFocus();}
+document.addEventListener('ah-language-change',()=>{if(S&&S.started)render();if(typeof refreshOptions==='function')refreshOptions();});
 
 
 const cpuOddsCache=new Map();
@@ -5659,7 +5708,7 @@ function refreshOptions(){
   const value=$('#volumeValue');if(value)value.textContent=`${Math.round(soundVolume*100)}%`;
   const soundBtn=$('#btnOptionSound');if(soundBtn)soundBtn.textContent=muted?'🔇 効果音：OFF':'🔊 効果音：ON';
   document.querySelectorAll('[data-cpu-speed]').forEach(b=>b.classList.toggle('selected',b.dataset.cpuSpeed===cpuSpeed));
-  const desc=$('#cpuSpeedDescription');if(desc)desc.textContent=cpuSpeed==='slow'?'ゆっくり考えて行動します。手順を確認しながら遊びたいときに。':cpuSpeed==='fast'?'短い間隔でテンポよく行動します。':'標準の行動間隔です。';
+  const desc=$('#cpuSpeedDescription');if(desc)desc.textContent=EN()?(cpuSpeed==='slow'?'Thinks and acts slowly, giving you time to follow each move.':cpuSpeed==='fast'?'Acts at short intervals for a faster pace.':'Uses the standard action interval.'):(cpuSpeed==='slow'?'ゆっくり考えて行動します。手順を確認しながら遊びたいときに。':cpuSpeed==='fast'?'短い間隔でテンポよく行動します。':'標準の行動間隔です。');
 }
 function openOptions(){refreshOptions();$('#optionsOverlay').classList.add('open');}
 function closeOptions(){$('#optionsOverlay').classList.remove('open');}
@@ -5828,6 +5877,9 @@ function ahQueueCardPresentation(event){
  ahCardPresentationQueue.push({...event,gid:S.gid});
  ahPlayNextCardPresentation();
 }
+function ahAddStormStreaks(fx){const layer=document.createElement('div');layer.className='ah-typhoon-streak-layer';for(let i=0;i<34;i++){const e=document.createElement('i');e.className=i%3===0?'wind':'water';e.style.left=(Math.random()*110-5)+'vw';e.style.top=(Math.random()*110-5)+'vh';e.style.setProperty('--sx',(Math.random()*260-130)+'px');e.style.setProperty('--sy',(Math.random()*260-130)+'px');e.style.animationDelay=(Math.random()*1.2)+'s';layer.appendChild(e);}fx.appendChild(layer);setTimeout(()=>layer.remove(),4200);}
+function ahMarkEffectCell(node,kind,duration=1900){const cls='ah-cell-effect-'+kind;const apply=()=>{const cell=document.querySelector('#board .node[data-node="'+node+'"]');if(!cell)return;cell.classList.remove('ah-cell-effect-antlion','ah-cell-effect-squall','ah-cell-effect-typhoon');cell.classList.add(cls);cell.setAttribute('data-ah-effect-active','1');};apply();const board=document.getElementById('board');if(board&&window.MutationObserver){const observer=new MutationObserver(apply);observer.observe(board,{childList:true,subtree:true});setTimeout(()=>observer.disconnect(),duration+80);}setTimeout(()=>{const current=document.querySelector('#board .node[data-node="'+node+'"]');if(current){current.classList.remove(cls);current.removeAttribute('data-ah-effect-active');}},duration);}
+function ahAntlionSink(fx){const layer=document.createElement('div');layer.className='ah-antlion-sink';for(let i=0;i<16;i++){const e=document.createElement('i');e.textContent=i%3===0?'🪨':'●';e.style.setProperty('--a',(i*22.5)+'deg');e.style.setProperty('--d',(35+Math.random()*105)+'px');e.style.animationDelay=(Math.random()*.35)+'s';layer.appendChild(e);}fx.appendChild(layer);setTimeout(()=>layer.remove(),4200);}
 function ahPlayNextCardPresentation(){
  if(ahCardPresentationBusy)return;
  let event=null;
@@ -5841,29 +5893,23 @@ function ahPlayNextCardPresentation(){
  const particles=document.createElement('span');particles.className='ah-event-particles';
  const title=document.createElement('strong');const detail=document.createElement('small');
  if(event.type==='antlion'){
-  play('antlion');
-  const cell=document.querySelector('#board [data-node="C"]');
-  if(cell){const r=cell.getBoundingClientRect();const ring=document.createElement('div');ring.className='ah-antlion-ring';setFixedRect(ring,{left:r.left-5,top:r.top-5,width:r.width+10,height:r.height+10});document.body.appendChild(ring);
-   const label=document.createElement('div');label.className='ah-antlion-label';label.textContent=`☠ アリジゴク発動！ A ${event.counts.A}匹／B ${event.counts.B}匹が退場`;label.style.left=Math.max(8,Math.min(r.left+r.width/2-115,window.innerWidth-238))+'px';label.style.top=Math.max(8,r.top-43)+'px';document.body.appendChild(label);
-   el.dataset.antlion='1';el.appendChild(particles);el.append(title,detail);particles.textContent='☠';title.textContent='';detail.textContent=`中央マスのアリが退場（A ${event.counts.A}匹／B ${event.counts.B}匹）`;
-   const duration=1800;setTimeout(()=>{ring.remove();label.remove();el.remove();blocker.remove();ahCardPresentationBusy=false;ahPlayNextCardPresentation();},duration);return;
-  }
-  particles.textContent='☠';title.textContent='アリジゴク';detail.textContent=`A ${event.counts.A}匹／B ${event.counts.B}匹が退場`;
+  play('antlion');ahMarkEffectCell('C','antlion',4200);ahAntlionSink(fx);
+  particles.textContent='🪨  ●  🪨';title.textContent='アリジゴク発動！';detail.textContent=`中央マスのアリが吸い込まれた（A ${event.counts.A}匹／B ${event.counts.B}匹）`;
  }else if(event.type==='pheromone'){
-  particles.textContent='🌺 🐜 🌺';title.textContent='強烈フェロモン';
-  detail.textContent=`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
+  particles.textContent='🌺 🐜 🌺';title.textContent=EN()?'Powerful Pheromone':'強烈フェロモン';
+  detail.textContent=EN()?`${NAMES[event.player]}'s Nest Entrance attracted ${event.count} ants.`:`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
   play('card');
  }else if(event.type==='typhoon'){
-  play('typhoon');
-  particles.textContent='🌀 💨 🌀';title.textContent='台風';
+  play('typhoon');ahAddStormStreaks(fx);ahMarkEffectCell(event.node,'typhoon',4200);
+  particles.textContent='💨 🌊 💨';title.textContent='台風';
   detail.textContent=`${NODE_LABEL[event.node]}からアリ${event.ants}匹・お菓子${event.candies}個が移動`;
  }else if(event.type==='weather'){
-  particles.textContent='⛈️ 💧 ⚡ 💧 ⛈️';title.textContent='ゲリラ豪雨！';
+  rainFx();ahMarkEffectCell(event.node,'squall',4200);particles.textContent='💧 🌧️ 💧 ⛈️ 💧 🌧️ 💧';title.textContent='ゲリラ豪雨！';
   detail.textContent=`${NODE_LABEL[event.node]}：A ${event.counts.A}匹・B ${event.counts.B}匹が手元へ`;
   play('rain');
  }
  el.append(particles,title,detail);fx.appendChild(el);
- const duration=event.type==='typhoon'?1550:event.type==='pheromone'?1450:1900;
+ const duration=event.type==='typhoon'?4300:event.type==='antlion'?4300:event.type==='weather'?4300:3000;
  setTimeout(()=>{el.remove();blocker.remove();ahCardPresentationBusy=false;ahPlayNextCardPresentation();},duration);
 }
 // Replace the weather-only presenter so rain, pheromone and typhoon events share one strict sequence.
@@ -5961,6 +6007,283 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 </script>
+
+<script>
+/* AH_LANGUAGE_SWITCH_V1
+ * UI-only localization layer. Game state, network packets, rules and saved decks remain language-neutral.
+ */
+(()=>{
+'use strict';
+const KEY='ah_language_v1';
+let lang='ja';
+try{lang=localStorage.getItem(KEY)==='en'?'en':'ja';}catch(_){}
+const pairs=[
+['アリヘブンズ ルール一覧','Ant Heavens — Rules'],['読みながら確認するか、実際に操作して覚えるか選んでください。','Read the rules or learn by playing.'],
+['対戦は一時停止しません。オンライン対戦では、相手の手番も進行する場合があります。','The match does not pause. In online play, your opponent may continue taking turns.'],
+['最初の1ターンだけ行動1回','One action on the first turn only'],['CPUが考えて行動する間隔を変更します。','Changes how quickly the CPU takes its turns.'],
+['0%で消音。効果音のON／OFFもここで切り替えられます。','Set to 0% to mute. You can also turn sound effects on or off here.'],
+['対戦で使う3枚を選んでください。選んだ内容はこのブラウザに保存され、次回も反映されます。セットしたカードは相手にも公開されます。','Choose 3 cards for the match. Your selection is saved in this browser and shown to your opponent.'],
+['詳しい説明を読みたいときはこちら。チュートリアルはタイトル画面の「操作しながら学ぶ」から始められます。','Read the detailed rules here. Start the tutorial from “Learn to Play” on the title screen.'],
+['自分のターンでは、基本的に行動を2回行えます。アリを出す・移動する・お菓子を運ぶ操作は行動を1回消費します。','You usually have 2 actions per turn. Deploying ants, moving them, and carrying candy each cost 1 action.'],
+['アリをお菓子につける／外す操作は、行動回数を消費しません。','Attaching or detaching ants from candy does not use an action.'],
+['1手番中に行った直前の操作は「↶ 1つ戻す」で取り消せます。ただし、バトル実行後やターン終了後は戻せません。','You can undo your most recent action with “↶ Undo”. Battles and ended turns cannot be undone.'],
+['金平糖：必要1匹・1点、クッキー：2匹・2点、板チョコ：3匹・3点、ロリポップ：5匹・5点。','Konpeito: 1 ant / 1 point; Cookie: 2 / 2; Chocolate Bar: 3 / 3; Lollipop: 5 / 5.'],
+['必要数以上の自分のアリがついているお菓子を、自分の塚入口へ1層ずつ運ぶと得点になり、ついていた自分のアリは手元へ戻ります。','Carry candy with enough of your ants one layer at a time to your nest entrance to score. Your ants return to your hand.'],
+['相手のアリがついているお菓子は、そのままでは運べません。自分のアリもつけるとバトルを仕掛けられます。','You cannot carry candy with enemy ants attached. Attach your own ants too to challenge them to battle.'],
+['通常の道は隣のマスへ1層ずつ移動します。','Move one space at a time along regular paths.'],
+['茶色の道は待機所から中央へ向かう一方通行です。待機所は各プレイヤー1匹まで。','The brown path is one-way from the Waiting Area to the center. Each Waiting Area holds 1 ant.'],
+['紫色の裏道はA側2層目とB側2層目をつなぎます。アリだけが通れます。','The purple shortcut connects the second layers on both sides. Only ants can use it.'],
+['攻撃側・防御側ともに「自分のアリの数＋自分が投げたサイコロの出目（＋アゴ強化などの例外）」で合計を比べます。','Both attacker and defender compare their ant count plus their own die roll (with bonuses such as Jaw Boost).'],
+['合計が同じなら両者とも振り直しです。合計の差が退場するアリの数になり、負けた側のお菓子についているアリが退場します（退場数は残りのアリ数が上限）。','If totals tie, both players roll again. The difference is the number of losing ants removed from the candy, up to the number attached.'],
+['お菓子をすべて運び終えるか、片方のアリが全滅すると勝敗が決まります。最長24ラウンド（48ターン）で終了した場合は得点を比べ、同点なら残りアリ数で決めます。','The game ends when all candy is delivered or one player loses all ants. After 24 rounds (48 turns), the higher score wins; ties are broken by remaining ants.'],
+['このターン中に起きるアリバトルで、最初に投げる自分のダイス1回だけ出目を「+3」します（引き分けの振り直しは対象外）。バトルが起きなければ無駄になります。','Adds +3 to your first die roll in an ant battle this turn. Does not affect tie re-rolls. If no battle occurs, the effect is wasted.'],
+['雨を降らせる層を1つ選びます。その層にいるアリは、お菓子についていようといまい関係なく、すべて手元に戻ります。','Choose a layer. All ants on that layer return to their owners’ hands, whether attached to candy or not.'],
+['アリがついていないお菓子を、すべて中央の大マスへ戻します。','Move all candy with no ants attached to the central space.'],
+['このターン、手元の自分のアリを6匹まで、場のお菓子に直接つけられます。手持ちアリが12匹以下のときに使えます。','If you have 12 or fewer ants in hand, attach up to 6 of them directly to any candy on the board this turn.'],
+['サイコロを振り、その目の数だけ相手の近道を封鎖します。封鎖は相手の次の番から始まります。','Roll a die to block the opponent’s shortcut for that many turns, starting on their next turn.'],
+['相手の次の番から、相手の3ターン分、近道を封鎖します。','Blocks the opponent’s shortcut for their next 3 turns.'],
+['相手のアリがついているため運べません','You cannot carry this candy while enemy ants are attached.'],
+['相手のアリがついています。自分のアリをつけてバトルを仕掛けましょう','Enemy ants are attached. Add your own ants to challenge them to battle.'],
+['その方向へは運べません','You cannot carry it in that direction.'],
+['このマスに自由な自分のアリがいません','You have no free ants on this space.'],
+['対象のお菓子を選んでください','Choose a candy.'],
+['この練習では中央の金平糖を選んでください','Choose the central konpeito for this tutorial.'],
+['今は操作を戻せません','You cannot undo that action now.'],
+['このステップでは「1つ戻す」の練習はまだできません','Undo practice is not available in this step yet.'],
+['まずは光っている場所を操作してみましょう','Try interacting with the highlighted space first.'],
+['光っている場所を操作してみましょう','Try interacting with the highlighted space.'],
+['「練習を始める」を押してください','Press “Start Practice”.'],
+['「▼ 次へ」を押して進んでください','Press “▼ Next” to continue.'],
+['行動回数を使い切ってからターン終了しましょう','Use all your actions before ending your turn.'],
+['カードは行動回数を消費しませんが、1ターンに使えるのは1枚までです。雨ごいは盤面にアリがいるときに使えます。','Cards do not cost actions, but you can play only 1 card per turn. Rain Dance requires ants on the board.'],
+['中央の大マスに、6点の特別な「ゴールドチョコ」が登場します。運ぶには自分のアリが3匹必要です。','A special 6-point Golden Chocolate appears in the center. It requires 3 of your ants to carry.'],
+['2匹で運べる特殊なお菓子。相手の塚へ運び終えると相手が4点失い、運んだアリは手元へ戻ります。煙の演出が発生し、アリボムをめぐるアリバトルもできます。','A special candy carried by 2 ants. Deliver it to the enemy nest to make them lose 4 points; your ants return to your hand. Ant battles can occur over it.'],
+['このターン中、最初の攻撃ダイス1回に＋3します。','Adds +3 to your first attack die roll this turn.'],
+['手持ちアリが12匹以下のときに使うと、このターンは手元のアリを6匹まで場のお菓子に直接つけられます。','When you have 12 or fewer ants in hand, attach up to 6 ants directly to candy this turn.'],
+['カード（各プレイヤー1ゲーム1回）','Cards (once per player per game)'],
+['アリの行動','Ant Actions'],['お菓子を運ぶ','Carrying Candy'],['道のつながり','Paths'],['アリバトル','Ant Battle'],['勝敗','Winning the Game'],
+['一人で遊ぶ','Solo Play'],['二人で遊ぶ','Two Players'],['カードをセットする','Choose Cards'],['遊び方を学ぶ','Learn to Play'],['オプション','Options'],
+['CPUの難易度','CPU Difficulty'],['先攻のハンデ','First Player Handicap'],['バトル開始','Start Battle'],['戻る','Back'],['なし','None'],['かんたん','Easy'],['ふつう','Normal'],['つよい','Hard'],['とてもつよい','Very Hard'],
+['オンラインで離れた人と遊ぶ','Online — Play Remotely'],['ローカルで近い人と別端末で遊ぶ','Local Network — Nearby Devices'],['同じ端末で2人で遊ぶ','2 Players on This Device'],
+['ルールブックを見る','Read the Rules'],['遊ぶチュートリアル','Interactive Tutorial'],['閉じる','Close'],['対戦メニュー','Match Menu'],['対戦に戻る','Resume Match'],['効果音：ON','Sound: ON'],['効果音：OFF','Sound: OFF'],['対戦ログ','Match Log'],['サレンダー','Surrender'],['新規／やり直す','New Game / Restart'],['ルールを見る','View Rules'],['効果音の音量','Sound Volume'],['CPUの行動スピード','CPU Speed'],['おそい','Slow'],['はやい','Fast'],['進行ログ','Game Log'],['見どころ','Highlights'],
+['選択中','Selected'],['保存せず戻る','Cancel'],['初期セットに戻す','Reset to Default'],['保存して戻る','Save'],['カードを3枚選んでください','Please select 3 cards.'],['カードセットを保存しました','Card set saved.'],
+['Aの塚入口','A Nest Entrance'],['Bの塚入口','B Nest Entrance'],['A側2層目','A Layer 2'],['A側3層目','A Layer 3'],['B側2層目','B Layer 2'],['B側3層目','B Layer 3'],['中央の大マス','Central Space'],['A待機所','A Waiting Area'],['B待機所','B Waiting Area'],
+['金平糖','Konpeito'],['クッキー','Cookie'],['板チョコ','Chocolate Bar'],['ロリポップ','Lollipop'],['ゴールドチョコ','Golden Chocolate'],['アリボム','Ant Bomb'],
+['ゴールド','Golden'],['ゴールドチョコ','Golden Chocolate'],['アゴ強化','Jaw Boost'],['雨ごい','Rain Dance'],['荒風','Gust'],['アリヘブンズ','Ant Heavens'],['近道封鎖','Shortcut Block'],['フェロモン','Pheromone'],['強烈フェロモン','Powerful Pheromone'],['決戦','Showdown'],['アリジゴク','Antlion'],['出撃','Sortie'],['金平糖降らし','Konpeito Shower'],['クッキーパウダー','Cookie Powder'],['ゲリラ豪雨','Squall'],['カード復活','Card Revival'],['台風','Typhoon'],['ハングリー','Hungry'],['強奪','Heist'],['アリボム召喚','Summon Ant Bomb'],
+['待機中','Waiting'],['競合中','Contested'],['Aが運べる','A can carry'],['Bが運べる','B can carry'],['あと','Need '],['匹',' ants'],['点',' pts'],['必要','Need '],['手元','In Hand'],['待機所','Waiting Area'],['塚入口','Nest Entrance'],['裏道','Shortcut'],['行動回数がありません','No actions remaining.'],['手元にアリがいません','No ants in hand.'],['が満員です',' is full.'],['塚入口も待機所も満員です','Both the nest entrance and waiting area are full.'],['バトルには自分と相手のアリが1匹以上必要です','Both players need at least 1 ant to battle.'],['雨を降らせる層を選んでください','Choose a layer for the rain.'],['相手のアリが4匹以上いるお菓子を選んでください','Choose candy with at least 4 enemy ants.'],
+['アリを出す','Deploy Ant'],['移動する','Move'],['お菓子を運ぶ','Carry Candy'],['バトル開始','Start Battle'],['アリをつける','Attach Ants'],['アリを外す','Detach Ants'],['ターン終了','End Turn'],['1つ戻す','Undo'],['次へ','Next'],['中断','Exit'],['最初からやり直す','Restart from the Beginning'],['続ける','Continue'],
+['プレイヤーA','Player A'],['プレイヤーB','Player B'],['先攻','First'],['後攻','Second'],['ターン','Turn'],['ラウンド','Round'],['得点','Score'],['アリ','Ants'],['カード','Card'],['使用可能','Available'],['使用済み','Used']
+];
+
+/* Expanded UI coverage: dialogs, live status, tutorial, dice, candy panels,
+   online connection screens, card descriptions and card-impact captions. */
+pairs.push(
+['新しいゲーム','New Game'],['現在のゲームを破棄して最初からやり直しますか？','Discard the current game and start over?'],['やり直す','Restart'],['キャンセル','Cancel'],
+['対戦終了','Match Over'],['この対戦は終了しています。次の操作を選んでください。','This match has ended. Choose what to do next.'],['タイトルへ戻る','Return to Title'],['結果を見る','View Results'],['盤面に戻る','Return to Board'],
+['獲得','Earned'],['場所：','Location: '],['必要 ','Required '],['匹 ／ ',' ants / '],['点',' pts'],['点！',' points!'],['＋ つける','＋ Attach'],['－ 外す','－ Detach'],['（残り ',' ( '],['匹）',' left)'],['（ついている ',' (attached: '],['自陣方向','Toward Your Nest'],['相手方向','Toward Opponent'],['ひとつ戻す','Undo'],['とじる','Close'],['選べます',' available'],['あなた','You'],['練習相手','Practice Opponent'],['自分側','Your side'],['相手側','Opponent side'],['残り','Remaining'],['手持ち','In Hand'],['退場','Removed'],['待機','Waiting'],['中央スペース','Central Space'],['メニュー','Menu'],
+['部屋を作成','Create Room'],['部屋に参加','Join Room'],['接続ID','Room Code'],['接続IDを入力','Enter Room Code'],['相手に伝えてください','Share this code with your opponent.'],['部屋を作成しています','Creating room…'],['接続しています','Connecting…'],['接続状況','Connection Status'],['モード選択へ戻る','Back to Mode Selection'],['ゲストとして参加','Join as Guest'],['ホスト','Host'],['ゲスト','Guest'],['通信サーバーとの接続が切れました。ページを再読み込みして再接続してください。','Connection to the signaling server was lost. Reload the page to reconnect.'],['接続エラー：','Connection error: '],['もう一度お試しください。','Please try again.'],
+['サイコロをつかんで、指／マウスで勢いよく投げてください','Drag or swipe the die with a quick motion to roll.'],['サイコロを転がしています…','Rolling the die…'],['サイコロが転がっています…','The die is rolling…'],['サイコロを投げる','Roll Dice'],['タップして投げる','Tap to Roll'],['演出をスキップ','Skip Animation'],['先攻・後攻を決めよう','Determine First Player'],['AとBの出目を比べます。同じ目ならもう一度投げます。','Compare A and B’s rolls. Roll again if tied.'],['プレイヤーA','Player A'],['プレイヤーB','Player B'],['攻撃側','Attacker'],['防御側','Defender'],['投げてください','Roll the die'],['あなたは先攻','You go first'],['あなたは後攻','You go second'],['先攻プレイヤー','First Player'],['先攻が決まりました','First player determined'],['はじめる','Begin'],
+['🎓 チュートリアル','🎓 Tutorial'],['チュートリアル','Tutorial'],['全','Total: '],['ステップ','Steps'],['中断','Exit'],['▼ はじめる','▼ Start'],['ゲームの基本を学びましょう。','Learn the basics of the game.'],['アリを「塚入り口」にセットします','Place an ant at the “Nest Entrance”.'],['今度はアリを「待機所」にセットします','Now place an ant in the “Waiting Area”.'],['下のボタンを押して，塚入り口を選びましょう','Press the button below, then select the Nest Entrance.'],['下のボタンを押して，待機所を選びましょう','Press the button below, then select the Waiting Area.'],['塚入り口には2匹までアリがセットできます','The Nest Entrance can hold up to 2 ants.'],['待機所には1匹までアリがセットできます','The Waiting Area can hold up to 1 ant.'],['アリが付きましたね．アリは自分の番なら何度もつけ外せます','The ant is attached! You can attach and detach ants freely during your turn.'],['お菓子が移動しましたね。','The candy has moved.'],['1点をゲットしました！','You scored 1 point!'],['練習を始める','Start Practice'],['▼ 次へ','▼ Next'],['次へ','Next'],['補足：行動回数','Extra: Actions'],['補足：バトルのコツ','Extra: Battle Tips'],['ゲームのルール','Game Rules'],
+['天からアリが集結！','Ants descend from above!'],['アリジゴク発動！','ANTLION!'],['中央マスのアリが吸い込まれた','Ants in the center were swallowed'],['強烈フェロモン','Powerful Pheromone'],['の塚入口にアリが',' ants gathered at the Nest Entrance of '],['台風','Typhoon'],['からアリ','From '],['匹・お菓子',' ants and '],['個が移動',' candies moved'],['ゲリラ豪雨！','SQUALL!'],['が手元へ',' returned to hand'],['強烈フェロモンの効果が終了した。','Powerful Pheromone has ended.'],['台風の効果はすでに発動中です','Typhoon is already active.'],['カードは行動回数を消費しませんが、1ターンに使えるのは1枚までです。','Cards do not use actions, but you can play only one per turn.'],
+['相手のアリがついているため運べません。','You cannot carry candy while enemy ants are attached.'],['運ぼうとするとアリバトルを仕掛けられます。','Trying to carry it will trigger an Ant Battle.'],['自分のアリをつけるとアリバトルを仕掛けられます。','Attach your ants to start an Ant Battle.'],['運べます！（行動1回で1層分）','Ready to carry! (One layer per action)'],['あと','Need '],['匹つけると運べます。',' more ant(s) to carry.'],['バトル開始','Start Battle'],['準備ができたら下のボタンでバトル開始（確認画面なし）。','When ready, press the button below to start the battle.'],
+['自分の番','Your turn'],['相手の番','Opponent’s turn'],['あなたの手番','Your Turn'],['相手の手番','Opponent’s Turn'],['CPUの手番','CPU’s Turn'],['2人で交代プレイ','Pass-and-Play'],['第',''],['ラウンド / ',' Round / '],['ターン / 全',' Turn / Total '],['ゲーム終了・結果を見る','Game Over · View Results'],
+['雨ごい','Rain Dance'],['アゴ強化','Jaw Boost'],['荒風','Gust'],['アリヘブンズ','Ant Heavens'],['近道封鎖','Shortcut Block'],['フェロモン','Pheromone'],['鼓舞','Inspiration'],['アリジゴク','Antlion'],['出撃','Sortie'],['金平糖降らし','Konpeito Shower'],['クッキーパウダー','Cookie Powder'],['ゲリラ豪雨','Squall'],['カード復活','Card Revival'],['決戦','Showdown'],['アリボム召喚','Summon Ant Bomb'],['ハングリー','Hungry'],['強奪','Heist'],['ゴールドチョコ','Golden Chocolate'],
+['自分側の2層目・3層目から毎回ランダムに1マスを選び、手元からアリを1匹出します。これを3回行います。手元が足りない場合は残りの匹数だけ出します。','Randomly choose one of your Layer 2 or Layer 3 spaces and deploy 1 ant from your hand. This happens 3 times, or fewer if you run out of ants.'],
+['この番、アリバトルに勝利するたび自分の得点を＋1します。引き分けの振り直しでは加点されません。','Gain 1 point each time you win an Ant Battle this turn. Tie re-rolls do not score.'],
+['使用した番から3ターン経過した後、予測できないタイミングで1度発動。中央の大マスの両者のアリを、お菓子についているアリも含めすべて退場させます。お菓子は残ります。','After 3 turns, this triggers once at an unpredictable time. All ants in the central space are removed, including ants attached to candy. Candy remains.'],
+['自分側の2層目にいる自分の自由アリを、すべて中央の大マスへ移します。お菓子についているアリは移しません。','Move all your unattached ants from your Layer 2 space to the central space. Ants attached to candy do not move.'],
+['1〜3個の金平糖が新たに出現します。配置先は両者の2層目・3層目から毎回ランダムに選びます。同じマスに複数出現することもあります。','Spawn 1–3 Konpeito candies at random on either player’s Layer 2 or Layer 3 spaces. Multiple candies may appear in the same space.'],
+['場にあるすべてのお菓子をクッキー（必要2匹・2点）に変えます。位置と、ついている両者のアリ数は変わりません。','Turn every candy on the board into a Cookie (2 ants required, 2 points). Positions and attached ants remain unchanged.'],
+['自分の得点が相手より低いときに使用可能。サイコロを1個振り、出目の数だけ自分の手元から自分側2層目にアリを配置します。手元が足りない場合は配置できる匹数まで。','Usable when your score is lower than your opponent’s. Roll one die and deploy that many ants from your hand to your Layer 2 space, up to the number available.'],
+['相手のアリが4匹以上ついているお菓子を1つ選び、自分の手元からアリを最大4匹（手元が4匹未満なら全て）配置します。配置後のアリバトルは通常どおり自分で操作します。','Choose candy with at least 4 enemy ants attached. Deploy up to 4 ants from your hand (or all if fewer than 4). Then resolve the Ant Battle normally.'],
+['使用すると自分のすべてのカードが使用不能になります。バトル終了まで、毎ターン終了時に25％の確率で発生。待機所・塚入口以外のマスがランダムに選ばれ、そのマスにいるアリとお菓子が、それぞれ別々のランダムなマスへ移動します。','Locks all of your cards. Until the match ends, there is a 25% chance at each turn end that a random space (excluding Waiting Areas and Nest Entrances) is selected. Its ants and candies move to independently chosen random spaces.'],
+['使用後5ターンの間、お互いの番のはじめに、塚入口に入れるだけのアリを手持ちから設置します。','For the next 5 turns, at the start of each player’s turn, deploy as many ants from their hand as can fit in their Nest Entrance.'],
+['この番の終了時から計5回、ターン終了時に40％の確率で発動。塚入口・待機所を除く5層からランダムに1層を選び、自由アリ・お菓子についている両者のアリをすべて手元に戻します。空の層が選ばれることもあります。','Starting at the end of this turn, this has 5 chances to trigger, each with a 40% chance at turn end. A random layer (excluding Nest Entrances and Waiting Areas) is chosen; all ants there return to hand, including ants attached to candy. The chosen layer may be empty.'],
+['両者のセットカードを、発動中のカードも含め再使用可能にします。両者の「カード復活」は対象外。進行中の効果や予約は残り、1ターン1枚の制限は解除しません。','Refreshes both players’ set cards, including cards currently in effect. Card Revival itself is excluded. Ongoing effects and scheduled events remain, and the one-card-per-turn limit still applies.'],
+['第20ターン以降に使用可能。場の自由アリ・お菓子についているアリを両者それぞれ合計し、1回のアリバトルを行います。敗者の退場アリは場からランダムに選ばれます。手元は対象外。行動は消費しません。','Available from turn 20. Total each player’s free ants and ants attached to candy, then resolve one Ant Battle. Losing ants are randomly selected from the board. Ants in hand are excluded. Costs no action.'],
+['中央の大マスに、アリがついていないアリボムを1個追加します。','Adds one Ant Bomb with no ants attached to the central space.']
+);
+
+
+/* Additional coverage for dynamic UI and descriptions. Keep presentation/effect
+   code untouched; only translate visible text nodes and attributes. */
+pairs.push(
+['道の説明','Path Guide'],['現在の戦況','Current Match Status'],['自分の手番中、直前の操作を取り消します','Undo your most recent action during your turn.'],
+['例：A7K2Q9','Example: A7K2Q9'],['🐜 どこに出す？','🐜 Where should the ant enter?'],['手元のアリを出す入口を選んでください。','Choose an entrance for an ant from your hand.'],['待機所は中央への近道です（上限1匹）。','The Waiting Area is a shortcut to the center (limit: 1 ant).'],['待機所（','Waiting Area ('],['塚入口（','Nest Entrance ('],
+['アリを出す入口を選んでください','Choose where to deploy the ant.'],['アリを「塚入り口」にセットします','Place an ant at the “Nest Entrance”.'],['今度はアリを「待機所」にセットします','Now place an ant in the “Waiting Area”.'],
+['下のボタンを押して，塚入り口を選びましょう','Press the button below, then select the Nest Entrance.'],['下のボタンを押して，待機所を選びましょう','Press the button below, then select the Waiting Area.'],
+['塚入り口には2匹までアリがセットできます','The Nest Entrance can hold up to 2 ants.'],['待機所には1匹までアリがセットできます','The Waiting Area can hold up to 1 ant.'],
+['アリが付きましたね．アリは自分の番なら何度もつけ外せます','The ant is attached! You can attach and detach ants freely during your turn.'],
+['お菓子が移動しましたね。','The candy has moved.'],['1点をゲットしました！','You scored 1 point!'],
+['相手の番です','Opponent’s Turn'],['実戦では相手が操作します。この練習では相手の番','In a real match, your opponent acts here. In this practice, the opponent’s turn'],
+['補足','Extra Tip'],['全','Total '],['ステップ','Steps'],['選択中','Selected'],['カードセット','Card Set'],
+['現在のゲームを破棄して最初からやり直しますか？','Discard the current game and start over?'],['この対戦は終了しています。次の操作を選んでください。','This match has ended. Choose what to do next.'],
+['新しいゲーム','New Game'],['やり直す','Restart'],['キャンセル','Cancel'],['タイトルへ戻る','Return to Title'],['結果を見る','View Results'],['盤面に戻る','Return to Board'],
+['獲得','Earned'],['場所：','Location: '],['必要 ','Required '],['匹 ／ ',' ants / '],['点！',' points!'],['＋ つける','＋ Attach'],['－ 外す','－ Detach'],['（残り ',' ('],['匹）',' left)'],['（ついている ',' (attached: '],['自陣方向','Toward Your Nest'],['相手方向','Toward Opponent'],['ひとつ戻す','Undo'],['とじる','Close'],['選べます',' available'],['あなた','You'],['練習相手','Practice Opponent'],['自分側','Your Side'],['相手側','Opponent Side'],['残り','Remaining'],['手持ち','In Hand'],['退場','Out'],['待機','Waiting'],['中央スペース','Central Space'],['メニュー','Menu'],
+['部屋を作成','Create Room'],['部屋に参加','Join Room'],['接続ID','Room Code'],['接続IDを入力','Enter Room Code'],['相手に伝えてください','Share this code with your opponent.'],['部屋を作成しています','Creating room…'],['接続しています','Connecting…'],['接続状況','Connection Status'],['モード選択へ戻る','Back to Mode Selection'],['ゲストとして参加','Join as Guest'],['ホスト','Host'],['ゲスト','Guest'],
+['サイコロを投げています…','Rolling the die…'],['先攻・後攻を決めよう','Determine First Player'],['AとBの出目を比べます。同じ目ならもう一度投げます。','Compare A and B’s rolls. Roll again if tied.'],['攻撃側','Attacker'],['防御側','Defender'],['投げてください','Roll the die'],['先攻プレイヤー','First Player'],['先攻が決まりました','First player determined'],['はじめる','Begin'],
+['アリバトル！ サイコロを投げよう','Ant Battle! Roll the Dice'],['サイコロをドラッグして投げる！','Drag the die to roll!'],['各プレイヤーが自分のサイコロを投げてください','Each player: roll your own die.'],['結果を判定中…','Determining the result…'],
+['アリがついていないお菓子を、すべて中央の大マスへ戻します。','Move all candy with no ants attached to the central space.'],
+['雨を降らせる層を1つ選びます。その層にいるアリは、お菓子についていようといまい関係なく、すべて手元に戻ります。','Choose one layer to rain on. All ants in that layer return to hand, whether or not they are attached to candy.'],
+['サイコロを振り、その目の数だけ相手の近道を封鎖します。封鎖は相手の次の番から始まります。','Roll a die to block the opponent’s shortcut for that many turns, starting on their next turn.'],
+['この番、アリバトルに勝利するたび自分の得点を＋1します。引き分けの振り直しでは加点されません。','Gain 1 point each time you win an Ant Battle this turn. Tie re-rolls do not score.'],
+['使用した番から3ターン経過した後、予測できないタイミングで1度発動。中央の大マスの両者のアリを、お菓子についているアリも含めすべて退場させます。お菓子は残ります。','Triggers once at an unpredictable time after 3 turns. Removes all ants from the central space, including ants attached to candy. Candy remains.'],
+['自分側の2層目にいる自分の自由アリを、すべて中央の大マスへ移します。お菓子についているアリは移しません。','Move all your unattached ants from your Layer 2 space to the central space. Ants attached to candy do not move.'],
+['1〜3個の金平糖が新たに出現します。配置先は両者の2層目・3層目から毎回ランダムに選びます。同じマスに複数出現することもあります。','Spawn 1–3 Konpeito candies at random on either player’s Layer 2 or Layer 3 spaces. Multiple candies may appear in the same space.'],
+['場にあるすべてのお菓子をクッキー（必要2匹・2点）に変えます。位置と、ついている両者のアリ数は変わりません。','Turn every candy on the board into a Cookie (2 ants required, 2 points). Positions and attached ant counts remain unchanged.'],
+['自分の得点が相手より低いときに使用可能。サイコロを1個振り、出目の数だけ自分の手元から自分側2層目にアリを配置します。手元が足りない場合は配置できる匹数まで。','Usable when your score is lower than your opponent’s. Roll one die and deploy that many ants from your hand to your Layer 2 space, up to the number available.'],
+['相手のアリが4匹以上ついているお菓子を1つ選び、自分の手元からアリを最大4匹（手元が4匹未満なら全て）配置します。配置後のアリバトルは通常どおり自分で操作します。','Choose candy with at least 4 enemy ants attached. Deploy up to 4 ants from your hand (or all if fewer than 4). Then resolve the Ant Battle normally.'],
+['使用すると自分のすべてのカードが使用不能になります。バトル終了まで、毎ターン終了時に25％の確率で発生。待機所・塚入口以外のマスがランダムに選ばれ、そのマスにいるアリとお菓子が、それぞれ別々のランダムなマスへ移動します。','Locks all of your cards. Until the match ends, there is a 25% chance at each turn end that a random space (excluding Waiting Areas and Nest Entrances) is selected. Its ants and candies move to independently chosen random spaces.'],
+['使用後5ターンの間、お互いの番のはじめに、塚入口に入れるだけのアリを手持ちから設置します。','For the next 5 turns, at the start of each player’s turn, deploy as many ants from their hand as can fit in their Nest Entrance.'],
+['この番の終了時から計5回、ターン終了時に40％の確率で発動。塚入口・待機所を除く5層からランダムに1層を選び、自由アリ・お菓子についている両者のアリをすべて手元に戻します。空の層が選ばれることもあります。','Starting at the end of this turn, this has 5 chances to trigger, each with a 40% chance at turn end. A random layer (excluding Nest Entrances and Waiting Areas) is chosen; all ants there return to hand, including ants attached to candy. The chosen layer may be empty.'],
+['両者のセットカードを、発動中のカードも含め再使用可能にします。両者の「カード復活」は対象外。進行中の効果や予約は残り、1ターン1枚の制限は解除しません。','Refreshes both players’ set cards, including cards currently in effect. Card Revival itself is excluded. Ongoing effects and scheduled events remain, and the one-card-per-turn limit still applies.'],
+['第20ターン以降に使用可能。場の自由アリ・お菓子についているアリを両者それぞれ合計し、1回のアリバトルを行います。敗者の退場アリは場からランダムに選ばれます。手元は対象外。行動は消費しません。','Available from turn 20. Total each player’s free ants and ants attached to candy, then resolve one Ant Battle. Losing ants are randomly selected from the board. Ants in hand are excluded. Costs no action.'],
+['中央の大マスに、アリがついていないアリボムを1個追加します。','Adds one Ant Bomb with no ants attached to the central space.'],
+['AI評価情報が未登録のため温存。','Saved because no AI evaluation data is registered.'],['カードの効果と盤面を比較。','Comparing the card effect with the board.'],['得点につながる盤面があるため使用候補。','Candidate: the current board offers a scoring opportunity.'],['戦力差からバトルの利益を評価。','Evaluating the battle based on the strength difference.'],['相手の優勢を崩せるか評価。','Evaluating whether it can break the opponent’s advantage.'],['次の得点行動に必要な準備として評価。','Evaluating it as preparation for the next scoring move.'],['残りターン数を見て再利用価値を評価。','Evaluating its future value based on turns remaining.'],
+['接続診断','Connection Diagnostics'],['診断内容をコピーしました。','Diagnostics copied.'],['コピーできませんでした。詳細欄を長押ししてコピーしてください。','Could not copy. Long-press the details to copy them.'],['通信エラーが発生しました。接続し直してください。','A network error occurred. Please reconnect.'],['ホストかゲストのどちらかを選んでください。','Choose Host or Guest.'],['部屋を作りました。表示中の接続IDを相手に伝えてください。相手の接続を待っています。','Room created. Share the displayed room code with your opponent and wait for them to connect.'],['接続先を探しています…','Searching for the room…'],['接続しました。ゲーム開始！','Connected. The game is starting!'],['相手との接続が切れました。戻って接続し直してください。','Connection to your opponent was lost. Return and reconnect.'],['接続を確認してください。','Please check your connection.'],['PeerJSライブラリを読み込んでいます','Loading PeerJS library'],['読み込みがタイムアウトしました','Loading timed out'],['不明なエラー','Unknown error']
+);
+
+pairs.push(
+['ステップ１　塚入り口のセット','Step 1 — Set ants at the Nest Entrance'],['ステップ２　待機所のセット','Step 2 — Set ants in the Waiting Area'],['ステップ3　塚入り口からアリを動かす','Step 3 — Move an Ant from the Nest Entrance'],['ステップ4　待機所からアリを動かす','Step 4 — Move an Ant from the Waiting Area'],['ステップ5　お菓子にアリをつける','Step 5 — Attach Ants to Candy'],['ステップ6　お菓子を運ぶ','Step 6 — Carry Candy'],['ステップ7　お菓子を塚に放り込もう','Step 7 — Deliver Candy to Your Nest'],['ステップ8　アリバトルをしよう','Step 8 — Start an Ant Battle'],['ステップ9　裏口を通って相手の得点を阻止しよう','Step 9 — Use the Shortcut to Stop Your Opponent Scoring'],['ステップ10　アリボムを相手の塚に放り込もう','Step 10 — Deliver the Ant Bomb to the Opponent’s Nest'],
+['塚入り口にいる自分のアリを選びましょう。','Select your ant at the Nest Entrance.'],['A側2層目を選びましょう。','Select your Layer 2 space.'],['待機所にいる自分のアリを選びましょう。','Select your ant in the Waiting Area.'],['中央の大きなマスを選びましょう。','Select the large central space.'],['中央に金平糖が出ました！','A Konpeito has appeared in the center!'],['金平糖をタップして、「アリをつける」を選びましょう。','Tap the Konpeito and choose “Attach Ants”.'],['この「金平糖」はアリ1匹で運べます','This Konpeito can be carried by 1 ant.'],['お菓子をタッチ（クリック）して「自陣方向へ」を押しましょう','Tap (or click) the candy, then choose “Toward Your Nest”.'],['盤面を整えました。金平糖を自分の塚まで運んで得点を取りましょう。','The board is ready. Carry the Konpeito to your nest to score.'],['アリが付いている金平糖を選び、「自陣方向へ」を押しましょう。','Select the Konpeito with your ants attached, then choose “Toward Your Nest”.'],['相手のアリがお菓子に付いていると、そのままでは運べません。','You cannot carry candy while your opponent’s ants are attached.'],['お菓子をめぐってバトルを仕掛けます。まず金平糖を選び、自分のアリを付けましょう。','Challenge your opponent for the candy. First select the Konpeito and attach your ants.'],['「バトルを仕掛ける」を押しましょう。','Choose “Start Ant Battle”.'],['裏道を使うと、アリだけが相手の塚の近くまで進めます。','The shortcut lets ants move close to your opponent’s nest.'],['自分のアリを選び、B側2層目へ移動させましょう。','Select your ant and move it to the opponent’s Layer 2 space.'],['相手のアリが付いたクッキーに、自分のアリを付けてバトルを仕掛けましょう。','Attach your ants to the Cookie occupied by your opponent, then challenge them to battle.'],['「バトルを仕掛ける」を押して、サイコロを投げましょう。','Choose “Start Ant Battle” and roll the die.'],['これはアリボムです。画面のアリボムを見てください。','This is an Ant Bomb. Look at the Ant Bomb on the board.'],['アリボムはお菓子と違い、相手の塚へ運びます。相手は4点失います。','Unlike candy, the Ant Bomb is delivered to your opponent’s nest. They lose 4 points.'],['アリボムに自分のアリを2匹付けましょう。','Attach 2 of your ants to the Ant Bomb.'],['「相手方向へ」を押して運びましょう。途中の相手の番は練習用に省略します。','Choose “Toward Opponent” to carry it. The opponent’s turn is skipped in this tutorial.'],
+['待機所／塚入り口以外の場所は何匹でもアリを待機させられます','Any space other than the Waiting Area or Nest Entrance can hold any number of ants.'],['待機所に置くと，真ん中のマスまで一方通行の近道ができます','The Waiting Area provides a one-way shortcut to the central space.'],['アリが付きましたね．アリは自分の番なら何度もつけ外せます','Your ant is attached! You can attach and detach ants freely during your turn.'],['お菓子が移動しましたね。','The candy has moved.'],['1点をゲットしました！運ぶのに必要なアリの数分，持ち帰ると得点になります．','You scored 1 point! Deliver candy to your nest to score its points; the required ants return to your hand.'],['これで相手のアリがいなくなりました．','Your opponent’s ants have been removed.'],['点をうまく阻止しました．近道は有効活用しましょう．','You successfully stopped the score. Make good use of shortcuts.'],['相手の点数が-4されました．','Your opponent’s score was reduced by 4.'],
+['チュートリアル','Tutorial'],['全10ステップ','10 Steps'],['相手の番です','Opponent’s Turn'],['実戦では相手が操作します。この練習では相手の番を省略して、自分の番に戻ります。','In a real match, your opponent takes their turn. In this practice, their turn is skipped and play returns to you.'],['補足：行動回数','Extra: Actions'],['自分の番では、「アリを動かす」「アリを設置する」「お菓子を動かす」のどれかから2回選んで行動します。','On your turn, you can take 2 actions: move ants, deploy ants, or move candy.'],['補足：バトルのコツ','Extra: Battle Tips'],['バトルを仕掛けるときは、アリの数が多いほうが合計が大きくなり、有利になります。','Having more ants gives you a higher total and an advantage in battle.'],['ゲームのルール','Game Rules'],['ターンは全部で24ターンです。ゲーム終了時、またはお菓子がすべてなくなった時点で、得点が多い方が勝利します。同点ならアリの数で勝敗が決まり、アリが全滅すると負けです。','The game lasts up to 24 turns. The player with the most points when the game ends or all candy is gone wins. Ties are broken by remaining ants. If all your ants are eliminated, you lose.'],['カードはタイトル画面から3枚まで選んでセットできます。戦況を大きく変えるので、うまく使いこなしましょう。','You can choose up to 3 cards on the title screen. Use them wisely to change the course of the match.'],['では、よきアリバトルライフを！','Enjoy your Ant Battles!'],['チュートリアル完了！','Tutorial Complete!'],['もう一度学ぶ','Learn Again'],['▼ はじめる','▼ Start'],['▼ 次へ','▼ Next'],['▼ 自分の番へ','▼ My Turn'],['👆 光っている場所を操作してください','👆 Interact with the highlighted area.'],['🎓 操作の説明はすぐ上に表示されます。','🎓 Instructions are shown just above the board.']
+);
+pairs.push(
+['Player Aの番です。サイコロをスワイプして方向を決めてRoll the die（ボタンでもOK）。','Player A’s turn. Swipe the die to set the direction and roll (or use the button).'],
+['First・Secondの抽選結果','First Player Selection Result'],['先攻：A 🎲','First: A 🎲'],['／ B 🎲',' / B 🎲'],['（同点・再抽選）',' (Tie — roll again)'],['引き分け！ 振り直し！','Tie! Roll again!'],['引き分け！ 振り直し','Tie! Roll again'],['Player Aが','Player A '],['Player Bが','Player B '],['がFirstです。','goes first.'],['がSecondです。','goes second.'],['A 🎲','A 🎲'],['／ B 🎲',' / B 🎲'],['（同 pts・再抽選）',' (tie — re-roll)'],
+['対象のAntsがいません','No ants on the selected layer.'],['各Card1ゲーム1回／1Turn1枚／行動消費None','Each card: once per game / 1 card per turn / no action cost'],['各Card','Each card'],['ゲーム1回','once per game'],['1Turn1枚','1 card per turn'],['行動消費None','no action cost'],
+['First・Secondをサイコロで決めます。','Determine the first player by rolling dice.'],['ゲーム開始！','Game started!'],['Player AのTurn','Player A’s Turn'],['Player BのTurn','Player B’s Turn'],['Round','Round'],['First : A','First: A'],['First：A','First: A'],['同 pts・再抽選','tie — re-roll'],['引き分け！ 振り直し','Tie! Roll again'],['Player AがFirstです。','Player A goes first.'],['Player BがFirstです。','Player B goes first.'],
+['Player Aがサレンダーします。','Player A is surrendering.'],['Player Bがサレンダーします。','Player B is surrendering.'],['本当によろしいですか？','Are you sure?'],['サレンダーする','Surrender'],['サレンダーしました。','surrendered.'],['の勝利です。','wins.'],['サレンダー','Surrender'],['サレンダーします','surrenders'],['の勝利！',' wins!'],['この勝負引き分け','The match is a draw'],['残りアリ','Ants Remaining'],['退場','Out'],['点／',' pts / '],['匹／',' ants / '],['匹',' ants'],['もう一度遊ぶ','Play Again'],['盤面を見る','View Board'],
+['投げる方向・勢い・リリースのタイミングで出目が変わります。狙いどおりに止めるのは難しいですが、練習するとコントロールを磨けます。','The roll depends on direction, power, and release timing. It is difficult to control precisely, but practice will improve your aim.'],
+['プレイヤーA','Player A'],['プレイヤーB','Player B'],['先攻','First'],['後攻','Second'],['サイコロを投げる','Roll the Die'],['タップして投げる','Tap to Roll'],['サイコロをドラッグして投げる！','Drag the die to roll!'],['結果を判定中…','Calculating result…'],['引き分け！ 振り直し！','Tie! Roll again!'],
+['手番中','during turn'],['手持ち','In Hand'],['退場','Out'],['残り','Remaining'],['点','pts'],['アリ','Ants']
+);
+pairs.push(
+['Player Aの番です。サイコロをスワイプして方向を決めてRoll the die（ボタンでもOK）。','Player A’s turn. Swipe the die to choose a direction and roll (or use the button).'],
+['Player Aが投げる','Player A: Roll the Die'],['Player Bが投げる','Player B: Roll the Die'],
+['Player Aの番です。','It is Player A’s turn.'],['Player Bの番です。','It is Player B’s turn.'],['サイコロをスワイプして方向を決めて','Swipe the die to choose a direction and '],['（ボタンでもOK）。',' (or use the button).'],['（ボタンでもOK）','(or use the button)'],['Roll the die',' roll'],['Player AがFirstです。','Player A goes first.'],['Player BがFirstです。','Player B goes first.'],['First : A 🎲','First: A 🎲'],['First : B 🎲','First: B 🎲'],['同 pts・再抽選','tie — re-roll'],['引き分け！ 振り直し','Tie! Roll again'],['Player Aがサレンダーします。','Player A is surrendering.'],['Player Bがサレンダーします。','Player B is surrendering.'],['サレンダーする','Surrender'],['残りアリ','Ants Remaining'],['退場','Out'],['残り','Remaining'],['点','pts'],['匹','ants'],
+['あなた（Player A）のサイコロをドラッグ／スワイプして投げてください','Drag or swipe your die to roll.'],['あなた（Player B）のサイコロをドラッグ／スワイプして投げてください','Drag or swipe your die to roll.'],
+['Player Aからサイコロをドラッグ／スワイプして投げてください','Player A: drag or swipe the die to roll.'],['Player Bからサイコロをドラッグ／スワイプして投げてください','Player B: drag or swipe the die to roll.'],
+['サイコロをつかんで、指／マウスで勢いよく投げてください','Grab the die and flick it with your finger or mouse.'],['サイコロをドラッグ／スワイプすると、投げる方向と勢いが変わります。','Drag or swipe the die to control the direction and power of your throw.'],
+['🎲 先攻・後攻の抽選結果','🎲 First Player Selection Result'],['先攻：A 🎲','First: A 🎲'],['攻撃','Attack'],['防御','Defense'],['匹退場',' ants lost'],['差 ','Difference: '],['Aが先攻です。','A goes first.'],['Bが先攻です。','B goes first.'],['（先攻の最初のターンは行動1回）','(The first player has only 1 action on their first turn.)'],['はじめる','Begin']
+);
+pairs.push(
+['Player Aの番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。','Player A’s turn. Swipe the die to choose a direction and roll (or use the button).'],
+['Player Bの番です。サイコロをスワイプして方向を決めて投げてください（ボタンでもOK）。','Player B’s turn. Swipe the die to choose a direction and roll (or use the button).'],
+['🎲 Player Aが投げる','🎲 Player A: Roll the Die'],
+['🎲 Player Bが投げる','🎲 Player B: Roll the Die'],
+['Player Aのサイコロが転がっています…','Player A’s die is rolling…'],
+['Player Bのサイコロが転がっています…','Player B’s die is rolling…'],
+['次のプレイヤーの番です','It’s the next player’s turn.']
+);
+
+/* Dynamic gameplay text coverage: hints, battle prompts/logs, tutorial phases and online help. */
+pairs.push(
+ ['自分のアリがいるマスをタップして選択 ／ お菓子をタップで詳細・着脱・運搬','Tap a space with your ants to select it / Tap candy for details, attach, detach, or carry.'],
+ ['自分のアリがいるマスをタップして選択 ／ お菓子をタップで詳細・着脱・運搬','Tap a space with your ants to select it / Tap candy for details, attach, detach, or carry.'],
+ ['🤖 CPUが考え中…（お菓子をタップすると状況を見られます）','🤖 CPU is thinking… (Tap candy to view its status.)'],
+ ['🌐 相手の操作を待っています…','🌐 Waiting for your opponent…'],
+ ['光っているマスをタップして移動（もう一度タップで選択解除）','Tap a highlighted space to move. Tap again to deselect.'],
+ ['🎓 操作の説明はすぐ上に表示されます。','🎓 Instructions are shown just above the board.'],
+ ['相手が雨ごいの対象を選んでいます','Your opponent is choosing a layer for Rain Dance.'],
+ ['🌧 青く光るマスを選んでください','🌧 Choose a highlighted space.'],
+ ['ホストが部屋を作り、表示された6文字のIDを相手に伝えてください。相手が接続すると自動で対戦が始まります。','The host creates a room and shares the 6-character code. The match starts automatically when the opponent connects.'],
+ ['※通信にはインターネット接続が必要です。','※ An internet connection is required.'],
+ ['同じWi-Fi、または一方のスマホのテザリングに両方の端末を接続してください。部屋を作った側の6文字IDを相手に伝えると対戦が始まります。','Connect both devices to the same Wi-Fi network or to one phone’s hotspot. Share the 6-character room code to start the match.'],
+ ['対局データは端末同士で直接送ります。接続時の相手探しにだけ外部通信を使い、STUN／TURN中継は利用しません。','Game data is sent directly between devices. External communication is used only to find the peer; STUN/TURN relays are not used.'],
+ ['※接続にはインターネット通信が必要です。ブラウザによっては同じネットワーク内でも接続できない場合があります。','※ An internet connection is required. Some browsers may not connect even on the same network.'],
+ ['⚔ アリバトル！ サイコロを投げよう','⚔ Ant Battle! Roll the Dice'],
+ ['攻撃側','Attacker'],['防御側','Defender'],
+ ['匹 vs 防御 ',' ants vs. Defense '],['匹 vs 防御',' ants vs. Defense'],['攻撃 ','Attack '],['匹 vs ',' ants vs. '],['匹',' ants'],
+ ['アリバトルを仕掛けた','started an Ant Battle'],['アリバトル！','Ant Battle!'],['アリバトルに勝利','won the Ant Battle'],['アリバトルで敗北','lost the Ant Battle'],
+ ['がアリバトルを仕掛けた！',' started an Ant Battle!'],['がアリバトルに勝利！',' won the Ant Battle!'],['がアリバトルで敗北…',' lost the Ant Battle…'],
+ ['相手のアリがついているため運べません。','You cannot carry candy while enemy ants are attached.'],
+ ['お菓子をめぐってバトルを仕掛けます。まず金平糖を選び、自分のアリを付けましょう。','Challenge your opponent for the candy. First select the Konpeito and attach your ants.'],
+ ['「バトルを仕掛ける」を押しましょう。','Press “Start Ant Battle”.'],
+ ['「バトルを仕掛ける」を押して、サイコロを投げましょう。','Press “Start Ant Battle” and roll the die.'],
+ ['これで相手のアリがいなくなりました．','Your opponent’s ants have been removed.'],
+ ['相手の番です','Opponent’s Turn'],
+ ['実戦では相手が操作します。この練習では相手の番を省略して、自分の番に戻ります。','In a real match, your opponent takes their turn. In this practice, their turn is skipped and play returns to you.'],
+ ['チュートリアルで、ゲームの基本を学びましょう。','Learn the basics of the game in this tutorial.'],
+ ['🎓 チュートリアル','🎓 Tutorial'],['全10ステップ','10 Steps'],['全','Total: '],['ステップ','Steps'],
+ ['中断','Exit'],['補足','Extra'],['できました！','Well done!'],['次へ','Next'],['自分の番へ','My Turn'],
+ ['この対戦は終了しました。','This match has ended.'],['🏆 結果を見る','🏆 View Results'],['↩ タイトルへ戻る','↩ Return to Title'],
+ ['ゲーム終了・結果を見る','Game Over · View Results'],
+ ['攻撃側・防御側ともに','Both attacker and defender'],['自分のアリの数','your ant count'],['自分が投げたサイコロの出目','your own die roll'],
+ ['合計が同じなら両者とも振り直しです。','If the totals are tied, both players roll again.'],
+ ['合計の差が退場するアリの数になり','The difference between totals is the number of ants removed'],
+ ['負けた側のお菓子についているアリが退場します','ants attached to the losing side’s candy are removed'],
+ ['（退場数は残りのアリ数が上限）。','(up to the number of ants remaining).']
+);
+
+
+/* Follow-up localization: dice completion/draw states, route labels, carry actions,
+   compact card status, online controls and language option copy. */
+pairs.push(
+ ['両方のサイコロが揃いました！','Both dice have landed!'],
+ ['引き分け！ 次はもう一度、2人とも投げてください','It’s a tie! Both players, roll again.'],
+ ['引き分け！ 振り直し！','Tie! Roll again!'],
+ ['引き分け！ 振り直し','Tie! Roll again'],
+ ['引き分け！','It’s a tie!'],
+ ['AとBの出目を比べます。同じ目ならもう一度投げます。','Compare A and B’s rolls. If they match, roll again.'],
+ ['攻撃','Attack'],['防御','Defense'],['匹退場',' ants lost'],['差 ','Difference: '],
+ ['Aの塚入口','A Nest Entrance'],['Bの塚入口','B Nest Entrance'],['A側2層目','A Layer 2'],['A側3層目','A Layer 3'],['B側2層目','B Layer 2'],['B側3層目','B Layer 3'],['中央の大マス','Central Space'],['A待機所','A Waiting Area'],['B待機所','B Waiting Area'],
+ ['茶色の道：待機所から中央へ進む一方通行。紫色の道：A側2層目とB側2層目を結ぶ裏道。','Brown path: one-way from the Waiting Area to the center. Purple path: shortcut connecting A Layer 2 and B Layer 2.'],
+ ['茶色の道','Brown Path'],['紫色の道','Purple Path'],['裏道','Shortcut'],['近道','Shortcut'],['一方通行','One-way path'],
+ ['A側2層目へ','To A Layer 2'],['A側3層目へ','To A Layer 3'],['B側2層目へ','To B Layer 2'],['B側3層目へ','To B Layer 3'],['中央の大マスへ','To Central Space'],['Aの塚入口へ','To A Nest Entrance'],['Bの塚入口へ','To B Nest Entrance'],
+ ['発動中！','Active!'],['使用済み','Used'],['使用可能','Available'],['各カード1ゲーム1回／1ターン1枚／行動消費なし','Each card: once per game / 1 per turn / no action cost'],['各カード1ゲーム1回','Once per game per card'],['1ターン1枚','1 card per turn'],['行動消費なし','No action cost'],['手元：','In hand: '],['配置可能：','Deployable: '],['相手の封鎖：残り','Opponent shortcut blocked for '],['手番',' turns'],
+ ['🌐 表示言語','🌐 Language'],['表示言語はこのブラウザに保存されます。','Your language preference is saved in this browser.'],['日本語','日本語'],['English','English'],
+ ['🔊 効果音の音量','🔊 Sound Volume'],['0%で消音。効果音のON／OFFもここで切り替えられます。','Set to 0% to mute. You can also toggle sound effects here.'],['効果音の音量','Sound Volume'],['CPUの行動スピード','CPU Speed'],['CPUが考えて行動する間隔を変更します。','Adjust how long the CPU thinks before acting.'],
+ ['🌐 オンライン対戦（2台で遊ぶ）','🌐 Online Match (Two Devices)'],['ホストが部屋を作り、表示された6文字のIDを相手に伝えてください。相手が接続すると自動で対戦が始まります。','The host creates a room and shares the 6-character code. The match starts automatically when the opponent connects.'],['※通信にはインターネット接続が必要です。','※ An internet connection is required.'],
+ ['🏠 部屋を作る（先攻）','🏠 Create Room (First Player)'],['相手にこの接続IDを伝えてください','Share this room code with your opponent.'],['相手の接続を待っています。この画面を開いたままにしてください。','Waiting for your opponent. Keep this screen open.'],['ゲスト（後攻）','Guest (Second Player)'],['相手から受け取った接続IDを入力してください。','Enter the room code you received from your opponent.'],['接続IDを入力','Enter Room Code'],['接続','Connect'],['📋 IDをコピー','📋 Copy ID'],['モード選択へ戻る','Back to Mode Selection'],['オンライン対戦','Online Match'],['ローカル対戦','Local Match'],
+ ['部屋を作る','Create Room'],['参加（後攻）','Join (Second Player)'],['PCとスマホで同じサーバーのゲームを開いてください。','Open the game on both your PC and phone using the same server.'],['部屋を作るか、相手のコードで参加してください。','Create a room or join using your opponent’s code.'],
+ ['プレイヤーAが','Player A '],['プレイヤーBが','Player B '],['が勝利して',' won and '],['匹退場',' ants eliminated'],['がアリバトルを仕掛けた！',' started an Ant Battle!'],['がアリバトルに勝利！',' won the Ant Battle!'],['がアリバトルで敗北…',' lost the Ant Battle…'],
+ ['Aが先攻です。','A goes first.'],['Bが先攻です。','B goes first.'],['（同点・再抽選）',' (Tie — roll again)'],['（同 pts・再抽選）',' (Tie — roll again)']
+);
+
+/* Match log / highlight localization, including dynamic event fragments. */
+pairs.push(
+ ['── ラウンド','── Round '],['のターン ──','’s Turn ──'],['ゲーム開始！','Match started!'],
+ ['が',''],['のターン終了。','’s turn ended.'],
+ ['が塚へ運びました！',' carried candy to the Nest!'],['点（アリ',' points ('],['匹が手元に戻る）',' ants returned to hand)'],
+ ['アリバトル','Ant Battle'],['対決','Battle'],['引き分け！ 振り直し','Tie! Re-roll'],['引き分け！ 振り直し！','Tie! Re-roll!'],
+ ['強烈フェロモン発動！','Powerful Pheromone activated! '],['強烈フェロモン！','Powerful Pheromone! '],['の塚入口に',' at the Nest Entrance'],['匹が集まった。',' ants gathered.'],
+ ['強烈フェロモンが5ターンの間、両者の塚入口にアリを呼び寄せる。','Powerful Pheromone attracts ants to both Nest Entrances for 5 turns.'],
+ ['強烈フェロモンの効果が終了した。','Powerful Pheromone has ended.'],
+ ['はこの対戦中、すべてのカードを使えなくなった。',' can no longer use any cards for the rest of the match.'],
+ ['アリが',' ants '],['お菓子','candy'],['手元へ戻る',' returned to hand'],['を塚へ運びました',' carried to the Nest'],
+ ['退場（差',' ants eliminated (difference '],['匹退場',' ants eliminated'],['差 ','Difference '],
+ ['見どころ','Highlights'],['進行ログ','Game Log'],['対戦ログ','Match Log']
+);
+const map=new Map(pairs);
+const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
+function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
+const originalText=new WeakMap(),originalAttrs=new WeakMap();
+function translateNode(n,restore=false){
+ if(n.nodeType===Node.TEXT_NODE){
+  if(!originalText.has(n))originalText.set(n,n.nodeValue);
+  const source=originalText.get(n),v=lang==='en'?tr(source):source;
+  if(n.nodeValue!==v)n.nodeValue=v;return;
+ }
+ if(n.nodeType!==Node.ELEMENT_NODE)return;
+ let attrs=originalAttrs.get(n);if(!attrs){attrs={};for(const a of ['placeholder','title','aria-label'])attrs[a]=n.getAttribute(a);originalAttrs.set(n,attrs);}
+ for(const a of ['placeholder','title','aria-label']){const source=attrs[a];if(source!==null){const v=lang==='en'?tr(source):source;if(n.getAttribute(a)!==v)n.setAttribute(a,v);}}
+}
+function scan(root){if(root.nodeType===Node.TEXT_NODE){translateNode(root);return;}translateNode(root);root.childNodes&&root.childNodes.forEach(scan);}
+function apply(){
+ document.documentElement.lang=lang==='en'?'en':'ja';
+ document.querySelectorAll('#btnLanguageJa,#btnLanguageEn').forEach(b=>b.classList.toggle('primary',b.id===(lang==='en'?'btnLanguageEn':'btnLanguageJa')));
+ scan(document.body);
+}
+function setLanguage(next){lang=next==='en'?'en':'ja';try{localStorage.setItem(KEY,lang);}catch(_){}apply();document.dispatchEvent(new Event('ah-language-change'));}
+document.addEventListener('click',e=>{const b=e.target.closest('#btnLanguageJa,#btnLanguageEn');if(b)setLanguage(b.id==='btnLanguageEn'?'en':'ja');});
+const observer=new MutationObserver(records=>{if(lang!=='en')return;for(const rec of records){if(rec.type==='characterData')translateNode(rec.target);rec.addedNodes&&rec.addedNodes.forEach(scan);}});
+observer.observe(document.body,{subtree:true,childList:true,characterData:true});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();
+})();
+</script>
+
 </body>
 </html>
 
