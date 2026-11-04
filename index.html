@@ -3591,8 +3591,8 @@ function actEnd(){
   if(tutorial&&tutorial.active)return toast('まずは光っている場所を操作してみましょう');
   if(!canAct()||S.rainSelect)return;
   if(S.actions>0){
-    openDialog({title:'ターン終了',html:`<div>行動回数があと ${S.actions} 回残っています。ターンを終了しますか？</div>`,
-      buttons:[{label:'終了する',cls:'primary',fn:()=>{closeDialog();endTurnNow();}},{label:'続ける',fn:closeDialog}]});
+    openDialog({title:EN()?'End Turn':'ターン終了',html:`<div>${EN()?`${S.actions} action(s) remaining. End your turn?`:`行動回数があと ${S.actions} 回残っています。ターンを終了しますか？`}</div>`,
+      buttons:[{label:EN()?'End Turn':'終了する',cls:'primary',fn:()=>{closeDialog();endTurnNow();}},{label:EN()?'Continue':'続ける',fn:closeDialog}]});
   }else endTurnNow();
 }
 
@@ -5905,8 +5905,8 @@ function ahPlayNextCardPresentation(){
   play('antlion');ahMarkEffectCell('C','antlion',4200);ahAntlionSink(fx);
   particles.textContent='🪨  ●  🪨';title.textContent='アリジゴク発動！';detail.textContent=`中央マスのアリが吸い込まれた（A ${event.counts.A}匹／B ${event.counts.B}匹）`;
  }else if(event.type==='pheromone'){
-  particles.textContent='🌺 🐜 🌺';title.textContent='強烈フェロモン';
-  detail.textContent=`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
+  particles.textContent='🌺 🐜 🌺';title.textContent=EN()?'Powerful Pheromone':'強烈フェロモン';
+  detail.textContent=EN()?`${NAMES[event.player]}'s Nest Entrance attracted ${event.count} ants.`:`${NAMES[event.player]}の塚入口にアリが${event.count}匹集まった`;
   play('card');
  }else if(event.type==='typhoon'){
   play('typhoon');ahAddStormStreaks(fx);ahMarkEffectCell(event.node,'typhoon',4200);
@@ -6237,6 +6237,20 @@ pairs.push(
  ['Aが先攻です。','A goes first.'],['Bが先攻です。','B goes first.'],['（同点・再抽選）',' (Tie — roll again)'],['（同 pts・再抽選）',' (Tie — roll again)']
 );
 
+/* Match log / highlight localization, including dynamic event fragments. */
+pairs.push(
+ ['── ラウンド','── Round '],['のターン ──','’s Turn ──'],['ゲーム開始！','Match started!'],
+ ['が',''],['のターン終了。','’s turn ended.'],
+ ['が塚へ運びました！',' carried candy to the Nest!'],['点（アリ',' points ('],['匹が手元に戻る）',' ants returned to hand)'],
+ ['アリバトル','Ant Battle'],['対決','Battle'],['引き分け！ 振り直し','Tie! Re-roll'],['引き分け！ 振り直し！','Tie! Re-roll!'],
+ ['強烈フェロモン発動！','Powerful Pheromone activated! '],['強烈フェロモン！','Powerful Pheromone! '],['の塚入口に',' at the Nest Entrance'],['匹が集まった。',' ants gathered.'],
+ ['強烈フェロモンが5ターンの間、両者の塚入口にアリを呼び寄せる。','Powerful Pheromone attracts ants to both Nest Entrances for 5 turns.'],
+ ['強烈フェロモンの効果が終了した。','Powerful Pheromone has ended.'],
+ ['はこの対戦中、すべてのカードを使えなくなった。',' can no longer use any cards for the rest of the match.'],
+ ['アリが',' ants '],['お菓子','candy'],['手元へ戻る',' returned to hand'],['を塚へ運びました',' carried to the Nest'],
+ ['退場（差',' ants eliminated (difference '],['匹退場',' ants eliminated'],['差 ','Difference '],
+ ['見どころ','Highlights'],['進行ログ','Game Log'],['対戦ログ','Match Log']
+);
 const map=new Map(pairs);
 const keys=[...map.keys()].sort((a,b)=>b.length-a.length);
 function tr(str){if(lang!=='en'||!str)return str;let out=str;for(const k of keys)if(out.includes(k))out=out.split(k).join(map.get(k));return out;}
