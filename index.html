@@ -4019,31 +4019,31 @@ function renderSheet(){
   const myTurn=isHuman(cur());
   const act=!S.over&&S.actions>0&&myTurn;
   const heavenLeft=S.heaven&&S.heaven.player===p?Math.min(6-S.heaven.used,S.hand[p]):0;
-  const lbl=tg=>{if(!tg)return '（運べません）';
-    const x=t.bomb&&tg===q+'1'?`相手の塚へ投げ込む（相手 −4点）`:tg===p+'1'?`塚へ運ぶ（+${t.pts}点）`:`${NODE_LABEL[tg]}へ`;
-    return (theirs>0&&mine>0)?`⚔ ${x}（バトルを仕掛ける）`:x;};
+  const lbl=tg=>{if(!tg)return EN()?'Cannot carry':'（運べません）';
+    const x=t.bomb&&tg===q+'1'?(EN()?`Deliver to opponent's nest (−4 points)`: `相手の塚へ投げ込む（相手 −4点）`):tg===p+'1'?(EN()?`Carry to nest (+${t.pts} points)`:`塚へ運ぶ（+${t.pts}点）`):`${NODE_LABEL[tg]}${EN()?'':'へ'}`;
+    return (theirs>0&&mine>0)?`⚔ ${x}${EN()?' (Start Ant Battle)':'（バトルを仕掛ける）'}`:x;};
   let state;
-  if(theirs>0)state=`⚠ 相手のアリがついているため運べません。${mine>0?'運ぼうとするとアリバトルを仕掛けられます。':'自分のアリをつけるとアリバトルを仕掛けられます。'}`;
-  else if(mine>=t.need)state=t.bomb?'💣 相手の塚へ運べます！（行動1回で1層分）':'✅ 運べます！（行動1回で1層分）';
-  else state=`あと${t.need-mine}匹つけると運べます。`;
+  if(theirs>0)state=EN()?`⚠ You cannot carry this while opponent ants are attached. ${mine>0?'You can start an Ant Battle to carry it.':'Attach your ants to start an Ant Battle.'}`:`⚠ 相手のアリがついているため運べません。${mine>0?'運ぼうとするとアリバトルを仕掛けられます。':'自分のアリをつけるとアリバトルを仕掛けられます。'}`;
+  else if(mine>=t.need)state=t.bomb?(EN()?'💣 Ready to deliver to the opponent’s nest! (One layer per action)':'💣 相手の塚へ運べます！（行動1回で1層分）'):(EN()?'✅ Ready to carry! (One layer per action)':'✅ 運べます！（行動1回で1層分）');
+  else state=EN()?`${t.need-mine} more ants needed to carry.`:`あと${t.need-mine}匹つけると運べます。`;
   el.querySelector('.box').innerHTML=`<h3>${t.emo} ${t.name}</h3>
-  <div class="sub">必要 ${t.need}匹 ／ ${t.bomb?'相手の塚へ運ぶと相手 −4点':`獲得 ${t.pts}点`} ／ 場所：${NODE_LABEL[c.node]}</div>
-  ${heavenLeft>0&&myTurn?`<div class="btnrow"><button class="btn primary" data-act="heavenAttach">🐜 手元からつける（残り${heavenLeft}匹）</button></div>`:''}
+  <div class="sub">${EN()?`Need ${t.need} ants / ${t.bomb?'Opponent loses 4 points when delivered':`Score ${t.pts} points`} / Location: ${NODE_LABEL[c.node]}`:`必要 ${t.need}匹 ／ ${t.bomb?'相手の塚へ運ぶと相手 −4点':`獲得 ${t.pts}点`} ／ 場所：${NODE_LABEL[c.node]}`}</div>
+  ${heavenLeft>0&&myTurn?`<div class="btnrow"><button class="btn primary" data-act="heavenAttach">🐜 ${EN()?`Attach from hand (${heavenLeft} left)`:`手元からつける（残り${heavenLeft}匹）`}</button></div>`:''}
   <div class="btnrow attach-controls">
-    <button class="btn" data-act="attach" ${(S.over||!myTurn||freeHere<=0)?'disabled':''}>＋ つける<br><small>（残り ${freeHere}匹）</small></button>
-    <button class="btn" data-act="detach" ${(S.over||!myTurn||mine<=0)?'disabled':''}>－ 外す<br><small>（ついている ${mine}匹）</small></button>
+    <button class="btn" data-act="attach" ${(S.over||!myTurn||freeHere<=0)?'disabled':''} >${EN()?'＋ Attach':'＋ つける'}<br><small>${EN()?`(${freeHere} left)`:`（残り ${freeHere}匹）`}</small></button>
+    <button class="btn" data-act="detach" ${(S.over||!myTurn||mine<=0)?'disabled':''} >${EN()?'－ Detach':'－ 外す'}<br><small>${EN()?`(${mine} attached)`:`（ついている ${mine}匹）`}</small></button>
   </div>
-  ${theirs>0&&mine>0?`<div class="state battle-ready-note">✅ 「＋つける」で何匹でも追加できます。準備ができたら下のボタンでバトル開始（確認画面なし）。</div><div class="btnrow"><button class="btn danger battle-start-button" data-act="battle" ${(S.over||!myTurn)?'disabled':''}>⚔ バトル開始</button></div>`:''}
+  ${theirs>0&&mine>0?`<div class="state battle-ready-note">${EN()?'✅ You can attach as many ants as you like. When ready, start the battle below (no confirmation).':'✅ 「＋つける」で何匹でも追加できます。準備ができたら下のボタンでバトル開始（確認画面なし）。'}</div><div class="btnrow"><button class="btn danger battle-start-button" data-act="battle" ${(S.over||!myTurn)?'disabled':''}>⚔ ${EN()?'Start Ant Battle':'バトル開始'}</button></div>`:''}
   <div class="attrow">
-    <div class="s A"><b>${NAMES.A}：${c.att.A}匹</b>${Array(Math.min(c.att.A,10)).fill(antSvg('A',22)).join('')||'—'}</div>
-    <div class="s B"><b>${NAMES.B}：${c.att.B}匹</b>${Array(Math.min(c.att.B,10)).fill(antSvg('B',22)).join('')||'—'}</div>
+    <div class="s A"><b>${EN()?`${NAMES.A}: ${c.att.A} ants`:`${NAMES.A}：${c.att.A}匹`}</b>${Array(Math.min(c.att.A,10)).fill(antSvg('A',22)).join('')||'—'}</div>
+    <div class="s B"><b>${EN()?`${NAMES.B}: ${c.att.B} ants`:`${NAMES.B}：${c.att.B}匹`}</b>${Array(Math.min(c.att.B,10)).fill(antSvg('B',22)).join('')||'—'}</div>
   </div>
   <div class="state">${state}</div>
   <div class="btnrow">
-    <button class="btn primary" data-act="carryOwn" ${(!act||!own)?'disabled':''}>⬆ 自陣方向<br><small>${lbl(own)}</small></button>
-    <button class="btn" data-act="carryEnemy" ${(!act||!enm)?'disabled':''}>⬇ 相手方向<br><small>${lbl(enm)}</small></button>
+    <button class="btn primary" data-act="carryOwn" ${(!act||!own)?'disabled':''} >⬆ ${EN()?'Toward Your Nest':'自陣方向'}<br><small>${lbl(own)}</small></button>
+    <button class="btn" data-act="carryEnemy" ${(!act||!enm)?'disabled':''} >⬇ ${EN()?'Toward Opponent':'相手方向'}<br><small>${lbl(enm)}</small></button>
   </div>
-  <div class="btnrow"><button class="btn ghost" data-act="undo" ${!canUndoNow()?'disabled':''}>↶ ひとつ戻す</button><button class="btn ghost" data-act="closeSheet">とじる</button></div>`;
+  <div class="btnrow"><button class="btn ghost" data-act="undo" ${!canUndoNow()?'disabled':''} >↶ ${EN()?'Undo':'ひとつ戻す'}</button><button class="btn ghost" data-act="closeSheet">${EN()?'Close':'とじる'}</button></div>`;
   el.classList.add('open');
 }
 function prior_render(){
