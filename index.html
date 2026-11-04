@@ -2649,11 +2649,11 @@ function actPlace(){
   const opts=[p+'1',p+'w'].filter(canEnter);
   if(opts.length===0)return toast('塚入口も待機所も満員です');
   if(opts.length===1)return placeAt(opts[0]);
-  openDialog({title:'🐜 どこに出す？',
-    html:'<div>手元のアリを出す入口を選んでください。</div><div>待機所は中央への近道です（上限1匹）。</div>',
-    buttons:[{label:`🕳 待機所（${nodeCount(p+'w')}/1）`,cls:'primary',fn:()=>{closeDialog();placeAt(p+'w');}},
-             {label:`🏠 塚入口（${nodeCount(p+'1')}/2）`,fn:()=>{closeDialog();placeAt(p+'1');}},
-             {label:'キャンセル',cls:'ghost',fn:closeDialog}]});
+  openDialog({title:EN()?'🐜 Where to deploy?':'🐜 どこに出す？',
+    html:EN()?'<div>Choose where to deploy your ants.</div><div>The Waiting Area is a shortcut to the center (capacity: 1 ant).</div>':'<div>手元のアリを出す入口を選んでください。</div><div>待機所は中央への近道です（上限1匹）。</div>',
+    buttons:[{label:EN()?`🕳 Waiting Area (${nodeCount(p+'w')}/1)`:`🕳 待機所（${nodeCount(p+'w')}/1）`,cls:'primary',fn:()=>{closeDialog();placeAt(p+'w');}},
+             {label:EN()?`🏠 Nest Entrance (${nodeCount(p+'1')}/2)`:`🏠 塚入口（${nodeCount(p+'1')}/2）`,fn:()=>{closeDialog();placeAt(p+'1');}},
+             {label:EN()?'Cancel':'キャンセル',cls:'ghost',fn:closeDialog}]});
 }
 function actMove(from,to){
   if(!tutorialAllowsAction('move',{from,to}))return;
@@ -3842,12 +3842,12 @@ function nodeCell(n,targets,p){
 }
 function waitCell(w,targets,p){
   const o=w[0];
-  return `<div class="${nodeClasses(w,targets,p,['wait'])}" data-node="${w}" aria-label="${o==='A'?'A':'B'}側の待機所"><div class="nhead wait-head"><span>${o==='A'?'🔴':'🔵'}待機</span><span class="ncap">${nodeCount(w)}/1</span></div><div class="ants">${antGroup(o,S.free[w][o],20)}</div></div>`;
+  return `<div class="${nodeClasses(w,targets,p,['wait'])}" data-node="${w}" aria-label="${EN()?(o==='A'?'A Waiting Area':'B Waiting Area'):(o==='A'?'A':'B')+'側の待機所'}"><div class="nhead wait-head"><span>${o==='A'?'🔴':'🔵'}${EN()?'Waiting':'待機'}</span><span class="ncap">${nodeCount(w)}/1</span></div><div class="ants">${antGroup(o,S.free[w][o],20)}</div></div>`;
 }
 function sideCell(n,targets,p){
   if(n==='B1')return waitCell('Bw',targets,p);
   if(n==='A1')return waitCell('Aw',targets,p);
-  if(n==='C')return `<div class="rail join" aria-label="待機所から中央へ向かう一方通行"><span class="route-note">アリのみ通行</span></div>`;
+  if(n==='C')return `<div class="rail join" aria-label="${EN()?'One-way shortcut from the Waiting Area to the center':'待機所から中央へ向かう一方通行'}"><span class="route-note">${EN()?'Ants Only':'アリのみ通行'}</span></div>`;
   // Direction markers are fixed-size SVGs placed only in the empty left track gutter.
   if(n==='B3')return `<div class="rail route-guide down"><span class="route-stop" aria-hidden="true"><svg class="route-arrow" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5"/></svg></span></div>`;
   if(n==='A3')return `<div class="rail route-guide up"><span class="route-stop" aria-hidden="true"><svg class="route-arrow" viewBox="0 0 10 10"><path d="M2 6.5 5 3.5 8 6.5"/></svg></span></div>`;
