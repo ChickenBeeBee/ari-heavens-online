@@ -2729,7 +2729,7 @@ function actCarry(id,dir,noBattle){
     if(c.att[p]>0&&!noBattle)return offerBattle(id,'carry',dir);
     return toast(c.att[p]>0?'相手のアリがついているため運べません':'相手のアリがついています。自分のアリをつけてバトルを仕掛けましょう');
   }
-  if(c.att[p]<c.type.need)return toast(`運ぶには自分のアリが${c.type.need}匹以上必要です（現在${c.att[p]}匹）`);
+  if(c.att[p]<c.type.need)return toast(EN()?`You need at least ${c.type.need} of your ants to carry this candy (${c.att[p]} attached).`:`運ぶには自分のアリが${c.type.need}匹以上必要です（現在${c.att[p]}匹）`);
   recordUndo(`${c.type.name}を${NODE_LABEL[t]}へ運ぶ`);
   S.actions--;S.sel=null;c.node=t;
   let finished=false,scored=false;
