@@ -3422,7 +3422,7 @@ function finishDiceStep(state){
 }
 function battleResultHtml(fx){
   const last=[...(fx.rolls||[])].reverse().find(r=>!r.draw&&Number.isFinite(r.va)&&Number.isFinite(r.vd));
-  const rounds=(fx.rolls||[]).map((r,i)=>`<div class="rl" style="animation-delay:${i*.48}s"><b>第${i+1}回</b>　${r.line}${r.note?`<div>${r.note}</div>`:''}</div>`).join('');
+  const rounds=(fx.rolls||[]).map((r,i)=>`<div class="rl" style="animation-delay:${i*.48}s"><b>${EN()?`Round ${i+1}`:`第${i+1}回`}</b>　${r.line}${r.note?`<div>${r.note}</div>`:''}</div>`).join('');
   if(!last)return `<div class="rl">${fx.candyEmo||'🍬'} ${fx.candyName||'対象'} (${NAMES[fx.attacker]} ${EN()?'attacks':'が攻撃'})</div>${rounds}<div class="battle-result-outcome">${fx.summary|| (EN()?'Check the result.':'結果を確認してください。')}</div>`;
   const bonus=last.j||0;
   const equation=(p,isAttack)=>{
