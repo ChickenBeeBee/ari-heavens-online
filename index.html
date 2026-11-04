@@ -194,6 +194,8 @@ button{font:inherit;color:inherit}
 #main.viewer-B #controlDock{order:5}
 #board.perspective-B .rail.join{flex-direction:column-reverse}
 #log .l{padding:3px 6px;border-radius:6px;background:#fff9;line-height:1.4}
+/* Allow copying match logs and highlights even though the game UI disables selection globally. */
+#log .l,#logOverlayContent .l{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;cursor:text}
 #log .l.battle{background:#ffe0d6;border-left:4px solid #e4572e}
 #log .l.score{background:#e0f3d4;border-left:4px solid #4f9a2f;font-weight:700}
 #log .l.card{background:#fff0c2;border-left:4px solid #f5a623;font-weight:700}
