@@ -2692,6 +2692,47 @@ function getLegalActions(player=cur()){
  return out;
 }
 function ahTelemetryLegalActions(){return getLegalActions(cur());}
+/*
+ * Card-set evaluation for telemetry.
+ * The live CPU still keeps its current deck-selection behavior; this layer
+ * measures the quality of a 3-card set without changing gameplay.
+ */
+function ahTelemetryCardSetEvaluation(set){
+ const keys=Array.from(new Set(set||[])).filter(k=>CARD_KEYS.includes(k)).slice(0,3);
+ if(keys.length!==3)return null;
+ const items=keys.map(k=>{try{return cpuEvaluateCard(k)}catch(_){return null;}}).filter(Boolean);
+ let base=items.reduce((s,x)=>s+x.value,0),synergy=0,penalty=0;
+ const has=k=>keys.includes(k);
+ if(has('jaw')&&(has('showdown')||has('inspire')))synergy+=.7;
+ if(has('rain')&&(has('gale')||has('squall')))synergy+=.45;
+ if(has('pheromone')&&has('strongPheromone'))synergy+=.8;
+ if(has('gold')&&(has('heaven')||has('sortie')))synergy+=.55;
+ if(has('antlion')&&has('typhoon'))synergy+=.65;
+ if(has('summon')&&has('stronghold'))synergy+=.45;
+ if(has('sugar')&&has('powder'))synergy+=.35;
+ if(has('revive')){
+  const reusable=keys.filter(k=>k!=='revive').reduce((n,k)=>n+(S.cards?.B?.[k]?0:1),0);
+  synergy+=reusable*.18;
+ }
+ if(has('typhoon')){
+  const lostUtility=keys.filter(k=>k!=='typhoon').reduce((s,k)=>s+(cpuEvaluateCard(k)?.value||0),0);
+  penalty+=lostUtility*.08;
+ }
+ if(has('rain')&&has('gale'))penalty+=.12;
+ const finalScore=base+synergy-penalty;
+ return {cards:keys,baseValue:Number(base.toFixed(4)),synergy:Number(synergy.toFixed(4)),penalty:Number(penalty.toFixed(4)),finalScore:Number(finalScore.toFixed(4)),components:items.map(x=>({key:x.key,value:x.value,reason:x.reason}))};
+}
+function ahTelemetryCardSetCandidates(){
+ if(mode!=='cpu'||!S)return null;
+ const pool=CARD_KEYS.slice(),sets=[];
+ for(let i=0;i<pool.length-2;i++)for(let j=i+1;j<pool.length-1;j++)for(let k=j+1;k<pool.length;k++){
+  const ev=ahTelemetryCardSetEvaluation([pool[i],pool[j],pool[k]]);
+  if(ev)sets.push(ev);
+ }
+ sets.sort((a,b)=>b.finalScore-a.finalScore);
+ const selected=ahTelemetryCardSetEvaluation(S.decks?.B||[]);
+ return {count:sets.length,selected,best:sets.slice(0,10)};
+}
 function ahTelemetryCardSelection(){
  const pool=CARD_KEYS.map(k=>{
   const model=ahTelemetryCardProbabilityModel(k);
@@ -2703,7 +2744,7 @@ function ahTelemetryCardSelection(){
   }
   return {key:k,name:CARDS[k]?.name||k,selected:!!S.decks?.B?.includes(k),role:CPU_CARD_AI?.[k]?.role||null,timing:CPU_CARD_AI?.[k]?.timing||null,probabilityModel:model,evaluation:evalResult?ahTelemetryClone(evalResult):null};
  });
- return {pool,cpuSelected:mode==='cpu'?ahTelemetryClone(S.decks?.B||[]):null,playerSelected:ahTelemetryClone(S.decks?.A||[]),selectionMode:mode==='cpu'?'cpu-random':'player-selected'};
+ return {pool,cpuSelected:mode==='cpu'?ahTelemetryClone(S.decks?.B||[]):null,playerSelected:ahTelemetryClone(S.decks?.A||[]),selectionMode:mode==='cpu'?'cpu-random':'player-selected',setEvaluation:mode==='cpu'?ahTelemetryCardSetCandidates():null};
 }
 function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),cardSelection:ahTelemetryCardSelection(),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions(),immediate:{cardSelection:ahTelemetryCardSelection()}});}
 function ahTelemetryRecord(type,data={}){if(!AH_AI_TELEMETRY_ENABLED||!AH_AI_TELEMETRY||!S)return;AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:null,reason:data.reason||null});}
