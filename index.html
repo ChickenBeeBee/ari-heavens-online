@@ -3088,6 +3088,71 @@ function ahTelemetryShadowApply(state,action){
  }
  return s;
 }
+function ahTelemetryWinFeatures(state,actor){
+ const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p),score=s.score||{},hand=s.hand||{};
+ const ant=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+
+   (s.candies||[]).reduce((n,c)=>n+(c.attached?.[pl]||0),0);
+ let candyOwn=0,candyOpp=0,readyOwn=0,readyOpp=0;
+ for(const c of s.candies||[]){
+  const a=c.attached?.[p]||0,b=c.attached?.[q]||0,need=Math.max(1,c.need||1),pts=c.points||0;
+  candyOwn+=pts*Math.min(1,a/need);candyOpp+=pts*Math.min(1,b/need);
+  if(a>=need)readyOwn+=pts;if(b>=need)readyOpp+=pts;
+ }
+ const turn=Number(s.turn||0);
+ return {
+  turn,phase:turn<=8?'early':turn<=16?'mid':'late',
+  scoreDiff:(score[p]||0)-(score[q]||0),
+  antDiff:ant(p)-ant(q),
+  candyDiff:candyOwn-candyOpp,
+  readyDiff:readyOwn-readyOpp,
+  handDiff:(hand[p]||0)-(hand[q]||0)
+ };
+}
+function ahTelemetryHistoricalWinProbability(state,actor){
+ const f=ahTelemetryWinFeatures(state,actor),p=actor||state?.currentPlayer||'B';
+ const rows=[];
+ const collect=match=>{
+  if(match?.schema!==AH_AI_TELEMETRY_SCHEMA||match?.mode!=='cpu'||!match?.outcome?.winner)return;
+  const snap=(match.events||[]).find(e=>e.type==='matchStart')?.after||null;
+  // Match-start snapshots are useful only as a global prior; action snapshots
+  // below provide the situation-conditioned samples.
+  for(const e of match.events||[]){
+   if(e.type!=='action'||!e.before)continue;
+   const b=e.before,ef=ahTelemetryWinFeatures(b,p);
+   rows.push({f:ef,win:match.outcome.winner===p?1:0});
+  }
+ };
+ try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.forEach(collect);}catch(_){}
+ if(AH_AI_TELEMETRY)collect(AH_AI_TELEMETRY);
+ if(!rows.length)return {probability:.5,sampleSize:0,confidence:0,source:'no-history'};
+ const weights=rows.map(r=>{
+  let w=1;
+  w*=r.f.phase===f.phase?1.8:.45;
+  w*=Math.exp(-Math.abs(r.f.scoreDiff-f.scoreDiff)/6);
+  w*=Math.exp(-Math.abs(r.f.antDiff-f.antDiff)/5);
+  w*=Math.exp(-Math.abs(r.f.candyDiff-f.candyDiff)/5);
+  w*=Math.exp(-Math.abs(r.f.readyDiff-f.readyDiff)/4);
+  w*=Math.exp(-Math.abs(r.f.handDiff-f.handDiff)/4);
+  return Math.max(.01,w);
+ });
+ const total=weights.reduce((a,b)=>a+b,0);
+ const empirical=rows.reduce((a,r,i)=>a+r.win*weights[i],0)/Math.max(.01,total);
+ const confidence=Math.min(.8,total/18);
+ return {probability:Number((.5+(empirical-.5)*confidence).toFixed(4)),sampleSize:rows.length,confidence:Number(confidence.toFixed(3)),source:'historical-similarity'};
+}
+function ahTelemetryHeuristicWinProbability(state,actor){
+ const f=ahTelemetryWinFeatures(state,actor);
+ const phaseWeight=f.phase==='late'?1.35:f.phase==='mid'?1.1:.85;
+ const z=(f.scoreDiff*.22+f.antDiff*.08+f.candyDiff*.16+f.readyDiff*.11+f.handDiff*.025)*phaseWeight;
+ return 1/(1+Math.exp(-Math.max(-6,Math.min(6,z))));
+}
+function ahTelemetryWinProbability(state,actor){
+ const h=ahTelemetryHistoricalWinProbability(state,actor);
+ const heuristic=ahTelemetryHeuristicWinProbability(state,actor);
+ const blend=h.sampleSize>=4?(heuristic*.45+h.probability*.55):heuristic*.72+.5*.28;
+ return Number(Math.max(.05,Math.min(.95,blend)).toFixed(4));
+}
+
 function ahTelemetryShadowUtility(state,actor){
  const s=state||{},p=actor||s.currentPlayer,q=opp(p),score=s.score||{},hand=s.hand||{};
  const ant=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+
@@ -3098,7 +3163,10 @@ function ahTelemetryShadowUtility(state,actor){
   candy+=pts*Math.min(1,own/need);
   if(enemy>=need&&CHAIN.indexOf(c.node)>=4)threat+=pts;
  }
- return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32;
+ const winProb=ahTelemetryWinProbability(s,p);
+ const terminal=s.result?.winner? (s.result.winner===p?1:-1):0;
+ return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32+
+   (winProb-.5)*4.2+terminal*8;
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  if(!AH_AI_TELEMETRY||!S)return null;
@@ -3244,6 +3312,7 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
   if(rollout){
    const correction=ahTelemetryPredictionCorrection(action);
    const calibratedRollout=rollout.value*correction.multiplier+correction.bias*correction.confidence;
+   b.winProbability=ahTelemetryWinProbability(rollout.after,p);
    b.rollout=Number(calibratedRollout.toFixed(4));
    b.rawRollout=rollout.value;
    b.rolloutCalibration=correction;
