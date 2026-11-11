@@ -2925,6 +2925,141 @@ function ahTelemetryCardTimingAdjustment(key,actor){
  return {adjustment:0,hold:false,experience:plan.experience,currentTurn:plan.currentTurn,targetTurn:plan.preferredTurn,turnGap:plan.preferredTurn==null?null:Number((plan.preferredTurn-plan.currentTurn).toFixed(1)),plan};
 }
 
+/*
+ * Shadow rollout (diagnostic-v1).
+ * This is deliberately side-effect free: it operates on telemetry snapshots,
+ * never on live S. The first version models deterministic board actions and
+ * lets us compare "do this now" with an opponent response and continuation.
+ * Exact stochastic card simulation remains a later layer.
+ */
+function ahTelemetryShadowNeighbors(node,p){
+ const out=[],i=CHAIN.indexOf(node);
+ if(i>=0){
+  if(i>0)out.push(CHAIN[i-1]);if(i<6)out.push(CHAIN[i+1]);
+  if(node===p+'1')out.push(p+'w');
+  if(node==='A2')out.push('B2');else if(node==='B2')out.push('A2');
+ }else if(node===p+'w')out.push('C');
+ return out;
+}
+function ahTelemetryShadowLegalActions(state,player){
+ const s=state||{},p=player||s.currentPlayer,q=opp(p),out=[];
+ if(!p||s.result)return out;
+ const push=(type,data={})=>out.push({type,player:p,...data});
+ if(Number(s.actions||0)>0){
+  for(const node of [p+'1',p+'w'])if((s.hand?.[p]||0)>0)push('placeAnt',{node});
+  for(const from of Object.keys(s.free||{})){
+   if((s.free[from]?.[p]||0)<=0)continue;
+   for(const to of ahTelemetryShadowNeighbors(from,p))push('moveAnt',{from,to});
+  }
+  for(const c of s.candies||[])for(const dir of ['own','enemy']){
+   const i=CHAIN.indexOf(c.node),step=dir==='own'?(p==='A'?-1:1):(p==='A'?1:-1),j=i+step;
+   if(i<0||j<0||j>6)continue;
+   const target=CHAIN[j];
+   if(target===q+'1'&&!c.bomb)continue;
+   if(c.bomb&&target===p+'1')continue;
+   if((c.attached?.[q]||0)>0||(c.attached?.[p]||0)<(c.need||0))continue;
+   push('carryCandy',{candyId:c.id,dir,target});
+  }
+ }
+ for(const c of s.candies||[]){
+  if((c.attached?.[p]||0)>0)push('detachAnt',{candyId:c.id});
+  if((s.free?.[c.node]?.[p]||0)>0)push('attachAnt',{candyId:c.id});
+  if((c.attached?.[p]||0)>0&&(c.attached?.[q]||0)>0)push('startBattle',{candyId:c.id});
+ }
+ for(const k of s.decks?.[p]||[]){
+  if(!s.cards?.[p]?.[k]&&!s.typhoonLocked?.[p]&&k!=='showdown')push('useCard',{card:k});
+ }
+ push('endTurn');
+ return out;
+}
+function ahTelemetryShadowApply(state,action){
+ const s=ahTelemetryClone(state),p=action?.player||s.currentPlayer,q=opp(p);
+ if(!s||!action)return s;
+ const c=s.candies?.find(x=>String(x.id)===String(action.candyId));
+ if(action.type==='placeAnt'){
+  if((s.hand?.[p]||0)>0&&s.free?.[action.node]){
+   s.hand[p]--;s.free[action.node][p]++;s.actions=Math.max(0,(s.actions||0)-1);
+  }
+ }else if(action.type==='moveAnt'){
+  if((s.free?.[action.from]?.[p]||0)>0&&s.free?.[action.to]){
+   s.free[action.from][p]--;s.free[action.to][p]++;s.actions=Math.max(0,(s.actions||0)-1);
+  }
+ }else if(action.type==='attachAnt'){
+  if(c&&(s.free?.[c.node]?.[p]||0)>0){
+   s.free[c.node][p]--;c.attached[p]=(c.attached?.[p]||0)+1;
+  }
+ }else if(action.type==='detachAnt'){
+  if(c&&(c.attached?.[p]||0)>0){
+   c.attached[p]--;s.free[c.node][p]=(s.free?.[c.node]?.[p]||0)+1;
+  }
+ }else if(action.type==='carryCandy'){
+  if(c){
+   const target=action.target;c.node=target;s.actions=Math.max(0,(s.actions||0)-1);
+   if(target===p+'1'&&!c.bomb){
+    const pts=c.points||0,back=c.attached?.[p]||0;
+    s.score[p]=(s.score?.[p]||0)+pts;s.hand[p]=(s.hand?.[p]||0)+back;
+    s.candies=s.candies.filter(x=>x!==c);
+   }else if(c.bomb&&target===q+'1'){
+    const back=c.attached?.[p]||0;
+    s.score[q]=(s.score?.[q]||0)-4;s.hand[p]=(s.hand?.[p]||0)+back;
+    s.candies=s.candies.filter(x=>x!==c);
+   }
+  }
+ }else if(action.type==='startBattle'&&c){
+  const a=c.attached?.[p]||0,d=c.attached?.[q]||0;
+  const ev=battleEV(a,d,s.effects?.jaw===p?3:0);
+  const loserExpected=ev>=0?q:p;
+  const loss=Math.max(0,Math.min(loserExpected===p?a:d,Math.abs(ev)));
+  c.attached[loserExpected]=Math.max(0,(c.attached?.[loserExpected]||0)-loss);
+ }else if(action.type==='useCard'){
+  const k=action.card;
+  if(s.cards?.[p])s.cards[p][k]=true;
+  if(k==='revive')for(const q2 of ['A','B'])for(const card of s.decks?.[q2]||[])if(card!=='revive')s.cards[q2][card]=false;
+  if(k==='summon')s.candies.push({id:'shadow-'+k+'-'+s.candies.length,node:'C',points:4,need:2,bomb:true,attached:{A:0,B:0}});
+  if(k==='typhoon')s.typhoonLocked[p]=true;
+ }else if(action.type==='endTurn'){
+  s.currentPlayer=q;s.turn=(s.turn||0)+1;s.actions=2;s.cardUsed=false;
+ }
+ return s;
+}
+function ahTelemetryShadowUtility(state,actor){
+ const s=state||{},p=actor||s.currentPlayer,q=opp(p),score=s.score||{},hand=s.hand||{};
+ const ant=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+
+   (s.candies||[]).reduce((n,c)=>n+(c.attached?.[pl]||0),0);
+ let candy=0,threat=0;
+ for(const c of s.candies||[]){
+  const own=c.attached?.[p]||0,enemy=c.attached?.[q]||0,need=Math.max(1,c.need||1),pts=c.points||0;
+  candy+=pts*Math.min(1,own/need);
+  if(enemy>=need&&CHAIN.indexOf(c.node)>=4)threat+=pts;
+ }
+ return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32;
+}
+function ahTelemetryRollout(action,actor){
+ if(!AH_AI_TELEMETRY||!S)return null;
+ const before=ahTelemetryState(),p=actor||CPU,q=opp(p);
+ const after=ahTelemetryShadowApply(before,action);
+ const immediate=ahTelemetryShadowUtility(after,p)-ahTelemetryShadowUtility(before,p);
+ let opponentBest=null,opponentScore=-Infinity,replyState=null;
+ for(const reply of ahTelemetryShadowLegalActions(after,q)){
+  const rstate=ahTelemetryShadowApply(after,reply),value=ahTelemetryShadowUtility(rstate,p);
+  if(value>opponentScore){opponentScore=value;opponentBest=reply;replyState=rstate;}
+ }
+ let continuation=null,continuationScore=null;
+ if(replyState)for(const next of ahTelemetryShadowLegalActions(replyState,p)){
+  const nstate=ahTelemetryShadowApply(replyState,next),value=ahTelemetryShadowUtility(nstate,p);
+  if(value>(continuationScore??-Infinity)){continuationScore=value;continuation={action:next,value:Number(value.toFixed(3))};}
+ }
+ const future=continuationScore==null?0:continuationScore-ahTelemetryShadowUtility(before,p);
+ return {
+  schema:'shadow-rollout-v1',action:ahTelemetryClone(action),
+  immediate:Number(immediate.toFixed(3)),
+  opponentReply:ahTelemetryClone(opponentBest),
+  continuation:continuation?ahTelemetryClone(continuation):null,
+  twoPlyValue:Number((immediate+future*.45).toFixed(3)),
+  after:ahTelemetryClone(after)
+ };
+}
+
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
@@ -3021,6 +3156,11 @@ function ahTelemetryCandidateScore(action){
   b.actionCost=-.05;
  }
  b.actionCost+=(action.type==='endTurn'?0:-.08);
+ const rollout=ahTelemetryRollout(action,p);
+ if(rollout){
+  b.rollout=rollout.twoPlyValue;
+  b.immediate+=rollout.twoPlyValue*.10;
+ }
  const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
  return {score:Number(total.toFixed(4)),breakdown:b};
 }
