@@ -96,9 +96,13 @@ button{font:inherit;color:inherit}
 .ants{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px;min-height:6px}
 .agrp{display:inline-flex;align-items:center;flex-wrap:wrap;gap:1px;padding:1px 4px;border-radius:10px;background:#fff7}
 .agrp .cn{font-size:12px;margin-left:2px;color:var(--ink);text-shadow:none}
-.ant{width:22px;height:22px;display:inline-block;filter:drop-shadow(0 0 1px #000a)}
+.ant{width:22px;height:22px;display:inline-block;filter:drop-shadow(0 0 1px #000a);pointer-events:none;-webkit-user-drag:none}
 .ant.A{color:var(--A)}.ant.B{color:var(--B)}
 .node.mine .agrp.A,.node.mine .agrp.B{outline:2px dashed #fff;outline-offset:1px}
+.agrp[data-ant-group]{cursor:grab;touch-action:none}
+.agrp[data-ant-group]:active{cursor:grabbing}
+.agrp.drag-source{outline:3px solid #ff8a00!important;outline-offset:2px;transform:scale(1.05)}
+.node.drag-hover{outline:4px solid #ffd23f!important;outline-offset:2px;box-shadow:0 0 16px 4px #ffd23f;z-index:4}
 .node.sel{outline:4px solid #fff;box-shadow:0 0 0 8px #ff8a00;z-index:2}
 .node.target{outline:4px solid #ffd23f;outline-offset:2px;animation:pulse 1s infinite;z-index:2}
 @keyframes pulse{50%{outline-color:#fff;box-shadow:0 0 14px 4px #ffd23f}}
@@ -3795,7 +3799,7 @@ function antGroup(p,n,s){
   if(n<=0)return '';let h='';
   for(let i=0;i<Math.min(n,6);i++)h+=antSvg(p,s);
   if(n>1)h+=`<b class="cn">×${n}</b>`;
-  return `<span class="agrp ${p}">${h}</span>`;
+  return `<span class="agrp ${p}" data-ant-group="true" data-ant-player="${p}">${h}</span>`;
 }
 function candyTile(c,compact=false){
   const a=c.att.A,b=c.att.B,need=c.type.need;let flag='待機中',cls='';
@@ -5533,7 +5537,58 @@ function cpuHeavenAttach(){
 }
 
 /* ---------- events ---------- */
+let antDrag=null;
+let suppressBoardClickUntil=0;
+function clearAntDrag(){
+  if(!antDrag)return;
+  antDrag.source?.classList.remove('drag-source');
+  antDrag.targetEl?.classList.remove('drag-hover');
+  antDrag=null;
+}
+function antDragTargetAt(x,y){
+  const el=document.elementFromPoint(x,y);
+  return el?.closest('[data-node]')||null;
+}
+function beginAntDrag(e){
+  if(!S||!S.started||S.over||dialogOpen||!isHuman(cur())||!canAct())return;
+  if(e.button!==undefined&&e.button!==0)return;
+  const source=e.target.closest('.agrp[data-ant-group]');
+  if(!source||!source.closest('#board'))return;
+  const p=cur(),player=source.dataset.antPlayer,node=source.closest('[data-node]')?.dataset.node;
+  if(player!==p||!node||!(S.free[node]&&S.free[node][p]>0))return;
+  antDrag={pointerId:e.pointerId,from:node,source,target:null,targetEl:null,moved:false,startX:e.clientX,startY:e.clientY};
+  source.classList.add('drag-source');
+  try{source.setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();
+}
+function updateAntDrag(e){
+  if(!antDrag||e.pointerId!==antDrag.pointerId)return;
+  e.preventDefault();
+  if(Math.hypot(e.clientX-antDrag.startX,e.clientY-antDrag.startY)>6)antDrag.moved=true;
+  const next=antDragTargetAt(e.clientX,e.clientY);
+  const target=next?.dataset.node||null;
+  if(target===antDrag.target)return;
+  antDrag.targetEl?.classList.remove('drag-hover');
+  antDrag.target=target;
+  antDrag.targetEl=next;
+  if(next)next.classList.add('drag-hover');
+}
+function finishAntDrag(e){
+  if(!antDrag||e.pointerId!==antDrag.pointerId)return;
+  const d=antDrag;const target=d.target;const from=d.from;const moved=d.moved;
+  clearAntDrag();
+  if(!moved)return;
+  suppressBoardClickUntil=performance.now()+100;
+  if(target&&target!==from&&neighbors(from,cur()).includes(target))actMove(from,target);
+  e.preventDefault();
+}
+const $board=$('#board');
+$board.addEventListener('pointerdown',beginAntDrag,{passive:false});
+$board.addEventListener('pointermove',updateAntDrag,{passive:false});
+$board.addEventListener('pointerup',finishAntDrag,{passive:false});
+$board.addEventListener('pointercancel',finishAntDrag,{passive:false});
 $('#board').addEventListener('click',e=>{
+  if(performance.now()<suppressBoardClickUntil)return;
   if(!S||!S.started||dialogOpen)return;
   if(S.strongholdSelect){
     const candy=e.target.closest('[data-candy]');
