@@ -3100,9 +3100,9 @@ function ahTelemetryShadowUtility(state,actor){
  }
  return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32;
 }
-function ahTelemetryRollout(action,actor,maxDepth=3){
+function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  if(!AH_AI_TELEMETRY||!S)return null;
- const before=ahTelemetryState(),p=actor||CPU;
+ const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const rootValue=ahTelemetryShadowUtility(before,p);
  const branch=(state,turnActor,depth)=>{
   if(depth<=0||state?.result)return {value:ahTelemetryShadowUtility(state,p),line:[]};
@@ -3137,6 +3137,15 @@ function ahTelemetryRollout(action,actor,maxDepth=3){
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
+ /*
+  * Calibration is recorded only for CPU actions.  The rollout starts from
+  * the pre-action snapshot, so the real board must not be consulted after
+  * the action has already mutated S.
+  */
+ if(actor===CPU&&before){
+  const prediction=ahTelemetryRollout(action,actor,3,before);
+  if(prediction)info.prediction=prediction;
+ }
  ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:info});
 }
 /*
@@ -3270,9 +3279,50 @@ function ahTelemetryCpuDecision(result,before){
   immediate:{result,candidates,selectedAction:executedLast}
  });
 }
+function ahTelemetryPredictionCalibration(){
+ const rows=[];
+ const collect=match=>{
+  for(const e of match?.events||[]){
+   if(e.type!=='action'||e.actor!==CPU||!e.immediate?.prediction)continue;
+   rows.push({
+    turn:e.turn,action:ahTelemetryClone(e.action),prediction:ahTelemetryClone(e.immediate.prediction),
+    h1:e.future?.h1||null,h3:e.future?.h3||null,h5:e.future?.h5||null,
+    outcome:match.outcome||null
+   });
+  }
+ };
+ try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.forEach(collect);}catch(_){}
+ if(AH_AI_TELEMETRY)collect(AH_AI_TELEMETRY);
+ const reached=rows.filter(r=>r.h3?.status==='reached');
+ const sign=(v)=>v>0?1:v<0?-1:0;
+ const directional=reached.filter(r=>r.h3?.scoreDelta);
+ const hit=directional.filter(r=>sign(r.prediction.value)===sign(r.h3.scoreDelta[CPU]||0));
+ const winRows=rows.filter(r=>r.outcome?.winner);
+ const actionType={};
+ for(const r of rows){
+  const k=r.action?.type||'unknown';
+  if(!actionType[k])actionType[k]={sampleSize:0,h3:0,h3Hit:0,avgScoreDelta:0};
+  actionType[k].sampleSize++;
+  if(r.h3?.status==='reached'&&r.h3?.scoreDelta){
+   actionType[k].h3++;
+   actionType[k].avgScoreDelta+=(r.h3.scoreDelta[CPU]||0);
+   if(sign(r.prediction.value)===sign(r.h3.scoreDelta[CPU]||0))actionType[k].h3Hit++;
+  }
+ }
+ Object.values(actionType).forEach(v=>{if(v.h3)v.avgScoreDelta=Number((v.avgScoreDelta/v.h3).toFixed(3));});
+ return {
+  schema:'prediction-calibration-v1',
+  sampleSize:rows.length,
+  h3SampleSize:directional.length,
+  h3DirectionalHitRate:directional.length?Number((hit.length/directional.length*100).toFixed(1)):null,
+  completedMatchSamples:winRows.length,
+  byAction:actionType
+ };
+}
+
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryUpdateFuture(true);ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
-window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
 /* ---------- end AI telemetry ---------- */
 
 
