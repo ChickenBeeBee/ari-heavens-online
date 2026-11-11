@@ -2821,6 +2821,62 @@ function ahTelemetryCardTimingProfile(key,actor){
  const ct=comparable.map(x=>x.turn).filter(Boolean);
  return {schema:'card-timing-v1',card:key,sampleSize:count,phaseCounts:phases,averageTurn:Number(avg(turns).toFixed(1)),preferredTurn:Number(avg(ct.length?ct:turns).toFixed(1)),winRate:wins.length?Number((avg(wins)*100).toFixed(1)):null,averageH3ScoreDelta:h3.length?Number(avg(h3).toFixed(3)):null,comparableSampleSize:comparable.length,comparablePreferredTurn:ct.length?Number(avg(ct).toFixed(1)):null,comparableWinRate:comparable.filter(x=>x.outcome?.winner).length?Number((avg(comparable.filter(x=>x.outcome?.winner).map(x=>x.outcome.winner===p?1:0))*100).toFixed(1)):null};
 }
+
+function ahTelemetrySituationDistance(a,b){
+ if(!a||!b)return 99;
+ return (
+  Math.min(1,Math.abs((a.scoreDiff||0)-(b.scoreDiff||0))/6)+
+  Math.min(1,Math.abs((a.antDiff||0)-(b.antDiff||0))/6)+
+  Math.min(1,Math.abs((a.handDiff||0)-(b.handDiff||0))/4)+
+  Math.min(1,Math.abs((a.candyValue||0)-(b.candyValue||0))/5)+
+  (a.phase===b.phase?0:.35)+
+  Math.min(1,Math.abs((a.contested||0)-(b.contested||0))/2)*.7+
+  Math.min(1,Math.abs((a.ownReady||0)-(b.ownReady||0))/2)*.5+
+  Math.min(1,Math.abs((a.oppReady||0)-(b.oppReady||0))/2)*.5+
+  Math.min(1,Math.abs((a.actions||0)-(b.actions||0))/3)*.35
+ );
+}
+function ahTelemetryCardExperience(key,actor,state){
+ const p=actor||'B',current=ahTelemetrySituationKey(state||ahTelemetryState(),p),matches=[];
+ const collect=match=>{
+  if(!match||match.schema!==AH_AI_TELEMETRY_SCHEMA)return;
+  for(const e of match.events||[]){
+   if(e.type!=='action'||e.action?.type!=='useCard'||e.action?.card!==key)continue;
+   const who=e.actor||e.action?.player;if(who&&who!==p)continue;
+   const sit=e.situation||ahTelemetrySituationKey(e.before,who||p),future=e.future||{};
+   matches.push({
+    distance:ahTelemetrySituationDistance(sit,current),
+    weight:Math.max(.05,1-ahTelemetrySituationDistance(sit,current)/2.6),
+    turn:Number(e.turn||e.before?.turn||0),phase:sit?.phase||'mid',
+    h1:future.h1?.scoreDelta?.[p]==null?null:Number(future.h1.scoreDelta[p]),
+    h3:future.h3?.scoreDelta?.[p]==null?null:Number(future.h3.scoreDelta[p]),
+    h5:future.h5?.scoreDelta?.[p]==null?null:Number(future.h5.scoreDelta[p]),
+    win:match.outcome?.winner?match.outcome.winner===p?1:0:null
+   });
+  }
+ };
+ try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.forEach(collect);}catch(_){}
+ if(AH_AI_TELEMETRY)collect(AH_AI_TELEMETRY);
+ matches.sort((a,b)=>b.weight-a.weight);
+ const top=matches.slice(0,8),sumW=top.reduce((s,x)=>s+x.weight,0);
+ const wavg=field=>{const xs=top.filter(x=>x[field]!=null),w=xs.reduce((s,x)=>s+x.weight,0);return w?xs.reduce((s,x)=>s+x[field]*x.weight,0)/w:null;};
+ if(!top.length)return {schema:'card-experience-v1',card:key,sampleSize:0,similarSampleSize:0,confidence:0,score:0,advice:'insufficient-data'};
+ const similarity=top.reduce((s,x)=>s+x.weight,0)/top.length;
+ const h1=wavg('h1'),h3=wavg('h3'),h5=wavg('h5'),win=wavg('win'),timingTurn=wavg('turn');
+ const phaseMatches=top.filter(x=>x.phase===current.phase).length;
+ const score=(h3==null?0:h3*.42)+(h1==null?0:h1*.16)+(h5==null?0:h5*.24)+(win==null?0:(win-.5)*.9);
+ const confidence=Math.min(1,(sumW/4)*(top.length/8)*similarity);
+ let advice='neutral';
+ if(confidence>=.18)advice=score>.35?'favorable':score<-.35?'unfavorable':'mixed';
+ return {schema:'card-experience-v1',card:key,sampleSize:matches.length,similarSampleSize:top.length,
+  confidence:Number(confidence.toFixed(3)),similarity:Number(similarity.toFixed(3)),currentSituation:current,
+  preferredHistoricalTurn:timingTurn==null?null:Number(timingTurn.toFixed(1)),samePhaseSamples:phaseMatches,
+  weightedH1ScoreDelta:h1==null?null:Number(h1.toFixed(3)),weightedH3ScoreDelta:h3==null?null:Number(h3.toFixed(3)),
+  weightedH5ScoreDelta:h5==null?null:Number(h5.toFixed(3)),weightedWinRate:win==null?null:Number((win*100).toFixed(1)),
+  score:Number(score.toFixed(3)),advice};
+}
+function ahTelemetryExperienceForCard(key,actor){return ahTelemetryCardExperience(key,actor,ahTelemetryState());}
+
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
@@ -2880,7 +2936,7 @@ function ahTelemetryBattleOutcome(fx,out,roll){
  ahTelemetryRecord('battleResult',{actor:fx.attacker,action:{type:'battleResult',battleEventId:fx.eventId,candyId:fx.candyId},before:ahTelemetryState(),after:ahTelemetryState(),immediate:result});
 }
 function ahTelemetryCandidateScore(action){
- const b={immediate:0,deny:0,survival:0,setup:0,actionCost:0},p=CPU,q=opp(p);
+ const b={immediate:0,deny:0,survival:0,setup:0,actionCost:0,experience:0,experienceConfidence:0,experienceAdvice:null},p=CPU,q=opp(p);
  if(action.type==='carryCandy'){
   const c=getC(action.candyId),pts=c?.type?.bomb?4:(c?.type?.pts||0);
   if(c&&action.target===(c.type.bomb?q+'1':p+'1'))b.immediate=pts;
@@ -2912,7 +2968,7 @@ function ahTelemetryCandidateScore(action){
   b.setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
  }else if(action.type==='useCard'){
   const ev=cpuEvaluateCard(action.card);
-  if(ev){b.immediate=ev.value;b.setup=Math.max(0,ev.value*.15);}
+  if(ev){b.immediate=ev.value;b.setup=Math.max(0,ev.value*.15);const experience=ahTelemetryCardExperience(action.card,p);b.experience=experience.score;b.experienceConfidence=experience.confidence;b.experienceAdvice=experience.advice;b.immediate+=experience.score*.12;}
  }else if(action.type==='endTurn'){
   b.actionCost=-.05;
  }
