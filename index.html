@@ -3241,10 +3241,14 @@ function ahTelemetryCandidateScore(action){
  b.actionCost+=(action.type==='endTurn'?0:-.08);
  const rollout=ahTelemetryRollout(action,p,3);
  if(rollout){
-  b.rollout=rollout.value;
+  const correction=ahTelemetryPredictionCorrection(action);
+  const calibratedRollout=rollout.value*correction.multiplier+correction.bias*correction.confidence;
+  b.rollout=Number(calibratedRollout.toFixed(4));
+  b.rawRollout=rollout.value;
+  b.rolloutCalibration=correction;
   b.rolloutDepth=rollout.depth;
   b.principalVariation=rollout.principalVariation;
-  b.immediate+=rollout.value*.10;
+  b.immediate+=calibratedRollout*.10;
  }
  const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
  return {score:Number(total.toFixed(4)),breakdown:b};
@@ -3279,6 +3283,44 @@ function ahTelemetryCpuDecision(result,before){
   immediate:{result,candidates,selectedAction:executedLast}
  });
 }
+function ahTelemetryPredictionCorrection(action){
+ const type=action?.type||'unknown',key=type==='useCard'?action.card:null,rows=[];
+ const collect=match=>{
+  for(const e of match?.events||[]){
+   if(e.type!=='action'||e.actor!==CPU||!e.immediate?.prediction)continue;
+   if((e.action?.type||'unknown')!==type)continue;
+   if(key&&e.action?.card!==key)continue;
+   const h=e.future?.h3;
+   if(h?.status!=='reached'||!h?.scoreDelta)continue;
+   const actual=Number(h.scoreDelta[CPU]||0),pred=Number(e.immediate.prediction.value||0);
+   rows.push({actual,pred,hit:(pred>0&&actual>0)||(pred<0&&actual<0)});
+  }
+ };
+ try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.forEach(collect);}catch(_){}
+ if(AH_AI_TELEMETRY)collect(AH_AI_TELEMETRY);
+ if(rows.length<4)return {sampleSize:rows.length,confidence:0,multiplier:1,bias:0,reason:'insufficient-data'};
+ const hitRate=rows.filter(x=>x.hit).length/rows.length;
+ const magnitudes=rows.filter(x=>Math.abs(x.pred)>0.15&&Math.abs(x.actual)>0.15);
+ let multiplier=1;
+ if(magnitudes.length>=3){
+  const ratios=magnitudes.map(x=>Math.abs(x.actual)/Math.abs(x.pred)).sort((a,b)=>a-b);
+  const mid=ratios[Math.floor(ratios.length/2)];
+  multiplier=Math.max(.65,Math.min(1.35,Math.sqrt(mid)));
+ }
+ const bias=rows.reduce((n,x)=>n+(x.actual-x.pred),0)/rows.length;
+ const confidence=Math.min(.85,rows.length/16)*(.5+.5*hitRate);
+ const reliability=hitRate>=.55?1+(hitRate-.55)*.8:1-(.55-hitRate)*1.2;
+ const safeMultiplier=Math.max(.55,Math.min(1.25,multiplier*reliability));
+ return {
+  sampleSize:rows.length,
+  confidence:Number(confidence.toFixed(3)),
+  multiplier:Number(safeMultiplier.toFixed(3)),
+  bias:Number(Math.max(-2,Math.min(2,bias*.12)).toFixed(3)),
+  directionalHitRate:Number((hitRate*100).toFixed(1)),
+  reason:'calibrated'
+ };
+}
+
 function ahTelemetryPredictionCalibration(){
  const rows=[];
  const collect=match=>{
@@ -3310,13 +3352,18 @@ function ahTelemetryPredictionCalibration(){
   }
  }
  Object.values(actionType).forEach(v=>{if(v.h3)v.avgScoreDelta=Number((v.avgScoreDelta/v.h3).toFixed(3));});
+ const calibrationKeys={};
+ for(const k of Object.keys(actionType)){
+  calibrationKeys[k]=ahTelemetryPredictionCorrection({type:k});
+ }
  return {
-  schema:'prediction-calibration-v1',
+  schema:'prediction-calibration-v2',
   sampleSize:rows.length,
   h3SampleSize:directional.length,
   h3DirectionalHitRate:directional.length?Number((hit.length/directional.length*100).toFixed(1)):null,
   completedMatchSamples:winRows.length,
-  byAction:actionType
+  byAction:actionType,
+  correctionByAction:calibrationKeys
  };
 }
 
