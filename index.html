@@ -2783,7 +2783,49 @@ function ahTelemetryRecord(type,data={}){
  AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:type==='action'?{h1:{status:'pending'},h3:{status:'pending'},h5:{status:'pending'}}:null,reason:data.reason||null});
  ahTelemetryUpdateFuture(false);
 }
-function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate});}
+function ahTelemetrySituationKey(state,actor){
+ const s=state||{},p=actor||s.currentPlayer||'A',q=p==='A'?'B':'A',score=s.score||{},hand=s.hand||{},free=s.free||{};
+ const ant=pl=>Object.values(free).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0);
+ let candyValue=0,contested=0,ownReady=0,oppReady=0;
+ for(const c of s.candies||[]){
+  const a=c.attached?.[p]||0,b=c.attached?.[q]||0;
+  candyValue+=(c.points||0)*a/Math.max(1,c.need||1);
+  if(a>0&&b>0)contested++;
+  if(a>0&&a>=Math.max(1,c.need||1))ownReady++;
+  if(b>0&&b>=Math.max(1,c.need||1))oppReady++;
+ }
+ const turn=Number(s.turn||0);
+ return {turn,phase:turn<=8?'early':turn<=16?'mid':'late',scoreDiff:(score[p]||0)-(score[q]||0),antDiff:ant(p)-ant(q),handDiff:(hand[p]||0)-(hand[q]||0),candyValue:Number(candyValue.toFixed(2)),contested,ownReady,oppReady,actions:Number(s.actions||0)};
+}
+function ahTelemetryCardTimingProfile(key,actor){
+ const p=actor||'B',matches=[];
+ const collect=match=>{
+  if(!match||match.schema!==AH_AI_TELEMETRY_SCHEMA)return;
+  for(const e of match.events||[]){
+   if(e.type!=='action'||e.action?.type!=='useCard'||e.action?.card!==key)continue;
+   const who=e.actor||e.action?.player;if(who&&who!==p)continue;
+   matches.push({turn:Number(e.turn||e.before?.turn||0),situation:ahTelemetrySituationKey(e.before,who||p),future:e.future||null,outcome:match.outcome||null});
+  }
+ };
+ try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.forEach(collect);}catch(_){}
+ if(AH_AI_TELEMETRY)collect(AH_AI_TELEMETRY);
+ const count=matches.length;
+ if(!count)return {schema:'card-timing-v1',card:key,sampleSize:0,advice:'insufficient-data'};
+ const avg=xs=>xs.length?xs.reduce((a,b)=>a+b,0)/xs.length:0;
+ const turns=matches.map(x=>x.turn).filter(Boolean),phases={early:0,mid:0,late:0};
+ for(const x of matches)phases[x.situation?.phase||'mid']=(phases[x.situation?.phase||'mid']||0)+1;
+ const h3=matches.filter(x=>x.future?.h3?.status==='reached'&&x.future.h3.scoreDelta).map(x=>x.future.h3.scoreDelta[p]||0);
+ const wins=matches.filter(x=>x.outcome?.winner).map(x=>x.outcome.winner===p?1:0);
+ const cur=AH_AI_TELEMETRY?ahTelemetrySituationKey(ahTelemetryState(),p):null;
+ const comparable=cur?matches.filter(x=>x.situation?.phase===cur.phase&&Math.abs((x.situation.scoreDiff||0)-cur.scoreDiff)<=4&&Math.abs((x.situation.antDiff||0)-cur.antDiff)<=4):[];
+ const ct=comparable.map(x=>x.turn).filter(Boolean);
+ return {schema:'card-timing-v1',card:key,sampleSize:count,phaseCounts:phases,averageTurn:Number(avg(turns).toFixed(1)),preferredTurn:Number(avg(ct.length?ct:turns).toFixed(1)),winRate:wins.length?Number((avg(wins)*100).toFixed(1)):null,averageH3ScoreDelta:h3.length?Number(avg(h3).toFixed(3)):null,comparableSampleSize:comparable.length,comparablePreferredTurn:ct.length?Number(avg(ct).toFixed(1)):null,comparableWinRate:comparable.filter(x=>x.outcome?.winner).length?Number((avg(comparable.filter(x=>x.outcome?.winner).map(x=>x.outcome.winner===p?1:0))*100).toFixed(1)):null};
+}
+function ahTelemetryAction(actor,action,before,immediate){
+ const info=ahTelemetryClone(immediate||{});
+ if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
+ ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:info});
+}
 /*
  * CPU candidate telemetry.
  * The scores here are diagnostic-v1 only: they are NOT used by the current
