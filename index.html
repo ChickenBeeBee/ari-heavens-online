@@ -2558,6 +2558,7 @@ function undoLastAction(){
 /* ---------- state ---------- */
 const mkCards=()=>Object.fromEntries(CARD_KEYS.map(k=>[k,false]));
 function newGame(){
+  AH_AI_TELEMETRY=null;
   const free={};[...CHAIN,'Aw','Bw'].forEach(n=>free[n]={A:0,B:0});
   const candies=[];let id=0;
   TYPES.forEach(t=>{for(let i=0;i<t.n;i++)candies.push({id:id++,type:t,node:'C',att:{A:0,B:0}});});
@@ -2573,6 +2574,7 @@ function newGame(){
   S.inspire=null;S.antlions=[];S.antlionEvents=[];S.cardEventSeq=0;S.squalls=[];S.weatherEvents=[];S.inspireScoreEvents=[];S.typhoon=null;S.typhoonLocked={A:false,B:false};S.strongPheromone=null;
   S.heaven=null;S.rainSelect=null;S.shortcutBlock={A:0,B:0};
   sheetId=null;cpuRunning=false;clearUndoHistory();
+  ahTelemetryStart({tutorial:!!tut,handicap:!!handicap,deckSource:{A:tut?'tutorial':'saved',B:tut?'tutorial':mode==='cpu'?'cpu-random':mode==='online'?'online-guest':'saved'}});
 }
 const cur=()=>tutorial&&tutorial.active?'A':S.turnCount%2===1?S.first:opp(S.first);
 const round=()=>Math.ceil(S.turnCount/2);
@@ -2582,6 +2584,37 @@ function nodeCount(n){let k=S.free[n].A+S.free[n].B;candyAt(n).forEach(c=>k+=c.a
 const canEnter=n=>CAP[n]===undefined||nodeCount(n)<CAP[n];
 function alive(p){let n=S.hand[p];for(const k in S.free)n+=S.free[k][p];S.candies.forEach(c=>n+=c.att[p]);return n;}
 const canAct=()=>S&&S.started&&!S.over&&!dialogOpen&&!ahCardPresentationBusy&&!ahCardUseBusy&&(mode!=='online'||(onlineConnected&&onlineStarted));
+/* ---------- AI telemetry (raw, versioned, offline-first) ---------- */
+const AH_AI_TELEMETRY_VERSION='1.0';
+const AH_AI_TELEMETRY_SCHEMA='ai-telemetry-v1';
+const AH_AI_TELEMETRY_STORAGE='ah_ai_telemetry_v1';
+const AH_AI_TELEMETRY_MAX_MATCHES=25;
+let AH_AI_TELEMETRY=null,AH_AI_TELEMETRY_ENABLED=true;
+function ahTelemetryClone(v){try{return JSON.parse(JSON.stringify(v));}catch(_){return null;}}
+function ahTelemetryState(){
+ if(!S)return null;
+ return {gid:S.gid,turn:S.turnCount,round:Math.ceil((S.turnCount||1)/2),currentPlayer:typeof cur==='function'?cur():null,first:S.first,actions:S.actions,cardUsed:!!S.cardUsed,score:ahTelemetryClone(S.score||{}),hand:ahTelemetryClone(S.hand||{}),dead:ahTelemetryClone(S.dead||{}),free:ahTelemetryClone(S.free||{}),candies:ahTelemetryClone((S.candies||[]).map(c=>({id:c.id,node:c.node,type:c.type?.name||null,points:c.type?.pts||0,need:c.type?.need||0,bomb:!!c.type?.bomb,attached:{A:c.att?.A||0,B:c.att?.B||0}}))),decks:ahTelemetryClone(S.decks||{}),cards:ahTelemetryClone(S.cards||{}),effects:ahTelemetryClone({jaw:S.jaw,inspire:S.inspire,heaven:S.heaven,rainSelect:S.rainSelect,shortcutBlock:S.shortcutBlock,antlions:S.antlions,squalls:S.squalls,typhoon:S.typhoon,strongPheromone:S.strongPheromone,weatherEvents:S.weatherEvents}),result:ahTelemetryClone(S.result||null)};
+}
+function ahTelemetryLegalActions(){
+ if(!S||S.over)return [];
+ const p=cur(),out=[];
+ if(S.actions>0){
+  for(const n of [p+'1',p+'w'])if(S.hand[p]>0&&canEnter(n))out.push({type:'placeAnt',player:p,node:n});
+  for(const n of Object.keys(S.free||{}))if((S.free[n]?.[p]||0)>0)for(const to of neighbors(n,p))out.push({type:'moveAnt',player:p,from:n,to});
+  for(const c of S.candies||[]){if((c.att?.[p]||0)>0)out.push({type:'detachAnt',player:p,candyId:c.id});if((S.free[c.node]?.[p]||0)>0)out.push({type:'attachAnt',player:p,candyId:c.id});for(const dir of ['own','enemy']){const target=carryTarget(c,dir,p);if(target&&c.att?.[p]>=c.type?.need&&c.att?.[opp(p)]===0)out.push({type:'carryCandy',player:p,candyId:c.id,dir,target});}}
+  for(const k of S.decks?.[p]||[])if(canUseCard(p,k)&&!cardUnavailable(p,k))out.push({type:'useCard',player:p,card:k});
+ }
+ out.push({type:'endTurn',player:p});return out;
+}
+function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions()});}
+function ahTelemetryRecord(type,data={}){if(!AH_AI_TELEMETRY_ENABLED||!AH_AI_TELEMETRY||!S)return;AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:null,reason:data.reason||null});}
+function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate});}
+function ahTelemetryCpuDecision(result,before){ahTelemetryRecord('cpuDecision',{actor:CPU,action:{type:'cpuStep',result},before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:{result}});}
+function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
+function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
+window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},export:ahTelemetryExport,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+/* ---------- end AI telemetry ---------- */
+
 
 function neighbors(node,p,ignoreCap){
   const r=[],i=CHAIN.indexOf(node);
@@ -2626,7 +2659,7 @@ function closeDialog(){dialogOpen=false;$('#dialog').classList.remove('open');}
 
 /* ---------- actions ---------- */
 function placeAt(n){
-  if(!tutorialAllowsAction('place',{node:n}))return;
+  const telemetryBefore=ahTelemetryState();  if(!tutorialAllowsAction('place',{node:n}))return;
   const p=cur();
   if(S.actions<=0)return toast('行動回数がありません');
   if(S.hand[p]<=0)return toast('手元にアリがいません');
@@ -2634,7 +2667,7 @@ function placeAt(n){
   recordUndo(`アリを${NODE_LABEL[n]}に出す`);
   S.hand[p]--;S.free[n][p]++;S.actions--;S.sel=null;
   play('place');
-  log(`${NAMES[p]}がアリを1匹、${NODE_LABEL[n]}に出しました。`);render();
+  log(`${NAMES[p]}がアリを1匹、${NODE_LABEL[n]}に出しました。`);ahTelemetryAction(p,{type:'placeAnt',node:n},telemetryBefore,{actionsSpent:1});render();
   tutorialAfterAction('place',{node:n});
 }
 function actPlace(){
@@ -2651,12 +2684,12 @@ function actPlace(){
              {label:EN()?'Cancel':'キャンセル',cls:'ghost',fn:closeDialog}]});
 }
 function actMove(from,to){
-  if(!tutorialAllowsAction('move',{from,to}))return;
+  const telemetryBefore=ahTelemetryState();  if(!tutorialAllowsAction('move',{from,to}))return;
   if(S.actions<=0)return toast('行動回数がありません');
   const p=cur();recordUndo(`アリを${NODE_LABEL[from]}から${NODE_LABEL[to]}へ移動`);S.free[from][p]--;S.free[to][p]++;S.actions--;S.sel=null;
   play('move');
   const bd=(from==='A2'&&to==='B2')||(from==='B2'&&to==='A2');
-  log(`${NAMES[p]}のアリが ${NODE_LABEL[from]} → ${NODE_LABEL[to]} へ移動${bd?'（裏道）':''}。`);render();
+  log(`${NAMES[p]}のアリが ${NODE_LABEL[from]} → ${NODE_LABEL[to]} へ移動${bd?'（裏道）':''}。`);ahTelemetryAction(p,{type:'moveAnt',from,to},telemetryBefore,{actionsSpent:1,shortcut:bd});render();
   tutorialAfterAction('move',{from,to});
 }
 function onNodeTap(node){
@@ -2698,7 +2731,7 @@ function prior_cpuHeavenAttach(){
 }
 
 function actAttach(id,silent){
-  if(!tutorialAllowsAction('attach',{id}))return;
+  const telemetryBefore=ahTelemetryState();  if(!tutorialAllowsAction('attach',{id}))return;
   if(!canAct())return;const p=cur(),c=getC(id);if(!c)return;
   if(S.rainSelect)return;
   if(S.free[c.node][p]<=0)return toast('このマスに自由な自分のアリがいません');
@@ -2706,19 +2739,20 @@ function actAttach(id,silent){
   S.free[c.node][p]--;c.att[p]++;S.sel=null;
   play('attach');
   log(`${NAMES[p]}のアリが${c.type.name}にとりつきました。（自分${c.att[p]}匹）`);
+  ahTelemetryAction(p,{type:'attachAnt',candyId:id,candy:c.type.name},telemetryBefore,{actionsSpent:0,attached:c.att[p]});
   render();
   // Keep the candy panel open so players can attach several ants in a row.
   // Battle is now started only through the explicit battle button in that panel.
   tutorialAfterAction('attach',{id});
 }
 function actDetach(id){
-  if(!tutorialAllowsAction('detach',{id}))return;
+  const telemetryBefore=ahTelemetryState();  if(!tutorialAllowsAction('detach',{id}))return;
   if(!canAct())return;const p=cur(),c=getC(id);if(!c)return;
   if(c.att[p]<=0)return;
   recordUndo(`${c.type.name}からアリを外す`);
   c.att[p]--;S.free[c.node][p]++;
   play('detach');
-  log(`${NAMES[p]}のアリが${c.type.name}から離れました。`);render();
+  log(`${NAMES[p]}のアリが${c.type.name}から離れました。`);ahTelemetryAction(p,{type:'detachAnt',candyId:id,candy:c.type.name},telemetryBefore,{actionsSpent:0});render();
 }
 function showPointScoreFx(player,points,label){
  const fx=$('#fx');if(!fx)return;const amount=Math.abs(points),scale=Math.min(1.9,0.82+amount*.13),el=document.createElement('div');el.className='ah-point-score-fx '+(points<0?'negative':'positive');
@@ -2727,7 +2761,7 @@ function showPointScoreFx(player,points,label){
  el.style.setProperty('--score-scale',scale);fx.appendChild(el);setTimeout(()=>el.remove(),2200+amount*100);
 }
 function actCarry(id,dir,noBattle){
-  if(!tutorialAllowsAction('carry',{id,dir}))return;
+  const telemetryBefore=ahTelemetryState();  if(!tutorialAllowsAction('carry',{id,dir}))return;
   if(!canAct())return;const p=cur(),q=opp(p),c=getC(id);if(!c)return;
   const t=carryTarget(c,dir);if(!t)return toast('その方向へは運べません');
   if(S.actions<=0)return toast('行動回数がありません');
@@ -2756,6 +2790,7 @@ function actCarry(id,dir,noBattle){
   tutorialAfterAction('carry',{id,dir,to:t,scored});
   // チュートリアルでは得点・アリボム投入の成功を次の練習ステップへつなぐ。
   // 盤面の菓子がなくなっても通常ゲームの終了判定を呼ばず、結果/引き分け画面を出さない。
+  ahTelemetryAction(p,{type:'carryCandy',candyId:id,candy:c.type.name,dir,target:t},telemetryBefore,{points:scored?(bombHit?-4:c.type.pts):0,scored,actionsSpent:1});
   if(finished&&!(tutorial&&tutorial.active))finishByScore('お菓子をすべて運び終えました');
 }
 
@@ -3492,7 +3527,7 @@ function offerBattle(id,trigger,dir){
     buttons:[{label:EN()?'Start Battle':'仕掛ける',cls:'primary',fn:()=>{closeDialog();doBattle(id,trigger,dir);}},{label:EN()?'Cancel':'やめる',fn:closeDialog}]});
 }
 function doBattle(id,trigger,dir){
-  const att=cur(),def=opp(att),c=getC(id);if(!c)return;
+  const telemetryBefore=ahTelemetryState();  const att=cur(),def=opp(att),c=getC(id);if(!c)return;
   clearUndoHistory();
   const attackCountBefore=c.att[att],defendCountBefore=c.att[def];
   const jawBonus=S.jaw===att?3:0;
@@ -3507,6 +3542,7 @@ function doBattle(id,trigger,dir){
   fx.rolls.push(physicsRollPlaceholder(fx));
   // Don't apply casualties or clear the jaw bonus before the throw. Actual faces
   // are derived from both gestures, then the real game state is resolved afterward.
+  ahTelemetryAction(att,{type:'startBattle',candyId:id,trigger,dir,attacker:att,defender:def,attackCount:attackCountBefore,defendCount:defendCountBefore,jawBonus},telemetryBefore,{battleEventId:eventId});
   if(mode==='online'&&onlineConnected)sendPeerPacket({type:'battleFx',battle:fx});
   showDiceRoll(fx,{interactive:isHuman(att),remotePreview:false});
 }
@@ -3517,6 +3553,7 @@ function finish(winner,reason,silent){
   if(!S||S.over)return;
   clearUndoHistory();
   S.over=true;S.sel=null;S.result={winner,reason};
+  ahTelemetryFinish(winner,reason);
   if(!silent)log(winner?`🏆 ${NAMES[winner]}の勝利！（${reason}）`:`🤝 この勝負引き分け（${reason}）`,'sys');
   render();showResult(winner,reason);
 }
@@ -4776,7 +4813,9 @@ function maybeCpu(){
       if(level==='veryhard')veryHardRainReadEvacuate();
       cpuRunning=false;endTurnNow();return;
     }
+    const cpuBefore=ahTelemetryState();
     const r=level==='veryhard'?veryHardStep():level==='hard'?hardStep():cpuStep();
+    ahTelemetryCpuDecision(r,cpuBefore);
     if(r==='end'){
       // Make the rain-read a last-turn tactic, after useful carries/battles/actions.
       // Once the player has spent Rain, this helper is a no-op and normal tactics resume.
@@ -5240,9 +5279,10 @@ function tickStrongPheromoneStart(){
  if(x.remainingStarts<=0){S.strongPheromone=null;log('🌺 強烈フェロモンの効果が終了した。','card');}
 }
 function useCard(p,k){
- if(k==='typhoon'||k==='strongPheromone'){
+  const telemetryBefore=ahTelemetryState(); if(k==='typhoon'||k==='strongPheromone'){
   if(!tutorialAllowsAction('card',{key:k})||!canUseCard(p,k)||cardUnavailable(p,k))return false;
   recordUndo(`手札「${CARDS[k].name}」を使う`);if(['typhoon','squall'].includes(k))clearUndoHistory();S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
+ahTelemetryAction(p,{type:'useCard',card:k,name:CARDS[k]?.name||k},telemetryBefore,{card:k});
   log(`${CARDS[k].emo} ${NAMES[p]}が手札「${CARDS[k].name}」を使った！`,'card');play('card');cardNotice(p,CARDS[k]);cardImpactFx(k,CARDS[k]);
   if(k==='typhoon'){
    S.typhoon={player:p,castTurn:S.turnCount};S.typhoonLocked[p]=true;
@@ -5257,6 +5297,7 @@ function useCard(p,k){
  if(!['squall','revive','showdown','summon'].includes(k))return prior_useCard(p,k);
  if(!tutorialAllowsAction('card',{key:k})||!canUseCard(p,k)||cardUnavailable(p,k))return false;
  recordUndo(`手札「${CARDS[k].name}」を使う`);S.cards[p][k]=true;S.cardUsed=true;S.sel=null;
+ahTelemetryAction(p,{type:'useCard',card:k,name:CARDS[k]?.name||k},telemetryBefore,{card:k});
  log(`${CARDS[k].emo} ${NAMES[p]}が手札「${CARDS[k].name}」を使った！`,'card');play('card');cardNotice(p,CARDS[k]);cardImpactFx(k,CARDS[k]);
  if(k==='squall'){
  if(!S.squalls)S.squalls=[];
