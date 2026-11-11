@@ -2877,6 +2877,23 @@ function ahTelemetryCardExperience(key,actor,state){
 }
 function ahTelemetryExperienceForCard(key,actor){return ahTelemetryCardExperience(key,actor,ahTelemetryState());}
 
+function ahTelemetryCardTimingAdjustment(key,actor){
+ const p=actor||'B',state=ahTelemetryState(),exp=ahTelemetryCardExperience(key,p,state);
+ if(exp.sampleSize<3||exp.confidence<.18||exp.preferredHistoricalTurn==null)return {adjustment:0,hold:false,experience:exp};
+ const turn=Number(state?.turn||0),remaining=Math.max(0,24-turn),target=exp.preferredHistoricalTurn;
+ const gap=target-turn;
+ let adjustment=0,hold=false;
+ if(gap>1.5){
+  const urgency=remaining<=Math.max(3,gap)?0:1;
+  adjustment=-Math.min(.45,gap*.12)*exp.confidence*urgency;
+  hold=adjustment<-.06;
+ }else if(gap<-1.5){
+  adjustment=Math.min(.3,(-gap)*.08)*exp.confidence;
+ }
+ return {adjustment:Number(adjustment.toFixed(3)),hold,experience:exp,currentTurn:turn,targetTurn:Number(target.toFixed(1)),turnGap:Number(gap.toFixed(1))};
+}
+
+
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
@@ -5951,7 +5968,19 @@ function cpuEvaluateCard(key){
  if(!reason){const generic=cpuGenericCardValue(key);value=generic.value;reason=generic.reason;}
  return {key,value,reason};
 }
-function cpuStrategicCard(){return S.decks.B.map(cpuEvaluateCard).filter(x=>x&&x.value>=.5).sort((a,b)=>b.value-a.value)[0]||null;}
+function cpuStrategicCard(){
+ const options=S.decks.B.map(cpuEvaluateCard).filter(x=>x&&x.value>=.5).map(x=>{
+  const timing=ahTelemetryCardTimingAdjustment(x.key,CPU);
+  const base=x.value,adjusted=base+timing.adjustment;
+  return {...x,baseValue:base,timingAdjustment:timing.adjustment,timingHold:timing.hold,timingExperience:timing.experience,timingTargetTurn:timing.targetTurn,timingTurnGap:timing.turnGap,value:adjusted};
+ }).sort((a,b)=>b.value-a.value);
+ const best=options[0]||null;
+ if(best&&best.timingHold&&options.length){
+  const next=options.slice(1).find(x=>!x.timingHold&&x.value>=best.value-.18);
+  if(next&&next.value>best.value-.18)return next;
+ }
+ return best;
+}
 function cpuCardChoice(){const option=cpuStrategicCard();if(option){cpuCardRationale(option.key,option.reason);return option.key;}return null;}
 function cpuTacticalPrelude(){
  if(!S||mode!=='cpu'||cur()!==CPU||dialogOpen)return false;
