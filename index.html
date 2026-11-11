@@ -2662,7 +2662,80 @@ function ahTelemetryLegalActions(){return getLegalActions(cur());}
 function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions()});}
 function ahTelemetryRecord(type,data={}){if(!AH_AI_TELEMETRY_ENABLED||!AH_AI_TELEMETRY||!S)return;AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:null,reason:data.reason||null});}
 function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate});}
-function ahTelemetryCpuDecision(result,before){ahTelemetryRecord('cpuDecision',{actor:CPU,action:{type:'cpuStep',result},before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:{result}});}
+/*
+ * CPU candidate telemetry.
+ * The scores here are diagnostic-v1 only: they are NOT used by the current
+ * CPU to choose a move. They give us a stable dataset for the next AI stage.
+ */
+function ahTelemetryCandidateScore(action){
+ const b={immediate:0,deny:0,survival:0,setup:0,actionCost:0},p=CPU,q=opp(p);
+ if(action.type==='carryCandy'){
+  const c=getC(action.candyId),pts=c?.type?.bomb?4:(c?.type?.pts||0);
+  if(c&&action.target===(c.type.bomb?q+'1':p+'1'))b.immediate=pts;
+  else b.setup=pts*.18;
+  if(c&&c.att?.[q]>0)b.deny=pts*.5;
+ }else if(action.type==='startBattle'){
+  const c=getC(action.candyId);
+  if(c){
+   const a=c.att?.[p]||0,d=c.att?.[q]||0,j=S.jaw===p?3:0;
+   b.immediate=battleEV(a,d,j);
+   b.deny=cpuWinProbability(a,d,j)*(c.type?.pts||1)*.35;
+   b.survival=cpuWinProbability(a,d,j)*.25;
+  }
+ }else if(action.type==='attachAnt'){
+  const c=getC(action.candyId),need=c?.type?.need||1,pts=c?.type?.bomb?4:(c?.type?.pts||0);
+  if(c)b.setup=(pts/need)*.35;
+ }else if(action.type==='detachAnt'){
+  const c=getC(action.candyId);
+  if(c)b.survival=(c.att?.[p]||0)>0?.15:0;
+ }else if(action.type==='moveAnt'){
+  const from=action.from,to=action.to;
+  let nearest=99;
+  for(const c of S.candies||[])nearest=Math.min(nearest,hdist(to,c.node,p));
+  b.setup=nearest<99?Math.max(0,1-nearest/6)*.35:0;
+  b.deny=(S.free[to]?.[q]||0)>0?.12:0;
+ }else if(action.type==='placeAnt'){
+  b.setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
+ }else if(action.type==='useCard'){
+  const ev=cpuEvaluateCard(action.card);
+  if(ev){b.immediate=ev.value;b.setup=Math.max(0,ev.value*.15);}
+ }else if(action.type==='endTurn'){
+  b.actionCost=-.05;
+ }
+ b.actionCost+=(action.type==='endTurn'?0:-.08);
+ const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
+ return {score:Number(total.toFixed(4)),breakdown:b};
+}
+function ahTelemetryCpuCandidates(){
+ if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU)return null;
+ const legal=getLegalActions(CPU);
+ const candidates=legal.map((action,index)=>{
+  const e=ahTelemetryCandidateScore(action);
+  return {index,action:ahTelemetryClone(action),score:e.score,breakdown:ahTelemetryClone(e.breakdown)};
+ });
+ return {schema:'diagnostic-v1',generatedAt:new Date().toISOString(),candidates};
+}
+function ahTelemetryCpuDecision(result,before){
+ const candidates=ahTelemetryCpuCandidates();
+ const startSeq=AH_AI_TELEMETRY?.events?.length||0;
+ const executed=[];
+ if(AH_AI_TELEMETRY){
+  // The CPU step can perform more than one low-level action. Keep every
+  // action event so later analysis can reconstruct the actual sequence.
+  for(const e of AH_AI_TELEMETRY.events.slice(Math.max(0,startSeq-12))){
+   if(e.actor===CPU&&e.type==='action'&&e.action)executed.push(ahTelemetryClone(e.action));
+  }
+ }
+ const executedLast=executed.length?executed[executed.length-1]:null;
+ ahTelemetryRecord('cpuDecision',{
+  actor:CPU,
+  action:{type:'cpuStep',result,executedActions:executed},
+  before,
+  after:ahTelemetryState(),
+  availableActions:ahTelemetryLegalActions(),
+  immediate:{result,candidates,selectedAction:executedLast}
+ });
+}
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
 window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
