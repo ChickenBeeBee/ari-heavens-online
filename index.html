@@ -5539,7 +5539,41 @@ function cpuHeavenAttach(){
 /* ---------- events ---------- */
 let antDrag=null;
 let suppressBoardClickUntil=0;
+let antDragScrollFrame=0;
+
+function antDragScrollStep(){
+  antDragScrollFrame=0;
+  if(!antDrag)return;
+  const y=antDrag.lastClientY;
+  const edge=64;
+  const maxSpeed=12;
+  let dy=0;
+  if(y<edge)dy=-Math.ceil(maxSpeed*(1-y/edge));
+  else if(y>window.innerHeight-edge)dy=Math.ceil(maxSpeed*(1-(window.innerHeight-y)/edge));
+  if(dy){
+    const before=window.scrollY;
+    window.scrollBy(0,dy);
+    if(window.scrollY!==before){
+      const node=antDragTargetAt(antDrag.lastClientX,antDrag.lastClientY);
+      antDrag.target=node?.dataset.node||null;
+      antDrag.targetEl=node||null;
+      document.querySelectorAll('#board .node.drag-hover').forEach(el=>el.classList.remove('drag-hover'));
+      node?.classList.add('drag-hover');
+    }
+  }
+  if(antDrag)antDragScrollFrame=requestAnimationFrame(antDragScrollStep);
+}
+
+function startAntDragAutoScroll(){
+  if(!antDragScrollFrame)antDragScrollFrame=requestAnimationFrame(antDragScrollStep);
+}
+
+function stopAntDragAutoScroll(){
+  if(antDragScrollFrame){cancelAnimationFrame(antDragScrollFrame);antDragScrollFrame=0;}
+}
+
 function clearAntDrag(){
+  stopAntDragAutoScroll();
   if(!antDrag)return;
   antDrag.source?.classList.remove('drag-source');
   antDrag.targetEl?.classList.remove('drag-hover');
@@ -5556,14 +5590,17 @@ function beginAntDrag(e){
   if(!source||!source.closest('#board'))return;
   const p=cur(),player=source.dataset.antPlayer,node=source.closest('[data-node]')?.dataset.node;
   if(player!==p||!node||!(S.free[node]&&S.free[node][p]>0))return;
-  antDrag={pointerId:e.pointerId,from:node,source,target:null,targetEl:null,moved:false,startX:e.clientX,startY:e.clientY};
+  antDrag={pointerId:e.pointerId,from:node,source,target:null,targetEl:null,moved:false,startX:e.clientX,startY:e.clientY,lastClientX:e.clientX,lastClientY:e.clientY};
   source.classList.add('drag-source');
+  startAntDragAutoScroll();
   try{source.setPointerCapture(e.pointerId);}catch(_){}
   e.preventDefault();
 }
 function updateAntDrag(e){
   if(!antDrag||e.pointerId!==antDrag.pointerId)return;
   e.preventDefault();
+  antDrag.lastClientX=e.clientX;
+  antDrag.lastClientY=e.clientY;
   if(Math.hypot(e.clientX-antDrag.startX,e.clientY-antDrag.startY)>6)antDrag.moved=true;
   const next=antDragTargetAt(e.clientX,e.clientY);
   const target=next?.dataset.node||null;
