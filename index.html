@@ -2877,22 +2877,53 @@ function ahTelemetryCardExperience(key,actor,state){
 }
 function ahTelemetryExperienceForCard(key,actor){return ahTelemetryCardExperience(key,actor,ahTelemetryState());}
 
-function ahTelemetryCardTimingAdjustment(key,actor){
+function ahTelemetryCardTimingPlan(key,actor){
  const p=actor||'B',state=ahTelemetryState(),exp=ahTelemetryCardExperience(key,p,state);
- if(exp.sampleSize<3||exp.confidence<.18||exp.preferredHistoricalTurn==null)return {adjustment:0,hold:false,experience:exp};
- const turn=Number(state?.turn||0),remaining=Math.max(0,24-turn),target=exp.preferredHistoricalTurn;
- const gap=target-turn;
- let adjustment=0,hold=false;
- if(gap>1.5){
-  const urgency=remaining<=Math.max(3,gap)?0:1;
-  adjustment=-Math.min(.45,gap*.12)*exp.confidence*urgency;
-  hold=adjustment<-.06;
- }else if(gap<-1.5){
-  adjustment=Math.min(.3,(-gap)*.08)*exp.confidence;
- }
- return {adjustment:Number(adjustment.toFixed(3)),hold,experience:exp,currentTurn:turn,targetTurn:Number(target.toFixed(1)),turnGap:Number(gap.toFixed(1))};
+ const turn=Number(state?.turn||0),remaining=Math.max(0,24-turn);
+ const target=exp.preferredHistoricalTurn;
+ const confidence=exp.confidence||0;
+ const base=cpuEvaluateCard(key);
+ const baseValue=base?.value||0;
+ const horizons=[0,1,2,3].map(wait=>{
+  if(target==null)return {wait,score:0,reason:'no-history'};
+  const futureTurn=turn+wait;
+  const gap=Math.abs(target-futureTurn);
+  const timingFit=Math.max(0,1-gap/5);
+  const survivalUrgency=remaining<=wait?1.25:1;
+  const historical=exp.weightedH3ScoreDelta==null?0:exp.weightedH3ScoreDelta;
+  const win=exp.weightedWinRate==null?0:(exp.weightedWinRate-50)/100;
+  const score=(timingFit*.55+(historical*.12)+(win*.35))*confidence*survivalUrgency;
+  return {wait,score:Number(score.toFixed(3)),timingFit:Number(timingFit.toFixed(3))};
+ });
+ const best=horizons.slice(1).sort((a,b)=>b.score-a.score)[0]||horizons[0];
+ const now=horizons[0];
+ const waitValue=Math.max(0,baseValue+(best.score-now.score)*.6);
+ const useNowValue=baseValue+now.score*.6;
+ return {
+  schema:'card-timing-plan-v1',card:key,currentTurn:turn,remainingTurns:remaining,
+  baseValue:Number(baseValue.toFixed(3)),confidence:Number(confidence.toFixed(3)),
+  preferredTurn:target==null?null:Number(target.toFixed(1)),experience:exp,
+  horizons,preferredWait:best.wait,
+  useNowValue:Number(useNowValue.toFixed(3)),waitValue:Number(waitValue.toFixed(3)),
+  recommendation:best.wait===0?'use-now':best.score>now.score+.08?'hold':'flexible'
+ };
 }
-
+function ahTelemetryCardTimingAdjustment(key,actor){
+ const plan=ahTelemetryCardTimingPlan(key,actor);
+ if(plan.recommendation==='hold')return {
+  adjustment:Number(Math.max(-.45,plan.waitValue-plan.useNowValue).toFixed(3)),
+  hold:true,experience:plan.experience,currentTurn:plan.currentTurn,
+  targetTurn:plan.preferredTurn,turnGap:plan.preferredTurn==null?null:Number((plan.preferredTurn-plan.currentTurn).toFixed(1)),
+  plan
+ };
+ if(plan.recommendation==='use-now')return {
+  adjustment:Number(Math.max(0,plan.useNowValue-plan.waitValue).toFixed(3)),
+  hold:false,experience:plan.experience,currentTurn:plan.currentTurn,
+  targetTurn:plan.preferredTurn,turnGap:plan.preferredTurn==null?null:Number((plan.preferredTurn-plan.currentTurn).toFixed(1)),
+  plan
+ };
+ return {adjustment:0,hold:false,experience:plan.experience,currentTurn:plan.currentTurn,targetTurn:plan.preferredTurn,turnGap:plan.preferredTurn==null?null:Number((plan.preferredTurn-plan.currentTurn).toFixed(1)),plan};
+}
 
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
