@@ -3169,7 +3169,7 @@ function ahTelemetryShadowUtility(state,actor){
    (winProb-.5)*4.2+terminal*8;
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
- if(!AH_AI_TELEMETRY||!S)return null;
+ if(!AH_AI_TELEMETRY||(!S&&!rootState))return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const rootValue=ahTelemetryShadowUtility(before,p);
  const branch=(state,turnActor,depth)=>{
@@ -3485,6 +3485,162 @@ function ahTelemetryPredictionCalibration(){
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryUpdateFuture(true);ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
 window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+/*
+ * CPU self-play lab.
+ * This is deliberately shadow-state based: it never touches the visible board,
+ * dialogs, online connection, or human-game state.  It uses the same legal-action
+ * model, shadow card effects, win-probability model, and rollout search that the
+ * very-hard CPU uses.
+ */
+const AH_AI_SELFPLAY_SCHEMA='ai-selfplay-v1';
+const AH_AI_SELFPLAY_STORAGE='ah_ai_selfplay_v1';
+const AH_AI_SELFPLAY_MAX_MATCHES=500;
+
+function ahTelemetrySelfPlayRng(seed){
+ let x=0;
+ for(let i=0;i<String(seed).length;i++)x=(x*31+String(seed).charCodeAt(i))>>>0;
+ return ()=>{x^=x<<13;x^=x>>>17;x^=x<<5;return (x>>>0)/4294967296;};
+}
+function ahTelemetrySelfPlayInitialState(seed){
+ const rng=ahTelemetrySelfPlayRng(seed),free={};
+ [...CHAIN,'Aw','Bw'].forEach(n=>free[n]={A:0,B:0});
+ const candies=[];let id=0;
+ TYPES.forEach(t=>{for(let i=0;i<t.n;i++)candies.push({id:id++,node:'C',points:t.pts||0,need:t.need||0,bomb:!!t.bomb,attached:{A:0,B:0}});});
+ const pool=CARD_KEYS.slice(),decks={A:[],B:[]};
+ for(const p of ['A','B']){
+  while(decks[p].length<3&&pool.length){
+   const i=Math.floor(rng()*pool.length);
+   decks[p].push(pool.splice(i,1)[0]);
+  }
+  // Each side gets its own shuffled copy of the full pool in the real game.
+  // Rebuild B's pool independently so both players have 3 random cards.
+  if(p==='A')continue;
+  const bpool=CARD_KEYS.slice();
+  while(decks[p].length<3&&bpool.length){
+   const i=Math.floor(rng()*bpool.length);
+   decks[p].push(bpool.splice(i,1)[0]);
+  }
+ }
+ return {
+  gid:'selfplay-'+seed,turn:1,round:1,currentPlayer:'A',first:'A',actions:2,cardUsed:false,
+  score:{A:0,B:0},hand:{A:20,B:20},dead:{A:0,B:0},free,candies,
+  decks,cards:{A:Object.fromEntries(CARD_KEYS.map(k=>[k,false])),B:Object.fromEntries(CARD_KEYS.map(k=>[k,false]))},
+  effects:{jaw:null,inspire:null,heaven:null,rainSelect:null,shortcutBlock:{A:0,B:0},antlions:[],squalls:[],typhoon:null,strongPheromone:null,weatherEvents:[]},
+  result:null
+ };
+}
+function ahTelemetrySelfPlayAlive(state,player){
+ const s=state||{},p=player;
+ return (s.hand?.[p]||0)+Object.values(s.free||{}).reduce((n,v)=>n+(v?.[p]||0),0)+
+   (s.candies||[]).reduce((n,c)=>n+(c.attached?.[p]||0),0);
+}
+function ahTelemetrySelfPlayTerminal(state){
+ const a=ahTelemetrySelfPlayAlive(state,'A'),b=ahTelemetrySelfPlayAlive(state,'B');
+ if(a===0&&b===0)state.result={winner:null,reason:'all-ants-lost'};
+ else if(a===0)state.result={winner:'B',reason:'A-no-ants'};
+ else if(b===0)state.result={winner:'A',reason:'B-no-ants'};
+ else if(Number(state.turn||0)>=Number(MAXTURN||48))state.result={
+  winner:(state.score?.A||0)===(state.score?.B||0)?null:((state.score?.A||0)>(state.score?.B||0)?'A':'B'),
+  reason:'max-turn-score'
+ };
+ return state.result;
+}
+function ahTelemetrySelfPlayChoose(state,player,depth=2){
+ const legal=ahTelemetryShadowLegalActions(state,player);
+ if(!legal.length)return null;
+ const quick=legal.map(action=>{
+  const next=ahTelemetryShadowApply(state,action);
+  const wp=ahTelemetryWinProbability(next,player);
+  const immediate=ahTelemetryShadowUtility(next,player)-ahTelemetryShadowUtility(state,player);
+  return {action,next,quick:Number((wp*10+immediate*.12).toFixed(4))};
+ }).sort((a,b)=>b.quick-a.quick);
+ const shortlist=quick.slice(0,Math.min(5,quick.length));
+ let best=null;
+ for(const item of shortlist){
+  if(item.action.type==='endTurn'){
+   const score=item.quick-.08;
+   if(!best||score>best.score)best={action:item.action,score,rollout:null};
+   continue;
+  }
+  const raw=ahTelemetryRollout(item.action,player,depth,state);
+  const score=item.quick+(raw?raw.value*.05:0);
+  if(!best||score>best.score)best={action:item.action,score,rollout:raw};
+ }
+ return best||{action:legal[0],score:0,rollout:null};
+}
+function ahTelemetrySelfPlayMatch(seed,depth=2){
+ const state=ahTelemetrySelfPlayInitialState(seed);
+ const stats={actions:0,turns:0,cardUses:{A:{},B:{}},actionTypes:{A:{},B:{}}};
+ const recordAction=a=>{
+  stats.actions++;
+  const p=a.player;
+  stats.actionTypes[p][a.type]=(stats.actionTypes[p][a.type]||0)+1;
+  if(a.type==='useCard')stats.cardUses[p][a.card]=(stats.cardUses[p][a.card]||0)+1;
+ };
+ let guard=0;
+ while(!state.result&&guard++<2000){
+  const p=state.currentPlayer;
+  let turnGuard=0;
+  while(!state.result&&turnGuard++<16){
+   const choice=ahTelemetrySelfPlayChoose(state,p,depth);
+   if(!choice)break;
+   recordAction(choice.action);
+   state=ahTelemetryShadowApply(state,choice.action);
+   ahTelemetrySelfPlayTerminal(state);
+   if(choice.action.type==='endTurn')break;
+   // Avoid pathological free-action loops in the approximate shadow model.
+   if(turnGuard>=15){
+    state=ahTelemetryShadowApply(state,{type:'endTurn',player:p});
+    ahTelemetrySelfPlayTerminal(state);
+    break;
+   }
+  }
+  stats.turns=Number(state.turn||1);
+ }
+ if(!state.result)state.result={winner:null,reason:'simulation-guard'};
+ const winner=state.result.winner||null;
+ return {
+  schema:AH_AI_SELFPLAY_SCHEMA,matchId:String(seed),depth,
+  winner,reason:state.result.reason,turns:Number(state.turn||1),
+  score:ahTelemetryClone(state.score),alive:{A:ahTelemetrySelfPlayAlive(state,'A'),B:ahTelemetrySelfPlayAlive(state,'B')},
+  deck:ahTelemetryClone(state.decks),stats
+ };
+}
+async function ahTelemetrySelfPlay(games=20,options={}){
+ const n=Math.max(1,Math.min(1000,Number(games)||20));
+ const depth=Math.max(1,Math.min(3,Number(options.depth)||2));
+ const seedBase=String(options.seed||Date.now());
+ const previousState=AH_AI_TELEMETRY,results=[];
+ const started=performance.now();
+ try{
+  AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,mode:'cpu',level:'veryhard',events:[]};
+  for(let i=0;i<n;i++){
+   results.push(ahTelemetrySelfPlayMatch(seedBase+'-'+i,depth));
+   if(i%5===4)await new Promise(r=>setTimeout(r,0));
+  }
+ }finally{AH_AI_TELEMETRY=previousState;}
+ const wins={A:results.filter(x=>x.winner==='A').length,B:results.filter(x=>x.winner==='B').length,draw:results.filter(x=>!x.winner).length};
+ const avgTurns=results.reduce((n,x)=>n+x.turns,0)/Math.max(1,results.length);
+ const summary={
+  schema:AH_AI_SELFPLAY_SCHEMA,generatedAt:new Date().toISOString(),games:results.length,depth,
+  elapsedMs:Math.round(performance.now()-started),wins,winRate:{A:Number((wins.A/results.length*100).toFixed(1)),B:Number((wins.B/results.length*100).toFixed(1))},
+  drawRate:Number((wins.draw/results.length*100).toFixed(1)),averageTurns:Number(avgTurns.toFixed(2)),
+  results
+ };
+ try{
+  const old=JSON.parse(localStorage.getItem(AH_AI_SELFPLAY_STORAGE)||'[]');
+  old.push(summary);
+  while(old.length>AH_AI_SELFPLAY_MAX_MATCHES)old.shift();
+  localStorage.setItem(AH_AI_SELFPLAY_STORAGE,JSON.stringify(old));
+ }catch(_){}
+ return summary;
+}
+function ahTelemetrySelfPlayHistory(){
+ try{return JSON.parse(localStorage.getItem(AH_AI_SELFPLAY_STORAGE)||'[]');}catch(_){return [];}
+}
+window.AH_AI_TELEMETRY.selfPlay=ahTelemetrySelfPlay;
+window.AH_AI_TELEMETRY.selfPlayHistory=ahTelemetrySelfPlayHistory;
+
 /* ---------- end AI telemetry ---------- */
 
 
