@@ -2587,6 +2587,7 @@ const canAct=()=>S&&S.started&&!S.over&&!dialogOpen&&!ahCardPresentationBusy&&!a
 /* ---------- AI telemetry (raw, versioned, offline-first) ---------- */
 const AH_AI_TELEMETRY_VERSION='1.0';
 const AH_AI_TELEMETRY_SCHEMA='ai-telemetry-v1';
+const AH_AI_TELEMETRY_SCHEMA_VERSION='1.0';
 const AH_AI_TELEMETRY_STORAGE='ah_ai_telemetry_v1';
 const AH_AI_TELEMETRY_MAX_MATCHES=25;
 let AH_AI_TELEMETRY=null,AH_AI_TELEMETRY_ENABLED=true;
@@ -2595,24 +2596,76 @@ function ahTelemetryState(){
  if(!S)return null;
  return {gid:S.gid,turn:S.turnCount,round:Math.ceil((S.turnCount||1)/2),currentPlayer:typeof cur==='function'?cur():null,first:S.first,actions:S.actions,cardUsed:!!S.cardUsed,score:ahTelemetryClone(S.score||{}),hand:ahTelemetryClone(S.hand||{}),dead:ahTelemetryClone(S.dead||{}),free:ahTelemetryClone(S.free||{}),candies:ahTelemetryClone((S.candies||[]).map(c=>({id:c.id,node:c.node,type:c.type?.name||null,points:c.type?.pts||0,need:c.type?.need||0,bomb:!!c.type?.bomb,attached:{A:c.att?.A||0,B:c.att?.B||0}}))),decks:ahTelemetryClone(S.decks||{}),cards:ahTelemetryClone(S.cards||{}),effects:ahTelemetryClone({jaw:S.jaw,inspire:S.inspire,heaven:S.heaven,rainSelect:S.rainSelect,shortcutBlock:S.shortcutBlock,antlions:S.antlions,squalls:S.squalls,typhoon:S.typhoon,strongPheromone:S.strongPheromone,weatherEvents:S.weatherEvents}),result:ahTelemetryClone(S.result||null)};
 }
-function ahTelemetryLegalActions(){
- if(!S||S.over)return [];
- const p=cur(),out=[];
- if(S.actions>0){
-  for(const n of [p+'1',p+'w'])if(S.hand[p]>0&&canEnter(n))out.push({type:'placeAnt',player:p,node:n});
-  for(const n of Object.keys(S.free||{}))if((S.free[n]?.[p]||0)>0)for(const to of neighbors(n,p))out.push({type:'moveAnt',player:p,from:n,to});
-  for(const c of S.candies||[]){if((c.att?.[p]||0)>0)out.push({type:'detachAnt',player:p,candyId:c.id});if((S.free[c.node]?.[p]||0)>0)out.push({type:'attachAnt',player:p,candyId:c.id});for(const dir of ['own','enemy']){const target=carryTarget(c,dir,p);if(target&&c.att?.[p]>=c.type?.need&&c.att?.[opp(p)]===0)out.push({type:'carryCandy',player:p,candyId:c.id,dir,target});}}
-  for(const k of S.decks?.[p]||[])if(canUseCard(p,k)&&!cardUnavailable(p,k))out.push({type:'useCard',player:p,card:k});
+/*
+ * Canonical legal-action generator.
+ * This is intentionally separate from UI handlers: it answers only
+ * "what can this player legally do right now?".
+ *
+ * The CPU and telemetry can consume the same action objects later,
+ * while the existing act* functions remain the final safety check.
+ */
+function getLegalActions(player=cur()){
+ if(!S||S.over||!player||cur()!==player)return [];
+ const p=player,q=opp(p),out=[];
+ const push=(type,data={})=>out.push({type,player:p,...data});
+
+ // State-selection phases have a much smaller action space than a normal turn.
+ if(S.rainSelect){
+  if(S.rainSelect.player!==p)return [];
+  for(const node of rainTargetNodes())push('resolveRain',{node});
+  return out;
  }
- out.push({type:'endTurn',player:p});return out;
+
+ // Actions that consume one action point.
+ if(S.actions>0){
+  for(const node of [p+'1',p+'w']){
+   if(S.hand[p]>0&&canEnter(node))push('placeAnt',{node});
+  }
+  for(const from of Object.keys(S.free||{})){
+   if((S.free[from]?.[p]||0)<=0)continue;
+   for(const to of neighbors(from,p))push('moveAnt',{from,to});
+  }
+  for(const c of S.candies||[]){
+   for(const dir of ['own','enemy']){
+    const target=carryTarget(c,dir,p);
+    if(!target)continue;
+    if(c.att?.[q]>0)continue;
+    if((c.att?.[p]||0)<(c.type?.need||0))continue;
+    push('carryCandy',{candyId:c.id,dir,target});
+   }
+  }
+ }
+
+ // Attach/detach and battle are explicit candy actions and do not consume
+ // the turn's action point.
+ for(const c of S.candies||[]){
+  if((c.att?.[p]||0)>0)push('detachAnt',{candyId:c.id});
+  if((S.free[c.node]?.[p]||0)>0)push('attachAnt',{candyId:c.id});
+
+  // The candy panel exposes the explicit battle button whenever both sides
+  // have ants attached. Battle itself does not consume an action point.
+  if((c.att?.[p]||0)>0&&(c.att?.[q]||0)>0){
+   push('startBattle',{candyId:c.id,trigger:'candyPanel'});
+  }
+ }
+
+ // Cards do not consume an action point, but only one card can be used per turn.
+ for(const k of S.decks?.[p]||[]){
+  if(canUseCard(p,k)&&!cardUnavailable(p,k))push('useCard',{card:k});
+ }
+
+ // Ending the turn is always a legal choice in the normal turn state.
+ push('endTurn');
+ return out;
 }
-function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions()});}
+function ahTelemetryLegalActions(){return getLegalActions(cur());}
+function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions()});}
 function ahTelemetryRecord(type,data={}){if(!AH_AI_TELEMETRY_ENABLED||!AH_AI_TELEMETRY||!S)return;AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:null,reason:data.reason||null});}
 function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate});}
 function ahTelemetryCpuDecision(result,before){ahTelemetryRecord('cpuDecision',{actor:CPU,action:{type:'cpuStep',result},before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:{result}});}
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
-window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},export:ahTelemetryExport,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
 /* ---------- end AI telemetry ---------- */
 
 
