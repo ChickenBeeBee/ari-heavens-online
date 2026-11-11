@@ -2360,6 +2360,39 @@ const CPU_CARD_AI={
   hungry:{role:'setup',priority:.75,timing:'immediate'},
   stronghold:{role:'combat',priority:.9,timing:'reactive'}
 };
+/*
+ * Probability-aware card model for telemetry.
+ * This describes the actual stochastic rules without collapsing them into one
+ * opaque score. The model is intentionally raw: expected value can be derived
+ * later from the same stable probability information.
+ */
+function ahTelemetryCardProbabilityModel(key){
+ const d={stochastic:false,kind:'deterministic',components:[],notes:null};
+ const add=(kind,probability,outcome,distribution=null)=>d.components.push({kind,probability,outcome,distribution});
+ if(['block','hungry','jaw'].includes(key)){
+  d.stochastic=true;d.kind='uniform-d6';add('die',1/6,'1-6',Array.from({length:6},(_,i)=>({value:i+1,probability:1/6})));
+ }
+ if(key==='showdown'){
+  d.stochastic=true;d.kind='battle-dice';add('dieA',1/6,'1-6',Array.from({length:6},(_,i)=>({value:i+1,probability:1/6})));add('dieB',1/6,'1-6',Array.from({length:6},(_,i)=>({value:i+1,probability:1/6})));d.notes='勝敗後の退場対象は場からランダム選択。';
+ }
+ if(key==='sugar'){
+  d.stochastic=true;d.kind='discrete-random';add('count',1/3,'1,2,3個', [1,2,3].map(value=>({value,probability:1/3})));add('spawnNode',1/4,'A2,A3,B3,B2', ['A2','A3','B3','B2'].map(value=>({value,probability:1/4})));
+ }
+ if(key==='pheromone'){
+  d.stochastic=true;d.kind='repeated-random';add('spawnNode',1/4,'各回A2,A3,B3,B2から1マス', ['A2','A3','B3','B2'].map(value=>({value,probability:1/4})));d.notes='同じ候補が3回連続で選ばれる可能性もある。';
+ }
+ if(key==='typhoon'){
+  d.stochastic=true;d.kind='multi-stage';add('trigger',.25,'各ターン終了時に発生',null);add('sourceNode',.2,'A2,A3,C,B3,B2から1マス', ['A2','A3','C','B3','B2'].map(value=>({value,probability:.2})));add('destinationNode',.25,'発生元以外の4マスから選択',null);d.notes='アリとお菓子はそれぞれ別々の移動先を引く。';
+ }
+ if(key==='squall'){
+  d.stochastic=true;d.kind='multi-stage';add('trigger',.4,'各ターン終了時に発生',null);add('targetLayer',.2,'A2,A3,C,B3,B2から1層', ['A2','A3','C','B3','B2'].map(value=>({value,probability:.2})));d.notes='最大5回の判定。空の層が選ばれる場合もある。';
+ }
+ if(key==='antlion'){
+  d.stochastic=true;d.kind='hazard-timing';d.notes='3ターン経過後、経過ターンeにmin(0.95, 0.02×2^(e-3))の発動確率。発動時は中央のアリをランダムに退場。';
+  add('trigger','dynamic','elapsedTurns>=3',null);
+ }
+ return d;
+}
 function cpuGenericCardValue(key){
   const meta=CARD_META[key],ai=CPU_CARD_AI[key];
   if(!meta||!ai)return {value:0,reason:'AI評価情報が未登録のため温存。'};
@@ -2659,7 +2692,20 @@ function getLegalActions(player=cur()){
  return out;
 }
 function ahTelemetryLegalActions(){return getLegalActions(cur());}
-function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions()});}
+function ahTelemetryCardSelection(){
+ const pool=CARD_KEYS.map(k=>{
+  const model=ahTelemetryCardProbabilityModel(k);
+  let evalResult=null;
+  if(mode==='cpu'&&S.decks?.B?.includes(k)){
+   try{evalResult=cpuEvaluateCard(k);}catch(_){evalResult=null;}
+  }else if(mode==='cpu'){
+   try{evalResult=cpuEvaluateCard(k);}catch(_){evalResult=null;}
+  }
+  return {key:k,name:CARDS[k]?.name||k,selected:!!S.decks?.B?.includes(k),role:CPU_CARD_AI?.[k]?.role||null,timing:CPU_CARD_AI?.[k]?.timing||null,probabilityModel:model,evaluation:evalResult?ahTelemetryClone(evalResult):null};
+ });
+ return {pool,cpuSelected:mode==='cpu'?ahTelemetryClone(S.decks?.B||[]):null,playerSelected:ahTelemetryClone(S.decks?.A||[]),selectionMode:mode==='cpu'?'cpu-random':'player-selected'};
+}
+function ahTelemetryStart(meta){if(!AH_AI_TELEMETRY_ENABLED||!S)return;AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,matchId:String(S.gid),startedAt:new Date().toISOString(),gameVersion:'1.0',rulesVersion:'1.0',cardVersion:'1.0',aiVersion:'cpu-tactical-v1',mode,level,playerTypes:{A:'human',B:mode==='cpu'?'cpu':'human'},deck:ahTelemetryClone(S.decks||{}),cardSelection:ahTelemetryCardSelection(),metadata:ahTelemetryClone(meta||{}),events:[]};ahTelemetryRecord('matchStart',{actor:'system',action:{type:'matchStart'},availableActions:ahTelemetryLegalActions(),immediate:{cardSelection:ahTelemetryCardSelection()}});}
 function ahTelemetryRecord(type,data={}){if(!AH_AI_TELEMETRY_ENABLED||!AH_AI_TELEMETRY||!S)return;AH_AI_TELEMETRY.events.push({seq:AH_AI_TELEMETRY.events.length+1,time:new Date().toISOString(),type,turn:S.turnCount,round:round(),actor:data.actor||null,action:ahTelemetryClone(data.action||null),availableActions:ahTelemetryClone(data.availableActions||null),before:ahTelemetryClone(data.before||null),after:ahTelemetryClone(data.after||ahTelemetryState()),immediate:ahTelemetryClone(data.immediate||null),future:null,reason:data.reason||null});}
 function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate});}
 /*
