@@ -3014,10 +3014,76 @@ function ahTelemetryShadowApply(state,action){
  }else if(action.type==='useCard'){
   const k=action.card;
   if(s.cards?.[p])s.cards[p][k]=true;
-  if(k==='revive')for(const q2 of ['A','B'])for(const card of s.decks?.[q2]||[])if(card!=='revive')s.cards[q2][card]=false;
-  if(k==='summon')s.candies.push({id:'shadow-'+k+'-'+s.candies.length,node:'C',points:4,need:2,bomb:true,attached:{A:0,B:0}});
-  if(k==='typhoon')s.typhoonLocked[p]=true;
+  if(!s.effects)s.effects={};
+  const layers=['A2','A3','C','B3','B2'],spawn=['A2','A3','B3','B2'];
+  const cloneCandy=(type,node)=>s.candies.push({id:'shadow-'+k+'-'+s.candies.length,node,points:type.pts,need:type.need,bomb:!!type.bomb,attached:{A:0,B:0}});
+  if(k==='gold')s.candies.push({id:'shadow-gold-'+s.candies.length,node:'C',points:6,need:3,bomb:false,attached:{A:0,B:0}});
+  else if(k==='jaw')s.effects.jaw=p;
+  else if(k==='rain'){
+   const best=layers.slice().sort((a,b)=>{
+    const score=n=>Object.values(s.free?.[n]||{}).reduce((x,v)=>x+v,0)+(s.candies||[]).filter(c=>c.node===n).reduce((x,c)=>x+(c.attached?.A||0)+(c.attached?.B||0),0);
+    return score(b)-score(a);
+   })[0];
+   if(best){
+    for(const pl of ['A','B']){
+     const n=s.free?.[best]?.[pl]||0;s.free[best][pl]=0;s.hand[pl]=(s.hand?.[pl]||0)+n;
+     for(const cc of s.candies||[])if(cc.node===best){const a=cc.attached?.[pl]||0;cc.attached[pl]=0;s.hand[pl]+=a;}
+    }
+   }
+  }else if(k==='gale'){
+   for(const cc of s.candies||[])if(!(cc.attached?.A||0)&&!(cc.attached?.B||0)&&cc.node!=='C')cc.node='C';
+  }else if(k==='heaven')s.effects.heaven={player:p,used:0};
+  else if(k==='block')s.shortcutBlock[q]=Math.max(s.shortcutBlock?.[q]||0,3);
+  else if(k==='pheromone'){
+   for(let i=0;i<3;i++){const node=spawn[i%spawn.length];if((s.hand?.[p]||0)>0){s.hand[p]--;s.free[node][p]++;}}
+  }else if(k==='inspire')s.effects.inspire={player:p};
+  else if(k==='antlion')s.effects.antlions=(s.effects.antlions||[]).concat([{player:p,castTurn:s.turn||0}]);
+  else if(k==='sortie'){
+   const n=p+'2',count=s.free?.[n]?.[p]||0;if(count){s.free[n][p]-=count;s.free.C[p]=(s.free?.C?.[p]||0)+count;}
+  }else if(k==='sugar'){
+   for(let i=0;i<2;i++)cloneCandy({pts:1,need:1,bomb:false},spawn[i%spawn.length]);
+  }else if(k==='powder'){
+   for(const cc of s.candies||[]){cc.points=2;cc.need=2;cc.bomb=false;cc.type='クッキー';}
+  }else if(k==='squall'){
+   s.effects.squalls=(s.effects.squalls||[]).concat([{player:p,remaining:5}]);
+  }else if(k==='revive'){
+   for(const q2 of ['A','B'])for(const card of s.decks?.[q2]||[])if(card!=='revive'&&s.cards?.[q2])s.cards[q2][card]=false;
+  }else if(k==='showdown'){
+   const totals={A:0,B:0};
+   for(const pl of ['A','B'])totals[pl]=Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(s.candies||[]).reduce((n,cc)=>n+(cc.attached?.[pl]||0),0);
+   const loser=totals[p]>=totals[q]?q:p,loss=Math.min(totals[loser],Math.max(0,Math.abs(totals[p]-totals[q])));
+   s.dead[loser]=(s.dead?.[loser]||0)+loss;
+  }else if(k==='summon'){
+   s.candies.push({id:'shadow-summon-'+s.candies.length,node:'C',points:-4,need:2,bomb:true,attached:{A:0,B:0}});
+  }else if(k==='typhoon'){
+   s.typhoonLocked[p]=true;
+   for(const card of s.decks?.[p]||[])if(s.cards?.[p])s.cards[p][card]=true;
+  }else if(k==='strongPheromone'){
+   s.effects.strongPheromone={player:p,remainingStarts:5};
+  }else if(k==='hungry'){
+   const n=Math.min(s.hand?.[p]||0,3);s.hand[p]-=n;s.free[p+'2'][p]+=n;
+  }else if(k==='stronghold'){
+   const target=(s.candies||[]).filter(cc=>(cc.attached?.[q]||0)>=4).sort((a,b)=>(b.points||0)-(a.points||0))[0];
+   if(target){const n=Math.min(4,s.hand?.[p]||0);s.hand[p]-=n;target.attached[p]=(target.attached?.[p]||0)+n;}
+  }
  }else if(action.type==='endTurn'){
+  // Model the deterministic start-of-turn effects and consume one side's turn.
+  const next=q;
+  if(s.effects?.strongPheromone?.remainingStarts>0){
+   const need=Math.max(0,2-(s.free?.[next+'1']?.[next]||0));
+   const put=Math.min(need,s.hand?.[next]||0);s.hand[next]-=put;s.free[next+'1'][next]+=put;
+   s.effects.strongPheromone.remainingStarts--;
+   if(s.effects.strongPheromone.remainingStarts<=0)delete s.effects.strongPheromone;
+  }
+  if(s.effects?.antlions)for(const z of s.effects.antlions){
+   const elapsed=(s.turn||0)-z.castTurn;
+   if(elapsed>=3&&Math.min(.95,.02*Math.pow(2,elapsed-3))>=.5){
+    for(const pl of ['A','B']){s.dead[pl]=(s.dead?.[pl]||0)+(s.free.C?.[pl]||0);s.free.C[pl]=0;}
+    for(const cc of s.candies||[])if(cc.node==='C'){for(const pl of ['A','B']){s.dead[pl]+=(cc.attached?.[pl]||0);cc.attached[pl]=0;}}
+    z.done=true;
+   }
+  }
+  s.effects.antlions=(s.effects.antlions||[]).filter(z=>!z.done);
   s.currentPlayer=q;s.turn=(s.turn||0)+1;s.actions=2;s.cardUsed=false;
  }
  return s;
