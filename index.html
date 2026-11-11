@@ -3201,7 +3201,7 @@ function ahTelemetryBattleOutcome(fx,out,roll){
  }
  ahTelemetryRecord('battleResult',{actor:fx.attacker,action:{type:'battleResult',battleEventId:fx.eventId,candyId:fx.candyId},before:ahTelemetryState(),after:ahTelemetryState(),immediate:result});
 }
-function ahTelemetryCandidateScore(action){
+function ahTelemetryCandidateScore(action,includeRollout=true){
  const b={immediate:0,deny:0,survival:0,setup:0,actionCost:0,experience:0,experienceConfidence:0,experienceAdvice:null},p=CPU,q=opp(p);
  if(action.type==='carryCandy'){
   const c=getC(action.candyId),pts=c?.type?.bomb?4:(c?.type?.pts||0);
@@ -3239,20 +3239,66 @@ function ahTelemetryCandidateScore(action){
   b.actionCost=-.05;
  }
  b.actionCost+=(action.type==='endTurn'?0:-.08);
- const rollout=ahTelemetryRollout(action,p,3);
- if(rollout){
-  const correction=ahTelemetryPredictionCorrection(action);
-  const calibratedRollout=rollout.value*correction.multiplier+correction.bias*correction.confidence;
-  b.rollout=Number(calibratedRollout.toFixed(4));
-  b.rawRollout=rollout.value;
-  b.rolloutCalibration=correction;
-  b.rolloutDepth=rollout.depth;
-  b.principalVariation=rollout.principalVariation;
-  b.immediate+=calibratedRollout*.10;
+ if(includeRollout){
+  const rollout=ahTelemetryRollout(action,p,3);
+  if(rollout){
+   const correction=ahTelemetryPredictionCorrection(action);
+   const calibratedRollout=rollout.value*correction.multiplier+correction.bias*correction.confidence;
+   b.rollout=Number(calibratedRollout.toFixed(4));
+   b.rawRollout=rollout.value;
+   b.rolloutCalibration=correction;
+   b.rolloutDepth=rollout.depth;
+   b.principalVariation=rollout.principalVariation;
+   b.immediate+=calibratedRollout*.10;
+  }
  }
  const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
  return {score:Number(total.toFixed(4)),breakdown:b};
 }
+function ahTelemetryLiveSearchStep(){
+ if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU||S.over)return false;
+ const legal=getLegalActions(CPU);
+ if(!legal.length)return false;
+ // Cheap pass first: keep only the most promising actions before doing rollout.
+ const shortlist=legal.map((action,index)=>{
+  const e=ahTelemetryCandidateScore(action,false);
+  return {index,action,score:e.score,breakdown:e.breakdown};
+ }).sort((a,b)=>b.score-a.score).slice(0,6);
+ const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0))/2));
+ const depth=Math.min(5,Math.max(3,remaining<=2?remaining+1:3));
+ let best=null;
+ for(const item of shortlist){
+  const raw=ahTelemetryRollout(item.action,CPU,depth);
+  if(!raw)continue;
+  const correction=ahTelemetryPredictionCorrection(item.action);
+  const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
+  const finalScore=item.score+value*.18;
+  if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
+ }
+ if(!best)return false;
+ const a=best.action;
+ let executed=false;
+ if(a.type==='placeAnt')executed=!!placeAt(a.node);
+ else if(a.type==='moveAnt')executed=!!actMove(a.from,a.to);
+ else if(a.type==='attachAnt')executed=!!actAttach(a.candyId,true);
+ else if(a.type==='detachAnt')executed=!!actDetach(a.candyId);
+ else if(a.type==='carryCandy')executed=!!actCarry(a.candyId,a.dir);
+ else if(a.type==='startBattle'){doBattle(a.candyId,'search');executed=true;}
+ else if(a.type==='useCard')executed=!!useCard(CPU,a.card);
+ else if(a.type==='endTurn')return false;
+ if(executed&&AH_AI_TELEMETRY){
+  ahTelemetryRecord('searchDecision',{
+   actor:CPU,
+   action:{type:'searchDecision',selectedAction:ahTelemetryClone(a)},
+   before:ahTelemetryClone(ahTelemetryState()),
+   after:ahTelemetryState(),
+   availableActions:ahTelemetryLegalActions(),
+   immediate:{depth,score:best.score,rawRollout:best.rawRollout,calibration:best.correction,shortlist:shortlist.map(x=>({action:x.action,score:x.score}))}
+  });
+ }
+ return executed;
+}
+
 function ahTelemetryCpuCandidates(){
  if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU)return null;
  const legal=getLegalActions(CPU);
@@ -6337,7 +6383,12 @@ function cpuTacticalPrelude(){
 }
 function cpuStep(){const r=cpuTacticalPrelude();return r||prior_cpuStep();}
 function hardStep(){const r=cpuTacticalPrelude();return r||prior_hardStep();}
-function veryHardStep(){const r=cpuTacticalPrelude();return r||prior_veryHardStep();}
+function veryHardStep(){
+ const search=ahTelemetryLiveSearchStep();
+ if(search)return 'search';
+ const r=cpuTacticalPrelude();
+ return r||prior_veryHardStep();
+}
 function cpuHeavenAttach(){
  if(!S.heaven||S.heaven.player!==CPU||S.heaven.used>=6||S.hand.B<=0)return false;
  const options=S.candies.filter(c=>!(c.node==='C'&&(S.antlions||[]).some(x=>S.turnCount-x.castTurn>=1))&&c.att.B<c.type.need+c.att.A).map(c=>{
