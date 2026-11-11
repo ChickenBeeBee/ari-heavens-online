@@ -2789,6 +2789,54 @@ function ahTelemetryAction(actor,action,before,immediate){ahTelemetryRecord('act
  * The scores here are diagnostic-v1 only: they are NOT used by the current
  * CPU to choose a move. They give us a stable dataset for the next AI stage.
  */
+function ahTelemetryBattleEvaluation(attacker,candyId){
+ const c=getC(candyId),defender=opp(attacker);
+ if(!c||!S)return null;
+ const attack=c.att?.[attacker]||0,defend=c.att?.[defender]||0,jaw=S.jaw===attacker?3:0;
+ const win=cpuWinProbability(attack,defend,jaw);
+ const ev=battleEV(attack,defend,jaw);
+ const stake=c.type?.bomb?4:(c.type?.pts||0);
+ const scoreEV=Math.max(0,ev)*Math.max(1,stake);
+ const chainIndex=CHAIN.indexOf(c.node);
+ const defenderFreeHere=S.free?.[c.node]?.[defender]||0;
+ let nearby=0;
+ for(const n of Object.keys(S.free||{})){
+  if(n===c.node)continue;
+  const d=bdist(n,c.node);
+  if(d===1)nearby+=S.free[n]?.[defender]||0;
+ }
+ const hand=S.hand?.[defender]||0;
+ const reinforcementPotential=Math.min(2,defenderFreeHere+nearby*0.65+hand*0.35);
+ const waitDef=Math.min(defend+reinforcementPotential,defend+2);
+ const waitWin=cpuWinProbability(attack,waitDef,jaw);
+ const waitEV=battleEV(attack,waitDef,jaw);
+ const immediateDelta=ev-waitEV;
+ const dangerToCandy=chainIndex>=0&&((attacker==='A'&&chainIndex<=2)||(attacker==='B'&&chainIndex>=4))?1:0;
+ const timingScore=immediateDelta+(dangerToCandy?stake*.18:0);
+ let recommendation='wait';
+ if(ev>0&&timingScore>0.12)recommendation='attack-now';
+ else if(ev<-.12)recommendation='avoid';
+ else if(dangerToCandy&&win>=.45)recommendation='attack-now';
+ return {
+  schema:'battle-timing-v1',attacker,defender,candyId:c.id,candyName:c.type?.name||null,node:c.node,
+  attackAnts:attack,defendAnts:defend,jawBonus:jaw,winProbability:Number(win.toFixed(4)),
+  expectedAntSwing:Number(ev.toFixed(4)),stake:Number(stake.toFixed(3)),expectedScoreValue:Number(scoreEV.toFixed(4)),
+  defenderReinforcementPotential:Number(reinforcementPotential.toFixed(4)),
+  waitState:{defendAnts:Number(waitDef.toFixed(4)),winProbability:Number(waitWin.toFixed(4)),expectedAntSwing:Number(waitEV.toFixed(4))},
+  timingScore:Number(timingScore.toFixed(4)),recommendation
+ };
+}
+function ahTelemetryBattleOutcome(fx,out,roll){
+ if(!AH_AI_TELEMETRY||!S||!fx)return;
+ const result={battleEventId:fx.eventId||null,attacker:fx.attacker,defender:fx.defender,candyId:fx.candyId,
+  attackAnts:fx.attackCount,defendAnts:fx.defendCount,jawBonus:fx.jawBonus||0,attackerDie:roll?.ra??null,defenderDie:roll?.rd??null,
+  attackerTotal:roll?.va??null,defenderTotal:roll?.vd??null,loser:out?.loser||null,antsLost:out?.kill||0,difference:out?.diff||0,draw:!!roll?.draw};
+ for(let i=(AH_AI_TELEMETRY.events||[]).length-1;i>=0;i--){
+  const e=AH_AI_TELEMETRY.events[i];
+  if(e.type==='action'&&e.action?.type==='startBattle'&&e.action?.battleEventId===fx.eventId){e.immediate=e.immediate||{};e.immediate.battleResult=ahTelemetryClone(result);break;}
+ }
+ ahTelemetryRecord('battleResult',{actor:fx.attacker,action:{type:'battleResult',battleEventId:fx.eventId,candyId:fx.candyId},before:ahTelemetryState(),after:ahTelemetryState(),immediate:result});
+}
 function ahTelemetryCandidateScore(action){
  const b={immediate:0,deny:0,survival:0,setup:0,actionCost:0},p=CPU,q=opp(p);
  if(action.type==='carryCandy'){
@@ -2800,9 +2848,11 @@ function ahTelemetryCandidateScore(action){
   const c=getC(action.candyId);
   if(c){
    const a=c.att?.[p]||0,d=c.att?.[q]||0,j=S.jaw===p?3:0;
-   b.immediate=battleEV(a,d,j);
-   b.deny=cpuWinProbability(a,d,j)*(c.type?.pts||1)*.35;
-   b.survival=cpuWinProbability(a,d,j)*.25;
+   const battle=ahTelemetryBattleEvaluation(p,action.candyId);
+   b.immediate=battle?.expectedAntSwing??battleEV(a,d,j);
+   b.deny=(battle?.winProbability??cpuWinProbability(a,d,j))*(c.type?.pts||1)*.35;
+   b.survival=(battle?.winProbability??cpuWinProbability(a,d,j))*.25;
+   b.setup+=(battle?.timingScore||0)*.25;
   }
  }else if(action.type==='attachAnt'){
   const c=getC(action.candyId),need=c?.type?.need||1,pts=c?.type?.bomb?4:(c?.type?.pts||0);
@@ -3357,6 +3407,7 @@ function physicsBattleSummary(fx,roll){
 function prior_applyPhysicsBattleResult(state,roll){
   const fx=state.fx;if(fx.kind!=='battle'||roll.draw)return;
   const out=physicsBattleSummary(fx,roll);fx.summary=out.summary;roll.summary=out.summary;
+  ahTelemetryBattleOutcome(fx,out,roll);
   if(state.remotePreview||fx.physicsApplied)return;
   const c=getC(fx.candyId);if(!c)return;
   // The board remains unchanged while the dice are rolling. Apply the physical
@@ -3790,7 +3841,7 @@ function doBattle(id,trigger,dir){
   fx.rolls.push(physicsRollPlaceholder(fx));
   // Don't apply casualties or clear the jaw bonus before the throw. Actual faces
   // are derived from both gestures, then the real game state is resolved afterward.
-  ahTelemetryAction(att,{type:'startBattle',candyId:id,trigger,dir,attacker:att,defender:def,attackCount:attackCountBefore,defendCount:defendCountBefore,jawBonus},telemetryBefore,{battleEventId:eventId});
+  ahTelemetryAction(att,{type:'startBattle',battleEventId:eventId,candyId:id,trigger,dir,attacker:att,defender:def,attackCount:attackCountBefore,defendCount:defendCountBefore,jawBonus},telemetryBefore,{battleEventId:eventId,battleTiming:ahTelemetryBattleEvaluation(att,id)});
   if(mode==='online'&&onlineConnected)sendPeerPacket({type:'battleFx',battle:fx});
   showDiceRoll(fx,{interactive:isHuman(att),remotePreview:false});
 }
@@ -6675,4 +6726,3 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 </body>
 </html>
-
