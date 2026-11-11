@@ -3100,28 +3100,36 @@ function ahTelemetryShadowUtility(state,actor){
  }
  return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32;
 }
-function ahTelemetryRollout(action,actor){
+function ahTelemetryRollout(action,actor,maxDepth=3){
  if(!AH_AI_TELEMETRY||!S)return null;
- const before=ahTelemetryState(),p=actor||CPU,q=opp(p);
+ const before=ahTelemetryState(),p=actor||CPU;
+ const rootValue=ahTelemetryShadowUtility(before,p);
+ const branch=(state,turnActor,depth)=>{
+  if(depth<=0||state?.result)return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  const acts=ahTelemetryShadowLegalActions(state,turnActor);
+  if(!acts.length)return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  const maximizing=turnActor===p;
+  let best=null;
+  for(const a of acts){
+   const next=ahTelemetryShadowApply(state,a);
+   const child=branch(next,opp(turnActor),depth-1);
+   const v=ahTelemetryShadowUtility(next,p)+(child.value-ahTelemetryShadowUtility(next,p))*.55;
+   if(!best|| (maximizing?v>best.value:v<best.value))best={value:v,line:[a,...child.line]};
+  }
+  return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
+ };
  const after=ahTelemetryShadowApply(before,action);
- const immediate=ahTelemetryShadowUtility(after,p)-ahTelemetryShadowUtility(before,p);
- let opponentBest=null,opponentScore=-Infinity,replyState=null;
- for(const reply of ahTelemetryShadowLegalActions(after,q)){
-  const rstate=ahTelemetryShadowApply(after,reply),value=ahTelemetryShadowUtility(rstate,p);
-  if(value>opponentScore){opponentScore=value;opponentBest=reply;replyState=rstate;}
- }
- let continuation=null,continuationScore=null;
- if(replyState)for(const next of ahTelemetryShadowLegalActions(replyState,p)){
-  const nstate=ahTelemetryShadowApply(replyState,next),value=ahTelemetryShadowUtility(nstate,p);
-  if(value>(continuationScore??-Infinity)){continuationScore=value;continuation={action:next,value:Number(value.toFixed(3))};}
- }
- const future=continuationScore==null?0:continuationScore-ahTelemetryShadowUtility(before,p);
+ const search=branch(after,opp(p),Math.max(0,maxDepth-1));
+ const twoPlyValue=search.value-rootValue;
  return {
-  schema:'shadow-rollout-v1',action:ahTelemetryClone(action),
-  immediate:Number(immediate.toFixed(3)),
-  opponentReply:ahTelemetryClone(opponentBest),
-  continuation:continuation?ahTelemetryClone(continuation):null,
-  twoPlyValue:Number((immediate+future*.45).toFixed(3)),
+  schema:'shadow-rollout-v2',
+  depth:maxDepth,
+  action:ahTelemetryClone(action),
+  immediate:Number((ahTelemetryShadowUtility(after,p)-rootValue).toFixed(3)),
+  value:Number(twoPlyValue.toFixed(3)),
+  opponentReply:ahTelemetryClone(search.line?.[0]||null),
+  continuation:ahTelemetryClone(search.line?.[1]||null),
+  principalVariation:ahTelemetryClone(search.line||[]),
   after:ahTelemetryClone(after)
  };
 }
@@ -3222,10 +3230,12 @@ function ahTelemetryCandidateScore(action){
   b.actionCost=-.05;
  }
  b.actionCost+=(action.type==='endTurn'?0:-.08);
- const rollout=ahTelemetryRollout(action,p);
+ const rollout=ahTelemetryRollout(action,p,3);
  if(rollout){
-  b.rollout=rollout.twoPlyValue;
-  b.immediate+=rollout.twoPlyValue*.10;
+  b.rollout=rollout.value;
+  b.rolloutDepth=rollout.depth;
+  b.principalVariation=rollout.principalVariation;
+  b.immediate+=rollout.value*.10;
  }
  const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
  return {score:Number(total.toFixed(4)),breakdown:b};
