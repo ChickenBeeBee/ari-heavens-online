@@ -5647,6 +5647,14 @@ $('#board').addEventListener('click',e=>{
   const cb=e.target.closest('[data-candy]');
   if(cb){
     const id=+cb.dataset.candy;
+    const candy=getC(id);
+    // アリを選択中に、移動先マスのお菓子をタップした場合は
+    // 「お菓子を選ぶ」より「そのマスへアリを移動」を優先する。
+    // これで、お菓子の大きな表示部分を誤ってタップしても移動が止まらない。
+    if(S.sel&&candy&&candy.node!==S.sel&&neighbors(S.sel,cur()).includes(candy.node)){
+      if(S.actions<=0)return toast('行動回数がありません');
+      return actMove(S.sel,candy.node);
+    }
     if(tutorial&&tutorial.active&&[2,3,4,7].includes(tutorial.step)&&id!==0){toast('この練習では中央の金平糖を選んでください');return;}
     S.sel=null;sheetId=id;play('tap');render();return;
   }
