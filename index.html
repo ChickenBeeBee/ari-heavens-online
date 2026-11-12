@@ -3198,7 +3198,7 @@ function ahTelemetryShadowPositionValue(state,actor){
  };
  return valueFor(p)-valueFor(q);
 }
-function ahTelemetryShadowUtility(state,actor){
+function ahTelemetryShadowUtilityBreakdown(state,actor){
  const s=state||{},p=actor||s.currentPlayer,q=opp(p),score=s.score||{},hand=s.hand||{};
  const ant=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+
    (s.candies||[]).reduce((n,c)=>n+(c.attached?.[pl]||0),0);
@@ -3211,8 +3211,21 @@ function ahTelemetryShadowUtility(state,actor){
  const position=ahTelemetryShadowPositionValue(s,p);
  const winProb=ahTelemetryWinProbability(s,p);
  const terminal=s.result?.winner? (s.result.winner===p?1:-1):0;
- return (score[p]||0)-(score[q]||0)+(candy*.22)+(position*.22)+(ant(p)-ant(q))*.035-threat*.32+
-   (winProb-.5)*4.2+terminal*8;
+ const parts={
+  scoreDiff:(score[p]||0)-(score[q]||0),
+  candyValue:candy*.22,
+  positionValue:position*.22,
+  antValue:(ant(p)-ant(q))*.035,
+  threatValue:-threat*.32,
+  winProbability:(winProb-.5)*4.2,
+  terminalValue:terminal*8
+ };
+ parts.total=Object.values(parts).reduce((n,v)=>n+Number(v||0),0);
+ parts.raw={scoreDiff:parts.scoreDiff,candy,position,antDiff:ant(p)-ant(q),threat,winProb,terminal};
+ return parts;
+}
+function ahTelemetryShadowUtility(state,actor){
+ return ahTelemetryShadowUtilityBreakdown(state,actor).total;
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
@@ -3665,10 +3678,17 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   const legal=ahTelemetryShadowLegalActions(state,p);
   const counts={};
   for(const a of legal)counts[a.type]=(counts[a.type]||0)+1;
+  const baseBreakdown=ahTelemetryShadowUtilityBreakdown(state,p);
   const quick=legal.map((action,index)=>{
    const next=ahTelemetryShadowApply(state,action);
-   const immediate=ahTelemetryShadowUtility(next,p)-ahTelemetryShadowUtility(state,p);
-   const wp=ahTelemetryWinProbability(next,p);
+   const before=baseBreakdown;
+   const after=ahTelemetryShadowUtilityBreakdown(next,p);
+   const delta={};
+   for(const k of ['scoreDiff','candyValue','positionValue','antValue','threatValue','winProbability','terminalValue']){
+    delta[k]=Number(((after[k]||0)-(before[k]||0)).toFixed(4));
+   }
+   const immediate=delta.scoreDiff+delta.candyValue+delta.positionValue+delta.antValue+delta.threatValue+delta.winProbability+delta.terminalValue;
+   const wp=after.raw.winProb;
    let setup=0;
    if(action.type==='carryCandy'){
     const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
@@ -3681,7 +3701,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
    }
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
-   return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4))};
+   return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
   }).sort((a,b)=>b.score-a.score);
   const choice=ahTelemetryVeryHardShadowChoose(state,p,3);
   rows.push({
@@ -3690,6 +3710,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    free:{A:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.A||0)>0)),B:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.B||0)>0))},
    candies:(state.candies||[]).map(c=>({id:c.id,node:c.node,points:c.points,need:c.need,attached:{A:c.attached?.A||0,B:c.attached?.B||0}})),
    legalCounts:counts,
+   baseUtility:ahTelemetryShadowUtilityBreakdown(state,p),
    topCandidates:quick.slice(0,8),
    chosen:choice?.action||null
   });
