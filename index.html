@@ -3572,7 +3572,7 @@ function ahTelemetrySelfPlayChoose(state,player,depth=2){
  return best||{action:legal[0],score:0,rollout:null};
 }
 function ahTelemetrySelfPlayMatch(seed,depth=2){
- const state=ahTelemetrySelfPlayInitialState(seed);
+ let state=ahTelemetrySelfPlayInitialState(seed);
  const stats={actions:0,turns:0,cardUses:{A:{},B:{}},actionTypes:{A:{},B:{}}};
  const recordAction=a=>{
   stats.actions++;
