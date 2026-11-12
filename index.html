@@ -3240,41 +3240,55 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const rootValue=ahTelemetryShadowUtility(before,p);
  /*
-  * A turn may contain multiple actions. The shadow state itself is the
-  * source of truth for whose action comes next:
-  *   - normal action: currentPlayer stays the same
-  *   - endTurn: shadow apply switches currentPlayer
+  * Search in turns, not in raw actions.
   *
-  * The old rollout alternated A/B after every action, which made a sequence
-  * such as "place -> move -> move" impossible to evaluate correctly.
+  * A real turn may contain several low-level actions before endTurn.
+  * The rollout therefore keeps the same player while actions remain, and
+  * only changes the maximizing/minimizing side when endTurn is reached.
+  * This makes the first response after our turn a genuine opponent reply.
+  *
+  * Because attach/detach do not consume an action in the shadow model,
+  * a small ply guard prevents an accidental infinite branch while still
+  * allowing the normal multi-action turn to be represented.
   */
- const branch=(state,depth)=>{
-  if(depth<=0||state?.result)return {value:ahTelemetryShadowUtility(state,p),line:[]};
-  const turnActor=state?.currentPlayer||p;
+ const branch=(state,turnDepth,plyBudget)=>{
+  if(!state||state.result||turnDepth<=0||plyBudget<=0){
+   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  }
+  const turnActor=state.currentPlayer||p;
   const acts=ahTelemetryShadowLegalActions(state,turnActor);
   if(!acts.length)return {value:ahTelemetryShadowUtility(state,p),line:[]};
   const maximizing=turnActor===p;
   let best=null;
   for(const a of acts){
    const next=ahTelemetryShadowApply(state,a);
-   const child=branch(next,depth-1);
-   const v=ahTelemetryShadowUtility(next,p)+(child.value-ahTelemetryShadowUtility(next,p))*.55;
-   if(!best||(maximizing?v>best.value:v<best.value))best={value:v,line:[a,...child.line]};
+   const nextTurnDepth=a.type==='endTurn'?turnDepth-1:turnDepth;
+   const child=branch(next,nextTurnDepth,plyBudget-1);
+   const v=child.value;
+   if(!best||(maximizing?v>best.value:v<best.value)){
+    best={value:v,line:[a,...child.line]};
+   }
   }
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
  };
  const after=ahTelemetryShadowApply(before,action);
- const search=branch(after,Math.max(0,maxDepth-1));
- const twoPlyValue=search.value-rootValue;
+ const search=branch(after,Math.max(0,maxDepth),Math.max(8,maxDepth*5));
+ const value=search.value-rootValue;
+ const line=search.line||[];
+ const firstOpponentIndex=line.findIndex(a=>a?.type==='endTurn');
+ const opponentReply=firstOpponentIndex>=0?(line[firstOpponentIndex+1]||null):null;
+ const continuation=opponentReply?
+   (line[firstOpponentIndex+2]||null):
+   (line[0]||null);
  return {
-  schema:'shadow-rollout-v3',
+  schema:'shadow-rollout-v4',
   depth:maxDepth,
   action:ahTelemetryClone(action),
   immediate:Number((ahTelemetryShadowUtility(after,p)-rootValue).toFixed(3)),
-  value:Number(twoPlyValue.toFixed(3)),
-  opponentReply:ahTelemetryClone(search.line?.[0]||null),
-  continuation:ahTelemetryClone(search.line?.[1]||null),
-  principalVariation:ahTelemetryClone(search.line||[]),
+  value:Number(value.toFixed(3)),
+  opponentReply:ahTelemetryClone(opponentReply),
+  continuation:ahTelemetryClone(continuation),
+  principalVariation:ahTelemetryClone(line),
   after:ahTelemetryClone(after)
  };
 }
