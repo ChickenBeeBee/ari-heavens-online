@@ -3417,7 +3417,10 @@ function ahTelemetryLiveSearchStep(){
   if(!raw)continue;
   const correction=ahTelemetryPredictionCorrection(item.action);
   const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
-  const finalScore=item.score+value*.18;
+  /* Future value is deliberately strong enough to reward multi-action setup
+   * lines while the cheap shortlist keeps runtime bounded. */
+  const futureWeight=a.type==='endTurn'?0.16:0.42;
+  const finalScore=item.score+value*futureWeight;
   if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
  }
  if(!best)return false;
@@ -3623,20 +3626,21 @@ function ahTelemetrySelfPlayTerminal(state){
 }
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
  /*
-  * This is the shadow counterpart of the live very-hard search:
-  *   - evaluate every legal action cheaply
-  *   - keep the same six-action shortlist used by live search
-  *   - search the same 3-ply baseline, extending to 5 ply near the end
-  *   - use the same win-probability + shadow rollout utility
+  * Shadow counterpart of the live very-hard search.
+  * The immediate score is only the first layer.  The final decision also
+  * values the future line strongly enough to prefer a setup whose payoff
+  * appears after several actions.
   *
-  * It deliberately does not use live S/cpuEvaluateCard/correction data.
-  * Those depend on the visible game and would make A/B self-play asymmetric.
+  * Rollout keeps the same player acting until endTurn, matching the real
+  * game.  Therefore place -> move -> move -> attach -> carry is a valid
+  * single-player continuation rather than an artificial A/B alternation.
   */
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
+ const rootUtility=ahTelemetryShadowUtility(state,player);
  const quick=legal.map((action,index)=>{
   const next=ahTelemetryShadowApply(state,action);
-  const immediate=ahTelemetryShadowUtility(next,player)-ahTelemetryShadowUtility(state,player);
+  const immediate=ahTelemetryShadowUtility(next,player)-rootUtility;
   const wp=ahTelemetryWinProbability(next,player);
   let setup=0;
   if(action.type==='carryCandy'){
@@ -3654,25 +3658,27 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
    setup=Math.max(0,immediate)*.15;
   }
   const actionCost=action.type==='endTurn'?0:-.08;
-  const score=immediate+setup+actionCost+(wp-.5)*.45;
-  return {index,action,next,score:Number(score.toFixed(4))};
+  const base=immediate+setup+actionCost+(wp-.5)*.45;
+  return {index,action,next,immediate,base,score:Number(base.toFixed(4))};
  }).sort((a,b)=>b.score-a.score);
- const shortlist=quick.slice(0,Math.min(6,quick.length));
+ const shortlist=quick.slice(0,Math.min(8,quick.length));
  const remaining=Math.max(1,Math.ceil((MAXTURN-Number(state.turn||0))/2));
  const searchDepth=Math.min(5,Math.max(3,remaining<=2?remaining+1:depth));
  let best=null;
  for(const item of shortlist){
-  if(item.action.type==='endTurn'){
-   const score=item.score-.08;
-   if(!best||score>best.score)best={action:item.action,score,rollout:null};
+  const raw=ahTelemetryRollout(item.action,player,searchDepth,state);
+  if(!raw){
+   if(!best||item.base>best.score)best={action:item.action,score:item.base,rollout:null,immediate:item.immediate,base:item.base};
    continue;
   }
-  const raw=ahTelemetryRollout(item.action,player,searchDepth,state);
-  if(!raw)continue;
-  const finalScore=item.score+raw.value*.18;
-  if(!best||finalScore>best.score)best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw};
+  /* Future value is now a first-class decision signal. */
+  const futureWeight=item.action.type==='endTurn'?0.16:0.42;
+  const finalScore=item.base+raw.value*futureWeight;
+  if(!best||finalScore>best.score){
+   best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base};
+  }
  }
- return best||{action:legal[0],score:0,rollout:null};
+ return best||{action:legal[0],score:0,rollout:null,immediate:0,base:0};
 }
 /* Compatibility alias for existing self-play callers and diagnostics. */
 function ahTelemetrySelfPlayChoose(state,player,depth=3){
@@ -3732,15 +3738,17 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
       (x.to||null)===(choice.action.to||null)&&
       (x.candyId||null)===(choice.action.candyId||null));
     const rollout=choice.rollout||ahTelemetryRollout(choice.action,p,3,state);
+    const actualImmediate=rollout?.immediate??(chosenQuick?.score??null);
     return {
      action:choice.action,
-     immediate:chosenQuick?.score??null,
+     immediate:actualImmediate,
      quickScore:chosenQuick?.score??null,
      rolloutValue:rollout?.value??null,
      combinedScore:choice.score??null,
      opponentReply:rollout?.opponentReply??null,
      continuation:rollout?.continuation??null,
-     principalVariation:rollout?.principalVariation??[]
+     principalVariation:rollout?.principalVariation??[],
+     rolloutDepth:rollout?.depth??null
     };
    })():null;
   rows.push({
