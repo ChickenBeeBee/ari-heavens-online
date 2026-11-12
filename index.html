@@ -3546,28 +3546,62 @@ function ahTelemetrySelfPlayTerminal(state){
  };
  return state.result;
 }
-function ahTelemetrySelfPlayChoose(state,player,depth=2){
+function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
+ /*
+  * This is the shadow counterpart of the live very-hard search:
+  *   - evaluate every legal action cheaply
+  *   - keep the same six-action shortlist used by live search
+  *   - search the same 3-ply baseline, extending to 5 ply near the end
+  *   - use the same win-probability + shadow rollout utility
+  *
+  * It deliberately does not use live S/cpuEvaluateCard/correction data.
+  * Those depend on the visible game and would make A/B self-play asymmetric.
+  */
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
- const quick=legal.map(action=>{
+ const quick=legal.map((action,index)=>{
   const next=ahTelemetryShadowApply(state,action);
-  const wp=ahTelemetryWinProbability(next,player);
   const immediate=ahTelemetryShadowUtility(next,player)-ahTelemetryShadowUtility(state,player);
-  return {action,next,quick:Number((wp*10+immediate*.12).toFixed(4))};
- }).sort((a,b)=>b.quick-a.quick);
- const shortlist=quick.slice(0,Math.min(5,quick.length));
+  const wp=ahTelemetryWinProbability(next,player);
+  let setup=0;
+  if(action.type==='carryCandy'){
+   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+   const pts=c?.bomb?4:(c?.points||0);
+   setup=action.target===player+'1'&&!c?.bomb?pts:pts*.18;
+  }else if(action.type==='attachAnt'){
+   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+   setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
+  }else if(action.type==='placeAnt'){
+   setup=action.node===player+'1'?.25:action.node===player+'w'?.18:0;
+  }else if(action.type==='startBattle'){
+   setup=Math.max(0,immediate)*.25;
+  }else if(action.type==='useCard'){
+   setup=Math.max(0,immediate)*.15;
+  }
+  const actionCost=action.type==='endTurn'?0:-.08;
+  const score=immediate+setup+actionCost+(wp-.5)*.45;
+  return {index,action,next,score:Number(score.toFixed(4))};
+ }).sort((a,b)=>b.score-a.score);
+ const shortlist=quick.slice(0,Math.min(6,quick.length));
+ const remaining=Math.max(1,Math.ceil((MAXTURN-Number(state.turn||0))/2));
+ const searchDepth=Math.min(5,Math.max(3,remaining<=2?remaining+1:depth));
  let best=null;
  for(const item of shortlist){
   if(item.action.type==='endTurn'){
-   const score=item.quick-.08;
+   const score=item.score-.08;
    if(!best||score>best.score)best={action:item.action,score,rollout:null};
    continue;
   }
-  const raw=ahTelemetryRollout(item.action,player,depth,state);
-  const score=item.quick+(raw?raw.value*.05:0);
-  if(!best||score>best.score)best={action:item.action,score,rollout:raw};
+  const raw=ahTelemetryRollout(item.action,player,searchDepth,state);
+  if(!raw)continue;
+  const finalScore=item.score+raw.value*.18;
+  if(!best||finalScore>best.score)best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw};
  }
  return best||{action:legal[0],score:0,rollout:null};
+}
+/* Compatibility alias for existing self-play callers and diagnostics. */
+function ahTelemetrySelfPlayChoose(state,player,depth=3){
+ return ahTelemetryVeryHardShadowChoose(state,player,depth);
 }
 function ahTelemetrySelfPlayMatch(seed,depth=2,options={}){
  let state=ahTelemetrySelfPlayInitialState(seed,options);
@@ -3623,7 +3657,7 @@ function ahTelemetrySelfPlayMatch(seed,depth=2,options={}){
 }
 async function ahTelemetrySelfPlay(games=20,options={}){
  const n=Math.max(1,Math.min(1000,Number(games)||20));
- const depth=Math.max(1,Math.min(3,Number(options.depth)||2));
+ const depth=Math.max(3,Math.min(5,Number(options.depth)||3));
  const seedBase=String(options.seed||Date.now());
  const results=[];
  const started=performance.now();
