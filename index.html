@@ -2945,6 +2945,12 @@ function ahTelemetryShadowLegalActions(state,player){
  const s=state||{},p=player||s.currentPlayer,q=opp(p),out=[];
  if(!p||s.result)return out;
  const push=(type,data={})=>out.push({type,player:p,...data});
+ const fieldAnts=pl=>{
+  let n=0;
+  for(const node of Object.keys(s.free||{}))n+=Number(s.free?.[node]?.[pl]||0);
+  for(const c of s.candies||[])n+=Number(c.attached?.[pl]||0);
+  return n;
+ };
  if(Number(s.actions||0)>0){
   for(const node of [p+'1',p+'w'])if((s.hand?.[p]||0)>0)push('placeAnt',{node});
   for(const from of Object.keys(s.free||{})){
@@ -2966,8 +2972,14 @@ function ahTelemetryShadowLegalActions(state,player){
   if((s.free?.[c.node]?.[p]||0)>0)push('attachAnt',{candyId:c.id});
   if((c.attached?.[p]||0)>0&&(c.attached?.[q]||0)>0)push('startBattle',{candyId:c.id});
  }
- for(const k of s.decks?.[p]||[]){
-  if(!s.cards?.[p]?.[k]&&!s.typhoonLocked?.[p]&&k!=='showdown')push('useCard',{card:k});
+ // Mirror the real one-card-per-turn rule. Recycled cards can still become
+ // legal again when the shadow state explicitly makes them available.
+ if(!s.cardUsed&&!s.typhoonLocked?.[p]){
+  for(const k of s.decks?.[p]||[]){
+   if(s.cards?.[p]?.[k])continue;
+   if(k==='showdown'&&(Number(s.turn||0)<20||fieldAnts('A')<=0||fieldAnts('B')<=0))continue;
+   push('useCard',{card:k});
+  }
  }
  push('endTurn');
  return out;
@@ -3014,6 +3026,7 @@ function ahTelemetryShadowApply(state,action){
  }else if(action.type==='useCard'){
   const k=action.card;
   if(s.cards?.[p])s.cards[p][k]=true;
+  s.cardUsed=true;
   if(!s.effects)s.effects={};
   const layers=['A2','A3','C','B3','B2'],spawn=['A2','A3','B3','B2'];
   const cloneCandy=(type,node)=>s.candies.push({id:'shadow-'+k+'-'+s.candies.length,node,points:type.pts,need:type.need,bomb:!!type.bomb,attached:{A:0,B:0}});
@@ -3281,11 +3294,76 @@ function ahTelemetryShadowStateSignature(state){
   typhoonLocked:{A:!!s.typhoonLocked?.A,B:!!s.typhoonLocked?.B}
  });
 }
+let AH_AI_THINKING_BANK=0;
+let AH_AI_THINKING_TURN=-1;
+let AH_AI_THINKING_REMAINING=0;
+let AH_AI_THINKING_PREV_STATE=null;
+
+function ahTelemetryBoardComplexity(state,previous,player){
+ const s=state||{},p=player||s.currentPlayer,q=opp(p);
+ if(!previous)return 0;
+ let freeDelta=0,antDelta=0,candyMove=0,attachedDelta=0,scoreDelta=0,cardDelta=0,effectDelta=0;
+ const nodes=new Set([...Object.keys(previous.free||{}),...Object.keys(s.free||{})]);
+ for(const n of nodes){
+  for(const pl of ['A','B']){
+   freeDelta+=Math.abs(Number(s.free?.[n]?.[pl]||0)-Number(previous.free?.[n]?.[pl]||0));
+  }
+ }
+ const prevC=new Map((previous.candies||[]).map(c=>[String(c.id),c]));
+ const curC=new Map((s.candies||[]).map(c=>[String(c.id),c]));
+ for(const [id,c] of curC){
+  const old=prevC.get(id);
+  if(!old||old.node!==c.node)candyMove++;
+  for(const pl of ['A','B'])attachedDelta+=Math.abs(Number(c.attached?.[pl]||0)-Number(old?.attached?.[pl]||0));
+ }
+ for(const [id,c] of prevC)if(!curC.has(id))candyMove++;
+ for(const pl of ['A','B']){
+  scoreDelta+=Math.abs(Number(s.score?.[pl]||0)-Number(previous.score?.[pl]||0));
+  const oldCards=previous.cards?.[pl]||{},newCards=s.cards?.[pl]||{};
+  const keys=new Set([...Object.keys(oldCards),...Object.keys(newCards)]);
+  for(const k of keys)if(!!oldCards[k]!==!!newCards[k])cardDelta++;
+ }
+ const effectsBefore=JSON.stringify(previous.effects||{}),effectsNow=JSON.stringify(s.effects||{});
+ if(effectsBefore!==effectsNow)effectDelta=1;
+ const legalNow=ahTelemetryShadowLegalActions(s,p).length;
+ const legalBefore=ahTelemetryShadowLegalActions(previous,p).length;
+ const legalDelta=Math.abs(legalNow-legalBefore);
+ const oppNow=ahTelemetryShadowFutureOpportunityValue(s,p);
+ const oppBefore=ahTelemetryShadowFutureOpportunityValue(previous,p);
+ const opportunityDelta=Math.abs(oppNow-oppBefore);
+ const raw=freeDelta*.8+candyMove*1.8+attachedDelta*.7+scoreDelta*.8+cardDelta*1.4+effectDelta*2.2+legalDelta*.9+opportunityDelta*1.6;
+ return Math.max(0,Math.min(1,raw/18));
+}
+function ahTelemetryPrepareThinkingBudget(state,player){
+ const turn=Number(state?.turn||0);
+ if(AH_AI_THINKING_TURN===turn)return AH_AI_THINKING_REMAINING;
+ const previous=AH_AI_THINKING_PREV_STATE;
+ const complexity=ahTelemetryBoardComplexity(state,previous,player);
+ const base=180,complexBonus=Math.round(complexity*220);
+ const carry=Math.min(220,Math.max(0,AH_AI_THINKING_BANK));
+ AH_AI_THINKING_REMAINING=Math.min(500,base+complexBonus+carry);
+ AH_AI_THINKING_BANK=0;
+ AH_AI_THINKING_USED=0;
+ AH_AI_THINKING_TURN=turn;
+ AH_AI_THINKING_PREV_STATE=ahTelemetryClone(state);
+ return AH_AI_THINKING_REMAINING;
+}
+function ahTelemetrySpendThinking(nodes){
+ const spent=Math.max(0,Number(nodes)||0);
+ AH_AI_THINKING_REMAINING=Math.max(0,AH_AI_THINKING_REMAINING-spent);
+}
+function ahTelemetryUpdateThinkingSnapshot(state){
+ if(!state)return;
+ AH_AI_THINKING_PREV_STATE=ahTelemetryClone(state);
+ if(AH_AI_THINKING_REMAINING>0)AH_AI_THINKING_BANK=Math.min(220,AH_AI_THINKING_REMAINING);
+}
+
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
  if(!S&&!rootState)return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
- const maxNodes=Math.max(1,Number(options?.maxNodes)||Infinity);
+ const budget=Number(options?.maxNodes);
+ const maxNodes=Math.max(1,Number.isFinite(budget)?budget:Infinity);
  let nodes=0,truncated=false;
  const rootValue=ahTelemetryShadowUtility(before,p);
  /*
@@ -3390,7 +3468,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
 };
  const after=ahTelemetryShadowApply(before,action);
- const search=branch(after,Math.max(0,maxDepth),Math.max(8,maxDepth*5));
+ const searchPly=Math.max(8,Math.min(32,maxDepth*8));
+ const search=branch(after,Math.max(0,maxDepth),searchPly);
  const value=search.value-rootValue;
  const line=search.line||[];
  /*
@@ -3558,16 +3637,24 @@ function ahTelemetryLiveSearchStep(){
  if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU||S.over)return false;
  const legal=getLegalActions(CPU);
  if(!legal.length)return false;
+ const turnBudget=ahTelemetryPrepareThinkingBudget(ahTelemetryState(),CPU);
+ if(turnBudget<=0)return false;
  // Cheap pass first: keep only the most promising actions before doing rollout.
  const shortlist=legal.map((action,index)=>{
   const e=ahTelemetryCandidateScore(action,false);
   return {index,action,score:e.score,breakdown:e.breakdown};
  }).sort((a,b)=>b.score-a.score).slice(0,6);
- const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0))/2));
+ const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0)/2)));
+ const complexity=ahTelemetryBoardComplexity(ahTelemetryState(),AH_AI_THINKING_PREV_STATE,CPU);
  const depth=Math.min(5,Math.max(3,remaining<=2?remaining+1:3));
  let best=null;
- for(const item of shortlist){
-  const raw=ahTelemetryRollout(item.action,CPU,depth);
+ let spentThisStep=0;
+ for(let si=0;si<shortlist.length;si++){
+  const item=shortlist[si];
+  const branchesLeft=Math.max(1,shortlist.length-si);
+  const nodeBudget=Math.max(12,Math.floor(AH_AI_THINKING_REMAINING/branchesLeft));
+  const raw=ahTelemetryRollout(item.action,CPU,depth,null,{maxNodes:nodeBudget});
+  if(raw)spentThisStep+=Number(raw.nodes||0);
   if(!raw)continue;
   const correction=ahTelemetryPredictionCorrection(item.action);
   const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
@@ -3577,6 +3664,7 @@ function ahTelemetryLiveSearchStep(){
   const finalScore=item.score+value*futureWeight;
   if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
  }
+ ahTelemetrySpendThinking(spentThisStep);
  if(!best)return false;
  const a=best.action;
  let executed=false;
@@ -3597,6 +3685,11 @@ function ahTelemetryLiveSearchStep(){
    availableActions:ahTelemetryLegalActions(),
    immediate:{depth,score:best.score,rawRollout:best.rawRollout,calibration:best.correction,shortlist:shortlist.map(x=>({action:x.action,score:x.score}))}
   });
+ }
+ if(executed){
+  const snap=ahTelemetryState();
+  if(a.type==='endTurn')ahTelemetryUpdateThinkingSnapshot(snap);
+  else AH_AI_THINKING_PREV_STATE=ahTelemetryClone(snap);
  }
  return executed;
 }
