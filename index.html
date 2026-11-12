@@ -3169,7 +3169,8 @@ function ahTelemetryShadowUtility(state,actor){
    (winProb-.5)*4.2+terminal*8;
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
- if(!AH_AI_TELEMETRY||(!S&&!rootState))return null;
+ // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
+ if(!S&&!rootState)return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const rootValue=ahTelemetryShadowUtility(before,p);
  const branch=(state,turnActor,depth)=>{
@@ -3612,15 +3613,14 @@ async function ahTelemetrySelfPlay(games=20,options={}){
  const n=Math.max(1,Math.min(1000,Number(games)||20));
  const depth=Math.max(1,Math.min(3,Number(options.depth)||2));
  const seedBase=String(options.seed||Date.now());
- const previousState=AH_AI_TELEMETRY,results=[];
+ const results=[];
  const started=performance.now();
- try{
-  AH_AI_TELEMETRY={schema:AH_AI_TELEMETRY_SCHEMA,schemaVersion:AH_AI_TELEMETRY_SCHEMA_VERSION,version:AH_AI_TELEMETRY_VERSION,mode:'cpu',level:'veryhard',events:[]};
-  for(let i=0;i<n;i++){
-   results.push(ahTelemetrySelfPlayMatch(seedBase+'-'+i,depth));
-   if(i%5===4)await new Promise(r=>setTimeout(r,0));
-  }
- }finally{AH_AI_TELEMETRY=previousState;}
+ // Self-play stays completely outside the live AH_AI_TELEMETRY object.
+ // The shadow rollout receives its state explicitly, so no global mutation is needed.
+ for(let i=0;i<n;i++){
+  results.push(ahTelemetrySelfPlayMatch(seedBase+'-'+i,depth));
+  if(i%5===4)await new Promise(r=>setTimeout(r,0));
+ }
  const wins={A:results.filter(x=>x.winner==='A').length,B:results.filter(x=>x.winner==='B').length,draw:results.filter(x=>!x.winner).length};
  const avgTurns=results.reduce((n,x)=>n+x.turns,0)/Math.max(1,results.length);
  const summary={
