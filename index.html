@@ -3216,23 +3216,70 @@ function ahTelemetryShadowUtilityBreakdown(state,actor){
   if(enemy>=need&&CHAIN.indexOf(c.node)>=4)threat+=pts;
  }
  const position=ahTelemetryShadowPositionValue(s,p);
+ const opportunity=ahTelemetryShadowFutureOpportunityValue(s,p);
  const winProb=ahTelemetryWinProbability(s,p);
  const terminal=s.result?.winner? (s.result.winner===p?1:-1):0;
  const parts={
   scoreDiff:(score[p]||0)-(score[q]||0),
   candyValue:candy*.22,
   positionValue:position*.22,
+  opportunityValue:opportunity*.18,
   antValue:(ant(p)-ant(q))*.035,
   threatValue:-threat*.32,
   winProbability:(winProb-.5)*4.2,
   terminalValue:terminal*8
  };
  parts.total=Object.values(parts).reduce((n,v)=>n+Number(v||0),0);
- parts.raw={scoreDiff:parts.scoreDiff,candy,position,antDiff:ant(p)-ant(q),threat,winProb,terminal};
+ parts.raw={scoreDiff:parts.scoreDiff,candy,position,opportunity,antDiff:ant(p)-ant(q),threat,winProb,terminal};
  return parts;
 }
 function ahTelemetryShadowUtility(state,actor){
  return ahTelemetryShadowUtilityBreakdown(state,actor).total;
+}
+function ahTelemetryShadowFutureOpportunityValue(state,actor){
+ const s=state||{},p=actor||s.currentPlayer,q=opp(p);
+ const nodes=Object.keys(s.free||{});
+ const candies=(s.candies||[]).filter(c=>CHAIN.includes(c.node));
+ const valueFor=pl=>{
+  let mobility=0,battle=0,ready=0;
+  for(const node of nodes){
+   const ants=s.free?.[node]?.[pl]||0;
+   if(!ants)continue;
+   let useful=0;
+   for(const c of candies){
+    const d=ahTelemetryShadowRouteDistance(node,c.node);
+    if(d>=99)continue;
+    const pts=c.points||0,need=Math.max(1,c.need||1);
+    const fraction=pts/need;
+    if(d<=2)useful+=fraction*(3-d);
+    if(d===0&&(c.attached?.[pl]||0)<need)ready+=fraction*.35;
+   }
+   mobility+=ants*Math.min(2.5,useful*.18);
+  }
+  for(const c of candies){
+   const own=c.attached?.[pl]||0,enemy=c.attached?.[opp(pl)]||0,need=Math.max(1,c.need||1),pts=c.points||0;
+   if(own>0&&enemy>0){
+    const ev=battleEV(own,enemy,s.effects?.jaw===pl?3:0);
+    battle+=(ev/need)*Math.max(1,pts*.25);
+   }
+   if(own>=need)ready+=pts*.45;
+  }
+  return mobility+battle+ready;
+ };
+ return valueFor(p)-valueFor(q);
+}
+function ahTelemetryShadowStateSignature(state){
+ const s=state||{};
+ const free=Object.keys(s.free||{}).sort().map(n=>[n,s.free?.[n]?.A||0,s.free?.[n]?.B||0]);
+ const candies=(s.candies||[]).map(c=>[String(c.id),c.node,c.points,c.need,c.bomb?1:0,c.attached?.A||0,c.attached?.B||0]).sort((a,b)=>a[0].localeCompare(b[0]));
+ const effects=s.effects||{};
+ return JSON.stringify({
+  currentPlayer:s.currentPlayer||null,turn:Number(s.turn||0),actions:Number(s.actions||0),
+  hand:{A:s.hand?.A||0,B:s.hand?.B||0},score:{A:s.score?.A||0,B:s.score?.B||0},
+  free,candies,cards:{A:s.cards?.A||{},B:s.cards?.B||{}},effects,
+  shortcutBlock:{A:s.shortcutBlock?.A||0,B:s.shortcutBlock?.B||0},
+  typhoonLocked:{A:!!s.typhoonLocked?.A,B:!!s.typhoonLocked?.B}
+ });
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
@@ -3260,7 +3307,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   return (prev.type==='attachAnt'&&next.type==='detachAnt')||
          (prev.type==='detachAnt'&&next.type==='attachAnt');
  };
- const branch=(state,turnDepth,plyBudget,lastAction=null)=>{
+ const branch=(state,turnDepth,plyBudget,lastAction=null,seenSignatures=null,turnConfigCounts=null)=>{
   nodes++;
   if(nodes>maxNodes){
    truncated=true;
@@ -3270,27 +3317,47 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    return {value:ahTelemetryShadowUtility(state,p),line:[]};
   }
   const turnActor=state.currentPlayer||p;
+  const signature=ahTelemetryShadowStateSignature(state);
+  const seen=seenSignatures||new Map();
+  const visits=seen.get(signature)||0;
+  if(visits>=1){
+   /* Exact same state has already been searched on this path. */
+   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  }
+  seen.set(signature,visits+1);
+  const configCounts=turnConfigCounts||{};
   const acts=ahTelemetryShadowLegalActions(state,turnActor);
-  if(!acts.length)return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  if(!acts.length){
+   seen.delete(signature);
+   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  }
   const maximizing=turnActor===p;
   let best=null;
   for(const a of acts){
    /*
-    * Attach/detach are zero-action-cost configuration moves.  Without a
-    * guard, the shadow search can waste its entire node budget on the
-    * reversible A -> B -> A cycle and never reach endTurn/opponent play.
-    * Keep both operations available, but never search the exact immediate
-    * inverse on the same candy.
+    * Attach/detach are zero-action-cost configuration moves.  We keep them
+    * legal, but cap repeated configuration changes on the same candy within
+    * one turn.  This does not ban a meaningful detach -> move -> attach line;
+    * it only stops a search branch from spending its whole budget reshuffling
+    * the same candy.
     */
+   const candyKey=a.candyId!=null?String(a.candyId):null;
+   const isConfig=a.type==='attachAnt'||a.type==='detachAnt';
+   const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
    if(isImmediateInverse(lastAction,a))continue;
+   if(isConfig&&configKey&&(configCounts[configKey]||0)>=3)continue;
    const next=ahTelemetryShadowApply(state,a);
    const nextTurnDepth=a.type==='endTurn'?turnDepth-1:turnDepth;
-   const child=branch(next,nextTurnDepth,plyBudget-1,a);
+   const nextSeen=a.type==='endTurn'?new Map():seen;
+   const nextCounts=a.type==='endTurn'?{}:{...configCounts};
+   if(isConfig&&configKey)nextCounts[configKey]=(nextCounts[configKey]||0)+1;
+   const child=branch(next,nextTurnDepth,plyBudget-1,a,nextSeen,nextCounts);
    const v=child.value;
    if(!best||(maximizing?v>best.value:v<best.value)){
     best={value:v,line:[a,...child.line]};
    }
   }
+  seen.delete(signature);
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
  };
  const after=ahTelemetryShadowApply(before,action);
