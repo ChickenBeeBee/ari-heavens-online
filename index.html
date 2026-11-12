@@ -3502,7 +3502,7 @@ function ahTelemetrySelfPlayRng(seed){
  for(let i=0;i<String(seed).length;i++)x=(x*31+String(seed).charCodeAt(i))>>>0;
  return ()=>{x^=x<<13;x^=x>>>17;x^=x<<5;return (x>>>0)/4294967296;};
 }
-function ahTelemetrySelfPlayInitialState(seed){
+function ahTelemetrySelfPlayInitialState(seed,options={}){
  const rng=ahTelemetrySelfPlayRng(seed),free={};
  [...CHAIN,'Aw','Bw'].forEach(n=>free[n]={A:0,B:0});
  const candies=[];let id=0;
@@ -3513,8 +3513,6 @@ function ahTelemetrySelfPlayInitialState(seed){
    const i=Math.floor(rng()*pool.length);
    decks[p].push(pool.splice(i,1)[0]);
   }
-  // Each side gets its own shuffled copy of the full pool in the real game.
-  // Rebuild B's pool independently so both players have 3 random cards.
   if(p==='A')continue;
   const bpool=CARD_KEYS.slice();
   while(decks[p].length<3&&bpool.length){
@@ -3522,11 +3520,11 @@ function ahTelemetrySelfPlayInitialState(seed){
    decks[p].push(bpool.splice(i,1)[0]);
   }
  }
+ const first=options.firstPlayer==='A'||options.firstPlayer==='B'?options.firstPlayer:(rng()<.5?'A':'B');
  return {
-  gid:'selfplay-'+seed,turn:1,round:1,currentPlayer:'A',first:'A',actions:2,cardUsed:false,
+  gid:'selfplay-'+seed,turn:1,round:1,currentPlayer:first,first,actions:2,cardUsed:false,
   score:{A:0,B:0},hand:{A:20,B:20},dead:{A:0,B:0},free,candies,
   decks,cards:{A:Object.fromEntries(CARD_KEYS.map(k=>[k,false])),B:Object.fromEntries(CARD_KEYS.map(k=>[k,false]))},
-  // These are top-level in the live game state and must also exist in shadow state.
   shortcutBlock:{A:0,B:0},typhoonLocked:{A:false,B:false},
   effects:{jaw:null,inspire:null,heaven:null,rainSelect:null,shortcutBlock:{A:0,B:0},antlions:[],squalls:[],typhoon:null,strongPheromone:null,weatherEvents:[]},
   result:null
@@ -3571,14 +3569,25 @@ function ahTelemetrySelfPlayChoose(state,player,depth=2){
  }
  return best||{action:legal[0],score:0,rollout:null};
 }
-function ahTelemetrySelfPlayMatch(seed,depth=2){
- let state=ahTelemetrySelfPlayInitialState(seed);
- const stats={actions:0,turns:0,cardUses:{A:{},B:{}},actionTypes:{A:{},B:{}}};
+function ahTelemetrySelfPlayMatch(seed,depth=2,options={}){
+ let state=ahTelemetrySelfPlayInitialState(seed,options);
+ const stats={
+  actions:0,turns:0,cardUses:{A:{},B:{}},actionTypes:{A:{},B:{}},
+  first:state.first,finalScore:{A:0,B:0},finalAlive:{A:0,B:0},
+  tail:[]
+ };
  const recordAction=a=>{
   stats.actions++;
   const p=a.player;
   stats.actionTypes[p][a.type]=(stats.actionTypes[p][a.type]||0)+1;
   if(a.type==='useCard')stats.cardUses[p][a.card]=(stats.cardUses[p][a.card]||0)+1;
+  stats.tail.push({
+   turn:Number(state.turn||0),player:p,type:a.type,
+   card:a.card||null,score:ahTelemetryClone(state.score),alive:{
+    A:ahTelemetrySelfPlayAlive(state,'A'),B:ahTelemetrySelfPlayAlive(state,'B')
+   }
+  });
+  if(stats.tail.length>8)stats.tail.shift();
  };
  let guard=0;
  while(!state.result&&guard++<2000){
@@ -3591,9 +3600,10 @@ function ahTelemetrySelfPlayMatch(seed,depth=2){
    state=ahTelemetryShadowApply(state,choice.action);
    ahTelemetrySelfPlayTerminal(state);
    if(choice.action.type==='endTurn')break;
-   // Avoid pathological free-action loops in the approximate shadow model.
    if(turnGuard>=15){
-    state=ahTelemetryShadowApply(state,{type:'endTurn',player:p});
+    const forced={type:'endTurn',player:p};
+    recordAction(forced);
+    state=ahTelemetryShadowApply(state,forced);
     ahTelemetrySelfPlayTerminal(state);
     break;
    }
@@ -3602,10 +3612,12 @@ function ahTelemetrySelfPlayMatch(seed,depth=2){
  }
  if(!state.result)state.result={winner:null,reason:'simulation-guard'};
  const winner=state.result.winner||null;
+ stats.finalScore=ahTelemetryClone(state.score);
+ stats.finalAlive={A:ahTelemetrySelfPlayAlive(state,'A'),B:ahTelemetrySelfPlayAlive(state,'B')};
  return {
   schema:AH_AI_SELFPLAY_SCHEMA,matchId:String(seed),depth,
   winner,reason:state.result.reason,turns:Number(state.turn||1),
-  score:ahTelemetryClone(state.score),alive:{A:ahTelemetrySelfPlayAlive(state,'A'),B:ahTelemetrySelfPlayAlive(state,'B')},
+  score:ahTelemetryClone(state.score),alive:stats.finalAlive,
   deck:ahTelemetryClone(state.decks),stats
  };
 }
@@ -3615,18 +3627,44 @@ async function ahTelemetrySelfPlay(games=20,options={}){
  const seedBase=String(options.seed||Date.now());
  const results=[];
  const started=performance.now();
- // Self-play stays completely outside the live AH_AI_TELEMETRY object.
- // The shadow rollout receives its state explicitly, so no global mutation is needed.
  for(let i=0;i<n;i++){
-  results.push(ahTelemetrySelfPlayMatch(seedBase+'-'+i,depth));
+  results.push(ahTelemetrySelfPlayMatch(seedBase+'-'+i,depth,options));
   if(i%5===4)await new Promise(r=>setTimeout(r,0));
  }
  const wins={A:results.filter(x=>x.winner==='A').length,B:results.filter(x=>x.winner==='B').length,draw:results.filter(x=>!x.winner).length};
  const avgTurns=results.reduce((n,x)=>n+x.turns,0)/Math.max(1,results.length);
+ const aggregateActionTypes={A:{},B:{}},aggregateCardUses={A:{},B:{}},reasons={},firsts={A:0,B:0};
+ let scoreSum={A:0,B:0},aliveSum={A:0,B:0},totalActions=0;
+ for(const x of results){
+  firsts[x.stats.first]=(firsts[x.stats.first]||0)+1;
+  reasons[x.reason]=(reasons[x.reason]||0)+1;
+  totalActions+=x.stats.actions;
+  scoreSum.A+=Number(x.score?.A||0);scoreSum.B+=Number(x.score?.B||0);
+  aliveSum.A+=Number(x.alive?.A||0);aliveSum.B+=Number(x.alive?.B||0);
+  for(const p of ['A','B']){
+   for(const k of Object.keys(x.stats.actionTypes[p]||{}))aggregateActionTypes[p][k]=(aggregateActionTypes[p][k]||0)+x.stats.actionTypes[p][k];
+   for(const k of Object.keys(x.stats.cardUses[p]||{}))aggregateCardUses[p][k]=(aggregateCardUses[p][k]||0)+x.stats.cardUses[p][k];
+  }
+ }
  const summary={
   schema:AH_AI_SELFPLAY_SCHEMA,generatedAt:new Date().toISOString(),games:results.length,depth,
-  elapsedMs:Math.round(performance.now()-started),wins,winRate:{A:Number((wins.A/results.length*100).toFixed(1)),B:Number((wins.B/results.length*100).toFixed(1))},
+  elapsedMs:Math.round(performance.now()-started),
+  wins,winRate:{A:Number((wins.A/results.length*100).toFixed(1)),B:Number((wins.B/results.length*100).toFixed(1))},
   drawRate:Number((wins.draw/results.length*100).toFixed(1)),averageTurns:Number(avgTurns.toFixed(2)),
+  diagnostics:{
+   firstPlayer:firsts,
+   firstPlayerWinRate:{
+    A:firsts.A?Number((results.filter(x=>x.stats.first==='A'&&x.winner==='A').length/firsts.A*100).toFixed(1)):null,
+    B:firsts.B?Number((results.filter(x=>x.stats.first==='B'&&x.winner==='B').length/firsts.B*100).toFixed(1)):null
+   },
+   averageFinalScore:{A:Number((scoreSum.A/results.length).toFixed(2)),B:Number((scoreSum.B/results.length).toFixed(2))},
+   averageFinalAlive:{A:Number((aliveSum.A/results.length).toFixed(2)),B:Number((aliveSum.B/results.length).toFixed(2))},
+   averageActionsPerGame:Number((totalActions/results.length).toFixed(2)),
+   actionTypes:aggregateActionTypes,
+   cardUses:aggregateCardUses,
+   endReasons:reasons,
+   tails:results.map(x=>({matchId:x.matchId,winner:x.winner,reason:x.reason,tail:x.stats.tail}))
+  },
   results
  };
  try{
