@@ -3296,6 +3296,7 @@ function ahTelemetryShadowStateSignature(state){
 }
 let AH_AI_THINKING_BANK=0;
 let AH_AI_THINKING_TURN=-1;
+let AH_AI_THINKING_USED=0;
 let AH_AI_THINKING_REMAINING=0;
 let AH_AI_THINKING_PREV_STATE=null;
 
@@ -3348,6 +3349,19 @@ function ahTelemetryPrepareThinkingBudget(state,player){
  AH_AI_THINKING_PREV_STATE=ahTelemetryClone(state);
  return AH_AI_THINKING_REMAINING;
 }
+function ahTelemetrySearchTargetFloor(complexity,remainingTurns){
+ const c=Math.max(0,Math.min(1,Number(complexity)||0));
+ const r=Math.max(0,Math.min(1,Number(remainingTurns)||0));
+ /*
+  * Low-complexity positions do not need the same proof threshold as
+  * tactical positions.  This is a stopping threshold, not a hard action
+  * preference: every legal action remains eligible and endTurn is still
+  * guaranteed to be examined.
+  */
+ const floor=0.095-c*0.045+r*0.012;
+ return Number(Math.max(0.035,Math.min(0.105,floor)).toFixed(4));
+}
+
 function ahTelemetrySpendThinking(nodes){
  const spent=Math.max(0,Number(nodes)||0);
  AH_AI_THINKING_REMAINING=Math.max(0,AH_AI_THINKING_REMAINING-spent);
@@ -3644,15 +3658,20 @@ function ahTelemetryLiveSearchStep(){
   const e=ahTelemetryCandidateScore(action,false);
   return {index,action,score:e.score,breakdown:e.breakdown};
  }).sort((a,b)=>b.score-a.score).slice(0,6);
- const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0)/2)));
+ const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0))/2));
  const complexity=ahTelemetryBoardComplexity(ahTelemetryState(),AH_AI_THINKING_PREV_STATE,CPU);
  const depth=Math.min(5,Math.max(3,remaining<=2?remaining+1:3));
  let best=null;
  let spentThisStep=0;
+ let examinedEndTurn=false;
+ const targetFloor=ahTelemetrySearchTargetFloor(complexity,remaining);
  for(let si=0;si<shortlist.length;si++){
   const item=shortlist[si];
   const branchesLeft=Math.max(1,shortlist.length-si);
-  const nodeBudget=Math.max(12,Math.floor(AH_AI_THINKING_REMAINING/branchesLeft));
+  /* Spend less per branch on simple positions.  The saved budget remains
+   * available to later turns through the thinking bank. */
+  const complexityScale=0.72+complexity*0.28;
+  const nodeBudget=Math.max(12,Math.floor(AH_AI_THINKING_REMAINING*complexityScale/branchesLeft));
   const raw=ahTelemetryRollout(item.action,CPU,depth,null,{maxNodes:nodeBudget});
   if(raw)spentThisStep+=Number(raw.nodes||0);
   if(!raw)continue;
@@ -3662,7 +3681,17 @@ function ahTelemetryLiveSearchStep(){
    * lines while the cheap shortlist keeps runtime bounded. */
   const futureWeight=item.action.type==='endTurn'?0.16:0.42;
   const finalScore=item.score+value*futureWeight;
+  if(item.action.type==='endTurn')examinedEndTurn=true;
   if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
+
+  /* On a simple board, stop once the current leader is comfortably above
+   * the remaining cheap alternatives.  We never use this shortcut before
+   * examining endTurn, because handing the turn to the opponent is a
+   * structural branch that must remain visible to the search. */
+  const nextItem=shortlist[si+1];
+  const nextCheap=nextItem?.score;
+  const leaderMargin=best?best.score-(Number(nextCheap)||-Infinity):0;
+  if(examinedEndTurn&&best&&leaderMargin>=targetFloor)break;
  }
  ahTelemetrySpendThinking(spentThisStep);
  if(!best)return false;
