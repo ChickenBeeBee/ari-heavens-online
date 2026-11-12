@@ -3275,19 +3275,39 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  const search=branch(after,Math.max(0,maxDepth),Math.max(8,maxDepth*5));
  const value=search.value-rootValue;
  const line=search.line||[];
- const firstOpponentIndex=line.findIndex(a=>a?.type==='endTurn');
- const opponentReply=firstOpponentIndex>=0?(line[firstOpponentIndex+1]||null):null;
- const continuation=opponentReply?
-   (line[firstOpponentIndex+2]||null):
-   (line[0]||null);
+ /*
+  * The root action is already applied before branch() starts.
+  * Therefore the audit boundary depends on whether that root action
+  * itself ended the turn:
+  *   - endTurn root: line[0] is the opponent's first action.
+  *   - other root: the first endTurn in line closes our turn, and
+  *     the following action is the opponent's first action.
+  *
+  * Keep the player explicitly in the audit so this can be verified
+  * without interpreting a large principalVariation object manually.
+  */
+ let opponentIndex=-1;
+ if(action?.type==='endTurn'){
+   opponentIndex=0;
+ }else{
+   const endTurnIndex=line.findIndex(a=>a?.type==='endTurn');
+   opponentIndex=endTurnIndex>=0?endTurnIndex+1:-1;
+ }
+ const opponentReply=opponentIndex>=0?(line[opponentIndex]||null):null;
+ const continuation=opponentIndex>=0?(line[opponentIndex+1]||null):(line[0]||null);
  return {
-  schema:'shadow-rollout-v4',
+  schema:'shadow-rollout-v5',
   depth:maxDepth,
   action:ahTelemetryClone(action),
+  rootPlayer:p,
+  rootActionType:action?.type||null,
+  afterCurrentPlayer:after?.currentPlayer||null,
   immediate:Number((ahTelemetryShadowUtility(after,p)-rootValue).toFixed(3)),
   value:Number(value.toFixed(3)),
   opponentReply:ahTelemetryClone(opponentReply),
+  opponentPlayer:opponentReply?.player||null,
   continuation:ahTelemetryClone(continuation),
+  continuationPlayer:continuation?.player||null,
   principalVariation:ahTelemetryClone(line),
   after:ahTelemetryClone(after)
  };
@@ -3759,8 +3779,11 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      quickScore:chosenQuick?.score??null,
      rolloutValue:rollout?.value??null,
      combinedScore:choice.score??null,
+     rootPlayer:rollout?.rootPlayer??p,
      opponentReply:rollout?.opponentReply??null,
+     opponentPlayer:rollout?.opponentPlayer??null,
      continuation:rollout?.continuation??null,
+     continuationPlayer:rollout?.continuationPlayer??null,
      principalVariation:rollout?.principalVariation??[],
      rolloutDepth:rollout?.depth??null
     };
