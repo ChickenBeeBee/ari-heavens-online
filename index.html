@@ -3603,6 +3603,59 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
 function ahTelemetrySelfPlayChoose(state,player,depth=3){
  return ahTelemetryVeryHardShadowChoose(state,player,depth);
 }
+function ahTelemetrySelfPlayAudit(seed='audit',options={}){
+ /*
+  * Diagnostic only.  This does not change self-play or live CPU behavior.
+  * It records the first decisions of one shadow match so we can distinguish:
+  *   1) legal-action generation,
+  *   2) shadow state transition,
+  *   3) candidate ranking.
+  */
+ let state=ahTelemetrySelfPlayInitialState(String(seed),options);
+ const rows=[];
+ let guard=0;
+ while(!state.result&&guard++<20){
+  const p=state.currentPlayer;
+  const legal=ahTelemetryShadowLegalActions(state,p);
+  const counts={};
+  for(const a of legal)counts[a.type]=(counts[a.type]||0)+1;
+  const quick=legal.map((action,index)=>{
+   const next=ahTelemetryShadowApply(state,action);
+   const immediate=ahTelemetryShadowUtility(next,p)-ahTelemetryShadowUtility(state,p);
+   const wp=ahTelemetryWinProbability(next,p);
+   let setup=0;
+   if(action.type==='carryCandy'){
+    const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+    const pts=c?.bomb?4:(c?.points||0);
+    setup=action.target===p+'1'&&!c?.bomb?pts:pts*.18;
+   }else if(action.type==='attachAnt'){
+    const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+    setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
+   }else if(action.type==='placeAnt'){
+    setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
+   }
+   const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
+   return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4))};
+  }).sort((a,b)=>b.score-a.score);
+  const choice=ahTelemetryVeryHardShadowChoose(state,p,3);
+  rows.push({
+   turn:Number(state.turn||0),player:p,actions:Number(state.actions||0),
+   hand:{A:Number(state.hand?.A||0),B:Number(state.hand?.B||0)},
+   free:{A:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.A||0)>0)),B:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.B||0)>0))},
+   candies:(state.candies||[]).map(c=>({id:c.id,node:c.node,points:c.points,need:c.need,attached:{A:c.attached?.A||0,B:c.attached?.B||0}})),
+   legalCounts:counts,
+   topCandidates:quick.slice(0,8),
+   chosen:choice?.action||null
+  });
+  if(!choice)break;
+  state=ahTelemetryShadowApply(state,choice.action);
+  ahTelemetrySelfPlayTerminal(state);
+  if(choice.action.type==='endTurn')continue;
+ }
+ const out={schema:'selfplay-audit-v1',seed:String(seed),firstPlayer:state.first,steps:rows,result:state.result||null};
+ try{localStorage.setItem('ah_ai_selfplay_audit_v1',JSON.stringify(out));}catch(_){}
+ return out;
+}
 function ahTelemetrySelfPlayMatch(seed,depth=2,options={}){
  let state=ahTelemetrySelfPlayInitialState(seed,options);
  const stats={
