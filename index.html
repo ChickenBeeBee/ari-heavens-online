@@ -3309,57 +3309,86 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  };
  const branch=(state,turnDepth,plyBudget,lastAction=null,seenSignatures=null,turnConfigCounts=null)=>{
   nodes++;
-  if(nodes>maxNodes){
-   truncated=true;
-   return {value:ahTelemetryShadowUtility(state,p),line:[]};
-  }
-  if(!state||state.result||turnDepth<=0||plyBudget<=0){
-   return {value:ahTelemetryShadowUtility(state,p),line:[]};
-  }
+  if(nodes>maxNodes){truncated=true;return {value:ahTelemetryShadowUtility(state,p),line:[]};}
+  if(!state||state.result||turnDepth<=0||plyBudget<=0)return {value:ahTelemetryShadowUtility(state,p),line:[]};
+
   const turnActor=state.currentPlayer||p;
   const signature=ahTelemetryShadowStateSignature(state);
   const seen=seenSignatures||new Map();
   const visits=seen.get(signature)||0;
-  if(visits>=1){
-   /* Exact same state has already been searched on this path. */
-   return {value:ahTelemetryShadowUtility(state,p),line:[]};
-  }
+  if(visits>=1)return {value:ahTelemetryShadowUtility(state,p),line:[]};
   seen.set(signature,visits+1);
+
   const configCounts=turnConfigCounts||{};
   const acts=ahTelemetryShadowLegalActions(state,turnActor);
   if(!acts.length){
-   seen.delete(signature);
-   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+    seen.delete(signature);
+    return {value:ahTelemetryShadowUtility(state,p),line:[]};
   }
+
   const maximizing=turnActor===p;
+  const baseUtility=ahTelemetryShadowUtility(state,p);
+  const baseOpportunity=ahTelemetryShadowFutureOpportunityValue(state,turnActor);
+  const baseWin=ahTelemetryWinProbability(state,p);
+
+  /*
+   * Rank branches by how much they change the strategic situation.
+   * This is deliberately action-agnostic: attach/detach/move/card/battle
+   * are not intrinsically good or bad.  A configuration move survives when
+   * the resulting state creates immediate value, future opportunity, or
+   * win-probability change.
+   */
+  const ranked=acts.map((a,index)=>{
+    if(isImmediateInverse(lastAction,a))return {index,action:a,skip:true,priority:-Infinity};
+    const candyKey=a.candyId!=null?String(a.candyId):null;
+    const isConfig=a.type==='attachAnt'||a.type==='detachAnt';
+    const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
+    if(isConfig&&configKey&&(configCounts[configKey]||0)>=3)return {index,action:a,skip:true,priority:-Infinity};
+
+    const next=ahTelemetryShadowApply(state,a);
+    const immediate=ahTelemetryShadowUtility(next,p)-baseUtility;
+    const nextOpportunity=ahTelemetryShadowFutureOpportunityValue(next,turnActor);
+    const opportunityDelta=nextOpportunity-baseOpportunity;
+    const nextWin=ahTelemetryWinProbability(next,p);
+    const winDelta=nextWin-baseWin;
+    const transitionBonus=a.type==='endTurn'?.03:0;
+    return {index,action:a,next,immediate,opportunityDelta,winDelta,priority:immediate+opportunityDelta*.55+winDelta*.18+transitionBonus};
+  }).filter(x=>!x.skip).sort((a,b)=>b.priority-a.priority);
+
+  /*
+   * Search only the strongest strategic branches.  End-turn is retained
+   * when legal because it is the state transition that hands control to the
+   * opponent.  We still keep all action types legal; this is only a search
+   * ordering/pruning decision.
+   */
+  const candidates=ranked.slice(0,6);
+  const endTurn=ranked.find(x=>x.action.type==='endTurn');
+  if(endTurn&&!candidates.some(x=>x.action.type==='endTurn')){
+    if(candidates.length<6)candidates.push(endTurn);
+    else candidates[candidates.length-1]=endTurn;
+  }
+
   let best=null;
-  for(const a of acts){
-   /*
-    * Attach/detach are zero-action-cost configuration moves.  We keep them
-    * legal, but cap repeated configuration changes on the same candy within
-    * one turn.  This does not ban a meaningful detach -> move -> attach line;
-    * it only stops a search branch from spending its whole budget reshuffling
-    * the same candy.
-    */
-   const candyKey=a.candyId!=null?String(a.candyId):null;
-   const isConfig=a.type==='attachAnt'||a.type==='detachAnt';
-   const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
-   if(isImmediateInverse(lastAction,a))continue;
-   if(isConfig&&configKey&&(configCounts[configKey]||0)>=3)continue;
-   const next=ahTelemetryShadowApply(state,a);
-   const nextTurnDepth=a.type==='endTurn'?turnDepth-1:turnDepth;
-   const nextSeen=a.type==='endTurn'?new Map():seen;
-   const nextCounts=a.type==='endTurn'?{}:{...configCounts};
-   if(isConfig&&configKey)nextCounts[configKey]=(nextCounts[configKey]||0)+1;
-   const child=branch(next,nextTurnDepth,plyBudget-1,a,nextSeen,nextCounts);
-   const v=child.value;
-   if(!best||(maximizing?v>best.value:v<best.value)){
-    best={value:v,line:[a,...child.line]};
-   }
+  for(const item of candidates){
+    const next=item.next||ahTelemetryShadowApply(state,item.action);
+    const nextTurnDepth=item.action.type==='endTurn'?turnDepth-1:turnDepth;
+    const nextSeen=new Map(seen);
+    const nextConfig={...configCounts};
+    const candyKey=item.action.candyId!=null?String(item.action.candyId):null;
+    const isConfig=item.action.type==='attachAnt'||item.action.type==='detachAnt';
+    const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
+    if(isConfig&&configKey)nextConfig[configKey]=(nextConfig[configKey]||0)+1;
+    if(item.action.type==='endTurn'){
+      nextSeen.clear();
+      for(const key of Object.keys(nextConfig))delete nextConfig[key];
+    }
+    const child=branch(next,nextTurnDepth,plyBudget-1,item.action,nextSeen,nextConfig);
+    const v=child.value;
+    if(!best||(maximizing?v>best.value:v<best.value))best={value:v,line:[item.action,...child.line]};
   }
   seen.delete(signature);
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
- };
+};
  const after=ahTelemetryShadowApply(before,action);
  const search=branch(after,Math.max(0,maxDepth),Math.max(8,maxDepth*5));
  const value=search.value-rootValue;
