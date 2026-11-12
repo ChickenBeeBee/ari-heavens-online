@@ -3239,25 +3239,35 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
  if(!S&&!rootState)return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const rootValue=ahTelemetryShadowUtility(before,p);
- const branch=(state,turnActor,depth)=>{
+ /*
+  * A turn may contain multiple actions. The shadow state itself is the
+  * source of truth for whose action comes next:
+  *   - normal action: currentPlayer stays the same
+  *   - endTurn: shadow apply switches currentPlayer
+  *
+  * The old rollout alternated A/B after every action, which made a sequence
+  * such as "place -> move -> move" impossible to evaluate correctly.
+  */
+ const branch=(state,depth)=>{
   if(depth<=0||state?.result)return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  const turnActor=state?.currentPlayer||p;
   const acts=ahTelemetryShadowLegalActions(state,turnActor);
   if(!acts.length)return {value:ahTelemetryShadowUtility(state,p),line:[]};
   const maximizing=turnActor===p;
   let best=null;
   for(const a of acts){
    const next=ahTelemetryShadowApply(state,a);
-   const child=branch(next,opp(turnActor),depth-1);
+   const child=branch(next,depth-1);
    const v=ahTelemetryShadowUtility(next,p)+(child.value-ahTelemetryShadowUtility(next,p))*.55;
-   if(!best|| (maximizing?v>best.value:v<best.value))best={value:v,line:[a,...child.line]};
+   if(!best||(maximizing?v>best.value:v<best.value))best={value:v,line:[a,...child.line]};
   }
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
  };
  const after=ahTelemetryShadowApply(before,action);
- const search=branch(after,opp(p),Math.max(0,maxDepth-1));
+ const search=branch(after,Math.max(0,maxDepth-1));
  const twoPlyValue=search.value-rootValue;
  return {
-  schema:'shadow-rollout-v2',
+  schema:'shadow-rollout-v3',
   depth:maxDepth,
   action:ahTelemetryClone(action),
   immediate:Number((ahTelemetryShadowUtility(after,p)-rootValue).toFixed(3)),
@@ -3268,7 +3278,6 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
   after:ahTelemetryClone(after)
  };
 }
-
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
@@ -3711,6 +3720,29 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
   }).sort((a,b)=>b.score-a.score);
   const choice=ahTelemetryVeryHardShadowChoose(state,p,3);
+   /*
+    * Expose the same future-sequence evidence used by the chooser.
+    * This distinguishes immediate setup value from a genuinely useful
+    * multi-action line.
+    */
+   const chosenAudit=choice?.action?(()=>{
+    const chosenQuick=quick.find(x=>x.type===choice.action.type&&
+      (x.node||null)===(choice.action.node||null)&&
+      (x.from||null)===(choice.action.from||null)&&
+      (x.to||null)===(choice.action.to||null)&&
+      (x.candyId||null)===(choice.action.candyId||null));
+    const rollout=choice.rollout||ahTelemetryRollout(choice.action,p,3,state);
+    return {
+     action:choice.action,
+     immediate:chosenQuick?.score??null,
+     quickScore:chosenQuick?.score??null,
+     rolloutValue:rollout?.value??null,
+     combinedScore:choice.score??null,
+     opponentReply:rollout?.opponentReply??null,
+     continuation:rollout?.continuation??null,
+     principalVariation:rollout?.principalVariation??[]
+    };
+   })():null;
   rows.push({
    turn:Number(state.turn||0),player:p,actions:Number(state.actions||0),
    hand:{A:Number(state.hand?.A||0),B:Number(state.hand?.B||0)},
@@ -3719,7 +3751,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    legalCounts:counts,
    baseUtility:ahTelemetryShadowUtilityBreakdown(state,p),
    topCandidates:quick.slice(0,8),
-   chosen:choice?.action||null
+   chosen:choice?.action||null,
+   chosenAudit
   });
   if(!choice)break;
   state=ahTelemetryShadowApply(state,choice.action);
