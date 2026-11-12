@@ -3419,7 +3419,7 @@ function ahTelemetryLiveSearchStep(){
   const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
   /* Future value is deliberately strong enough to reward multi-action setup
    * lines while the cheap shortlist keeps runtime bounded. */
-  const futureWeight=a.type==='endTurn'?0.16:0.42;
+  const futureWeight=item.action.type==='endTurn'?0.16:0.42;
   const finalScore=item.score+value*futureWeight;
   if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
  }
