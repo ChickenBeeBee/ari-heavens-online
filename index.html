@@ -3525,6 +3525,8 @@ function ahTelemetrySelfPlayInitialState(seed){
   gid:'selfplay-'+seed,turn:1,round:1,currentPlayer:'A',first:'A',actions:2,cardUsed:false,
   score:{A:0,B:0},hand:{A:20,B:20},dead:{A:0,B:0},free,candies,
   decks,cards:{A:Object.fromEntries(CARD_KEYS.map(k=>[k,false])),B:Object.fromEntries(CARD_KEYS.map(k=>[k,false]))},
+  // These are top-level in the live game state and must also exist in shadow state.
+  shortcutBlock:{A:0,B:0},typhoonLocked:{A:false,B:false},
   effects:{jaw:null,inspire:null,heaven:null,rainSelect:null,shortcutBlock:{A:0,B:0},antlions:[],squalls:[],typhoon:null,strongPheromone:null,weatherEvents:[]},
   result:null
  };
