@@ -3153,6 +3153,51 @@ function ahTelemetryWinProbability(state,actor){
  return Number(Math.max(.05,Math.min(.95,blend)).toFixed(4));
 }
 
+function ahTelemetryShadowRouteDistance(from,to){
+ if(from===to)return 0;
+ const q=[{node:from,d:0}],seen=new Set([from]);
+ while(q.length){
+  const cur=q.shift(),ns=[];
+  const i=CHAIN.indexOf(cur.node);
+  if(i>=0){
+   if(i>0)ns.push(CHAIN[i-1]);
+   if(i<CHAIN.length-1)ns.push(CHAIN[i+1]);
+   if(cur.node==='A2')ns.push('B2');
+   if(cur.node==='B2')ns.push('A2');
+  }else if(cur.node==='Aw'||cur.node==='Bw'){
+   ns.push('C');
+  }
+  for(const n of ns){
+   if(n===to)return cur.d+1;
+   if(!seen.has(n)){seen.add(n);q.push({node:n,d:cur.d+1});}
+  }
+ }
+ return 99;
+}
+function ahTelemetryShadowPositionValue(state,actor){
+ const s=state||{},p=actor||s.currentPlayer,q=opp(p);
+ const candies=(s.candies||[]).filter(c=>CHAIN.includes(c.node));
+ if(!candies.length)return 0;
+ const valueFor=pl=>{
+  let total=0;
+  for(const [node,counts] of Object.entries(s.free||{})){
+   const ants=counts?.[pl]||0;
+   if(!ants)continue;
+   let best=0;
+   for(const c of candies){
+    const d=ahTelemetryShadowRouteDistance(node,c.node);
+    if(d>=99)continue;
+    const pts=c.points||0,need=Math.max(1,c.need||1);
+    const readyBonus=d===0?pts*.7:0;
+    const approach=pts*Math.max(0,(4-d))/4*.55;
+    best=Math.max(best,approach+readyBonus/need);
+   }
+   total+=ants*best;
+  }
+  return total;
+ };
+ return valueFor(p)-valueFor(q);
+}
 function ahTelemetryShadowUtility(state,actor){
  const s=state||{},p=actor||s.currentPlayer,q=opp(p),score=s.score||{},hand=s.hand||{};
  const ant=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+
@@ -3163,9 +3208,10 @@ function ahTelemetryShadowUtility(state,actor){
   candy+=pts*Math.min(1,own/need);
   if(enemy>=need&&CHAIN.indexOf(c.node)>=4)threat+=pts;
  }
+ const position=ahTelemetryShadowPositionValue(s,p);
  const winProb=ahTelemetryWinProbability(s,p);
  const terminal=s.result?.winner? (s.result.winner===p?1:-1):0;
- return (score[p]||0)-(score[q]||0)+(candy*.22)+(ant(p)-ant(q))*.035-threat*.32+
+ return (score[p]||0)-(score[q]||0)+(candy*.22)+(position*.22)+(ant(p)-ant(q))*.035-threat*.32+
    (winProb-.5)*4.2+terminal*8;
 }
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
