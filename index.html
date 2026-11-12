@@ -3178,6 +3178,12 @@ function ahTelemetryShadowPositionValue(state,actor){
  const s=state||{},p=actor||s.currentPlayer,q=opp(p);
  const candies=(s.candies||[]).filter(c=>CHAIN.includes(c.node));
  if(!candies.length)return 0;
+ /*
+  * Position value is per-ant progress toward a candy, not the candy's
+  * full point value.  A 5-point candy that needs 5 ants should therefore
+  * not make one ant look worth almost 5 points.  This also keeps a newly
+  * placed ant in Aw/Bw below an ant that has already reached C.
+  */
  const valueFor=pl=>{
   let total=0;
   for(const [node,counts] of Object.entries(s.free||{})){
@@ -3188,9 +3194,10 @@ function ahTelemetryShadowPositionValue(state,actor){
     const d=ahTelemetryShadowRouteDistance(node,c.node);
     if(d>=99)continue;
     const pts=c.points||0,need=Math.max(1,c.need||1);
-    const readyBonus=d===0?pts*.7:0;
-    const approach=pts*Math.max(0,(4-d))/4*.55;
-    best=Math.max(best,approach+readyBonus/need);
+    const perAnt=pts/need;
+    const readyBonus=d===0?perAnt*.7:0;
+    const approach=perAnt*Math.max(0,(4-d))/4*.55;
+    best=Math.max(best,approach+readyBonus);
    }
    total+=ants*best;
   }
