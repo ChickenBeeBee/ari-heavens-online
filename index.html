@@ -3234,10 +3234,12 @@ function ahTelemetryShadowUtilityBreakdown(state,actor){
 function ahTelemetryShadowUtility(state,actor){
  return ahTelemetryShadowUtilityBreakdown(state,actor).total;
 }
-function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
+function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
  if(!S&&!rootState)return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
+ const maxNodes=Math.max(1,Number(options?.maxNodes)||Infinity);
+ let nodes=0,truncated=false;
  const rootValue=ahTelemetryShadowUtility(before,p);
  /*
   * Search in turns, not in raw actions.
@@ -3252,6 +3254,11 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
   * allowing the normal multi-action turn to be represented.
   */
  const branch=(state,turnDepth,plyBudget)=>{
+  nodes++;
+  if(nodes>maxNodes){
+   truncated=true;
+   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  }
   if(!state||state.result||turnDepth<=0||plyBudget<=0){
    return {value:ahTelemetryShadowUtility(state,p),line:[]};
   }
@@ -3309,7 +3316,9 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null){
   continuation:ahTelemetryClone(continuation),
   continuationPlayer:continuation?.player||null,
   principalVariation:ahTelemetryClone(line),
-  after:ahTelemetryClone(after)
+  after:ahTelemetryClone(after),
+  nodes,
+  truncated
  };
 }
 function ahTelemetryAction(actor,action,before,immediate){
@@ -3658,7 +3667,7 @@ function ahTelemetrySelfPlayTerminal(state){
  };
  return state.result;
 }
-function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
+function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  /*
   * Shadow counterpart of the live very-hard search.
   * The immediate score is only the first layer.  The final decision also
@@ -3700,7 +3709,7 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3){
  const searchDepth=Math.min(5,Math.max(3,remaining<=2?remaining+1:depth));
  let best=null;
  for(const item of shortlist){
-  const raw=ahTelemetryRollout(item.action,player,searchDepth,state);
+  const raw=ahTelemetryRollout(item.action,player,searchDepth,state,options);
   if(!raw){
    if(!best||item.base>best.score)best={action:item.action,score:item.base,rollout:null,immediate:item.immediate,base:item.base};
    continue;
@@ -3761,7 +3770,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
    return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
   }).sort((a,b)=>b.score-a.score);
-  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth);
+  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:options.maxNodes??300});
    /*
     * Expose the same future-sequence evidence used by the chooser.
     * This distinguishes immediate setup value from a genuinely useful
@@ -3773,7 +3782,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
       (x.from||null)===(choice.action.from||null)&&
       (x.to||null)===(choice.action.to||null)&&
       (x.candyId||null)===(choice.action.candyId||null));
-    const rollout=choice.rollout||ahTelemetryRollout(choice.action,p,searchDepth,state);
+    const rollout=choice.rollout||ahTelemetryRollout(choice.action,p,searchDepth,state,{maxNodes:options.maxNodes??300});
     const actualImmediate=rollout?.immediate??(chosenQuick?.score??null);
     return {
      action:choice.action,
@@ -3787,7 +3796,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      continuation:rollout?.continuation??null,
      continuationPlayer:rollout?.continuationPlayer??null,
      principalVariation:rollout?.principalVariation??[],
-     rolloutDepth:rollout?.depth??null
+     rolloutDepth:rollout?.depth??null,
+     rolloutNodes:rollout?.nodes??null,
+     rolloutTruncated:!!rollout?.truncated
     };
    })():null;
   rows.push({
@@ -3821,6 +3832,8 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    turn:x.turn,
    player:x.player,
    chosen:x.chosen?.type||null,
+   rolloutNodes:x.chosenAudit?.rolloutNodes??null,
+   rolloutTruncated:!!x.chosenAudit?.rolloutTruncated,
    rootPlayer:x.chosenAudit?.rootPlayer||null,
    opponentPlayer:x.chosenAudit?.opponentPlayer||null,
    opponentReply:x.chosenAudit?.opponentReply?.type||null,
