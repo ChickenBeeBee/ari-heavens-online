@@ -3377,234 +3377,185 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  if(!S&&!rootState)return null;
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const budget=Number(options?.maxNodes);
- const maxNodes=Math.max(1,Number.isFinite(budget)?budget:Infinity);
+ const maxNodes=Math.max(1,Number.isFinite(budget)?budget:Math.max(96,maxDepth*96));
  let nodes=0,truncated=false,stopReason=null;
  const rootValue=ahTelemetryShadowUtility(before,p);
-
- /*
-  * Think in turns rather than treating every low-level action as equally
-  * important.  The current player gets a bounded "plan window", the
-  * opponent gets a response window, and the next self turn gets a smaller
-  * continuation window.  This keeps within-turn planning intact while
-  * making endTurn an actual strategic boundary.
-  *
-  * The exact numbers are deliberately provisional.  The important part of
-  * this first implementation is the thought structure:
-  *
-  *   current situation -> build a coherent turn plan
-  *   -> hand control to opponent -> observe response
-  *   -> evaluate what remains possible next turn.
-  *
-  * Future Opportunity and utility remain action-agnostic, so no particular
-  * tactic (card, battle, candy, movement, etc.) is hard-coded as "the goal".
-  */
  const complexity=ahTelemetryBoardComplexity(before,options?.previousState||null,p);
- const totalBudget=Math.max(1,Number.isFinite(budget)?budget:maxDepth*96);
- const reserve=Math.max(2,Math.floor(totalBudget*.08));
- const turnBudgets=[
-   Math.max(4,Math.floor(totalBudget*(.46+.12*complexity))),
-   Math.max(3,Math.floor(totalBudget*(.30+.04*complexity))),
-   Math.max(2,Math.floor(totalBudget*(.16+.02*complexity)))
- ];
- const allocated=turnBudgets.reduce((a,b)=>a+b,0)+reserve;
- if(allocated>totalBudget){
-   const scale=Math.max(.1,(totalBudget-reserve)/Math.max(1,allocated-reserve));
-   for(let i=0;i<turnBudgets.length;i++)turnBudgets[i]=Math.max(2,Math.floor(turnBudgets[i]*scale));
- }
- const fallbackTurnBudget=Math.max(2,Math.floor(totalBudget*.08));
 
- const isImmediateInverse=(prev,next)=>{
-  if(!prev||!next)return false;
-  if(prev.candyId==null||next.candyId==null)return false;
-  if(String(prev.candyId)!==String(next.candyId))return false;
-  return (prev.type==='attachAnt'&&next.type==='detachAnt')||
-         (prev.type==='detachAnt'&&next.type==='attachAnt');
+ /*
+  * shadow-rollout-v7
+  *
+  * The search unit is now a TURN PLAN rather than an isolated low-level
+  * action.  A plan is a short legal action sequence ending at endTurn.
+  * This is deliberately tactic-agnostic: attach, detach, move, carry,
+  * battle, card use, waiting, etc. compete on the same resulting board.
+  *
+  * The important boundary is:
+  *
+  *   root action
+  *     -> our remaining turn plan
+  *     -> opponent's response plan
+  *     -> our next-turn opportunity
+  *
+  * This lets "leave the ant attached" survive as a meaningful state across
+  * turns without hard-coding an attach/detach preference.
+  */
+ const turnPlanScore=(state,turnActor,baseState)=>{
+  const u=ahTelemetryShadowUtilityBreakdown(state,turnActor);
+  const opp=ahTelemetryShadowFutureOpportunityValue(state,turnActor);
+  const win=ahTelemetryWinProbability(state,p);
+  const baseOpp=baseState?ahTelemetryShadowFutureOpportunityValue(baseState,turnActor):opp;
+  const baseWin=baseState?ahTelemetryWinProbability(baseState,p):win;
+  return Number((
+    (ahTelemetryShadowUtility(state,p)||0)+
+    (opp-baseOpp)*.55+
+    (win-baseWin)*.18
+  ).toFixed(5));
+ };
+ const actionKey=a=>{
+  if(!a)return '';
+  return [a.type,a.player||'',a.from||'',a.to||'',a.candyId==null?'':String(a.candyId),a.card||''].join('|');
+ };
+ const stateKey=state=>{
+  try{return ahTelemetryShadowStateSignature(state);}catch(_){return JSON.stringify(state);}
+ };
+ const immediateInverse=(a,b)=>{
+  if(!a||!b||a.candyId==null||b.candyId==null||String(a.candyId)!==String(b.candyId))return false;
+  return (a.type==='attachAnt'&&b.type==='detachAnt')||(a.type==='detachAnt'&&b.type==='attachAnt');
+ };
+ const configCount=(seq,a)=>{
+  if(a.type!=='attachAnt'&&a.type!=='detachAnt')return 0;
+  const key=actionKey({type:'config',player:a.player,candyId:a.candyId});
+  return seq.filter(x=>actionKey({type:'config',player:x.player,candyId:x.candyId})===key).length;
  };
 
  /*
-  * A turn-level "plan" is not a fixed list of goals.  It is the best
-  * coherent improvement available from the current board.  We remember the
-  * strongest utility/opportunity direction at the start of each turn and
-  * prefer continuations that keep or improve that direction.  This lets the
-  * eventual goal emerge from the board instead of hard-coding
-  * "collect candy", "battle", etc.
+  * Build a bounded set of complete turn plans.  We keep a beam of partial
+  * plans, but endTurn is terminal for this stage, so it cannot be starved
+  * by another player's micro-actions.
   */
- const turnPlan=(state,turnActor)=>{
-  const u=ahTelemetryShadowUtilityBreakdown(state,turnActor);
-  return {
-   utility:Number(ahTelemetryShadowUtility(state,turnActor)||0),
-   opportunity:Number(ahTelemetryShadowFutureOpportunityValue(state,turnActor)||0),
-   score:Number(u?.scoreDiff||0),
-   candy:Number(u?.candyValue||0),
-   position:Number(u?.positionValue||0),
-   threat:Number(u?.threatValue||0),
-   win:Number(u?.raw?.winProb||0)
-  };
+ const buildTurnPlans=(startState,turnActor,stageBudget,beamWidth=5,maxActions=4)=>{
+  const completed=[];
+  let frontier=[{state:startState,seq:[],value:turnPlanScore(startState,turnActor,startState)}];
+  let expansions=0;
+  for(let depth=0;depth<maxActions&&frontier.length;depth++){
+    const next=[];
+    for(const item of frontier){
+      const acts=ahTelemetryShadowLegalActions(item.state,turnActor)||[];
+      const ranked=[];
+      for(const a of acts){
+        if(expansions>=stageBudget){truncated=true;stopReason=stopReason||'turn-plan-budget';break;}
+        expansions++;nodes++;
+        if(nodes>maxNodes){truncated=true;stopReason='global-node-cap';break;}
+        const prev=item.seq[item.seq.length-1];
+        if(immediateInverse(prev,a))continue;
+        if(configCount(item.seq,a)>=2)continue;
+        const ns=ahTelemetryShadowApply(item.state,a);
+        if(!ns)continue;
+        const sig=stateKey(ns);
+        if(item.seq.some((x,idx)=>idx>=Math.max(0,item.seq.length-2)&&stateKey(ahTelemetryShadowApply(item.state,x))===sig))continue;
+        const seq=item.seq.concat([ahTelemetryClone(a)]);
+        const v=turnPlanScore(ns,turnActor,startState);
+        ranked.push({state:ns,seq,value:v});
+        if(a.type==='endTurn'){
+          completed.push({state:ns,seq,value:v,turnEnded:true});
+        }
+      }
+      ranked.sort((a,b)=>b.value-a.value);
+      next.push(...ranked.filter(x=>x.seq[x.seq.length-1]?.type!=='endTurn').slice(0,beamWidth));
+      if(truncated&&stopReason==='global-node-cap')break;
+    }
+    if(truncated&&stopReason==='global-node-cap')break;
+    next.sort((a,b)=>b.value-a.value);
+    frontier=next.slice(0,beamWidth);
+  }
+  if(!completed.length){
+    const end=frontier.map(item=>(ahTelemetryShadowLegalActions(item.state,turnActor)||[]).find(a=>a.type==='endTurn')).find(Boolean);
+    if(end){
+      const item=frontier.find(x=>(ahTelemetryShadowLegalActions(x.state,turnActor)||[]).some(a=>a.type==='endTurn'));
+      if(item){
+        nodes++;
+        completed.push({
+          state:ahTelemetryShadowApply(item.state,end),
+          seq:item.seq.concat([ahTelemetryClone(end)]),
+          value:turnPlanScore(ahTelemetryShadowApply(item.state,end),turnActor,startState),
+          turnEnded:true
+        });
+      }
+    }
+  }
+  completed.sort((a,b)=>b.value-a.value);
+  return completed.slice(0,beamWidth);
  };
- const planProgress=(base,next,turnActor)=>{
-  const b=base||{},n=next||{};
-  const utilityDelta=(n.utility||0)-(b.utility||0);
-  const opportunityDelta=(n.opportunity||0)-(b.opportunity||0);
-  const winDelta=(n.win||0)-(b.win||0);
-  /*
-   * Coherence bonus is intentionally small.  Immediate utility and the
-   * normal future-opportunity terms still dominate.  It simply prevents a
-   * turn from being evaluated as a pile of unrelated actions when a sequence
-   * consistently improves the same board direction.
-   */
-  return utilityDelta*.08+opportunityDelta*.12+winDelta*.08;
- };
 
- const branch=(state,turnDepth,plyBudget,lastAction=null,seenSignatures=null,turnConfigCounts=null,turnIndex=0,turnBudget=null,plan=null)=>{
-  nodes++;
-  if(nodes>maxNodes){truncated=true;stopReason='global-node-cap';return {value:ahTelemetryShadowUtility(state,p),line:[]};}
-  if(!state||state.result||turnDepth<=0||plyBudget<=0)return {value:ahTelemetryShadowUtility(state,p),line:[]};
-
-  const turnActor=state.currentPlayer||p;
-  const structuralTurn=turnIndex;
-  const budgetForTurn=turnBudget==null
-    ? (turnBudgets[Math.min(structuralTurn,turnBudgets.length-1)]||fallbackTurnBudget)
-    : turnBudget;
-  if(budgetForTurn<=0){
-   truncated=true;stopReason=stopReason||'turn-budget';
-   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+ const evaluateOpponentAndNext=(selfPlan,opponentBudget,nextSelfBudget)=>{
+  const oppActor=selfPlan.state?.currentPlayer;
+  if(!oppActor||oppActor===p){
+    return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
   }
-
-  const signature=ahTelemetryShadowStateSignature(state);
-  const seen=seenSignatures||new Map();
-  const visits=seen.get(signature)||0;
-  if(visits>=1)return {value:ahTelemetryShadowUtility(state,p),line:[]};
-  seen.set(signature,visits+1);
-
-  const configCounts=turnConfigCounts||{};
-  const acts=ahTelemetryShadowLegalActions(state,turnActor);
-  if(!acts.length){
-    seen.delete(signature);
-    return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  const oppPlans=buildTurnPlans(selfPlan.state,oppActor,opponentBudget,4,3);
+  if(!oppPlans.length){
+    return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
   }
-
-  const maximizing=turnActor===p;
-  const baseUtility=ahTelemetryShadowUtility(state,p);
-  const baseOpportunity=ahTelemetryShadowFutureOpportunityValue(state,turnActor);
-  const baseWin=ahTelemetryWinProbability(state,p);
-  const turnPlanBase=plan||turnPlan(state,turnActor);
-
-  const ranked=acts.map((a,index)=>{
-    if(isImmediateInverse(lastAction,a))return {index,action:a,skip:true,priority:-Infinity};
-    const candyKey=a.candyId!=null?String(a.candyId):null;
-    const isConfig=a.type==='attachAnt'||a.type==='detachAnt';
-    const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
-    if(isConfig&&configKey&&(configCounts[configKey]||0)>=3)return {index,action:a,skip:true,priority:-Infinity};
-
-    const next=ahTelemetryShadowApply(state,a);
-    const immediate=ahTelemetryShadowUtility(next,p)-baseUtility;
-    const nextOpportunity=ahTelemetryShadowFutureOpportunityValue(next,turnActor);
-    const opportunityDelta=nextOpportunity-baseOpportunity;
-    const nextWin=ahTelemetryWinProbability(next,p);
-    const winDelta=nextWin-baseWin;
-    const progress=planProgress(turnPlanBase,turnPlan(next,turnActor),turnActor);
-    const transitionBonus=a.type==='endTurn'?.03:0;
-    return {
-      index,action,a,next,immediate,opportunityDelta,winDelta,progress,
-      priority:immediate+opportunityDelta*.55+winDelta*.18+progress+transitionBonus
-    };
-  }).filter(x=>!x.skip).sort((a,b)=>b.priority-a.priority);
-
-  /*
-   * End-turn is a structural branch and always gets a budget opportunity.
-   * Other actions remain fully legal; ranking only decides search order.
-   */
-  const candidates=ranked.slice(0,6);
-  const endTurn=ranked.find(x=>x.action.type==='endTurn');
-  if(endTurn&&!candidates.some(x=>x.action.type==='endTurn')){
-    if(candidates.length<6)candidates.push(endTurn);
-    else candidates[candidates.length-1]=endTurn;
-  }
-
   let best=null;
-  let examinedEndTurn=false;
-  let localNodes=0;
-  for(const item of candidates){
-    if(localNodes>=budgetForTurn){
-      truncated=true;stopReason=stopReason||'turn-budget';
-      break;
-    }
-    const next=item.next||ahTelemetryShadowApply(state,item.action);
-    const isEnd=item.action.type==='endTurn';
-    const childTurnBudget=isEnd
-      ? (turnBudgets[Math.min(structuralTurn+1,turnBudgets.length-1)]||fallbackTurnBudget)
-      : Math.max(1,budgetForTurn-Math.max(1,Math.floor((item.priority===ranked[0]?.priority?1:0))));
-    const nextTurnDepth=isEnd?turnDepth-1:turnDepth;
-    const nextSeen=new Map(seen);
-    const nextConfig={...configCounts};
-    const candyKey=item.action.candyId!=null?String(item.action.candyId):null;
-    const isConfig=item.action.type==='attachAnt'||item.action.type==='detachAnt';
-    const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
-    if(isConfig&&configKey)nextConfig[configKey]=(nextConfig[configKey]||0)+1;
-    if(isEnd){
-      nextSeen.clear();
-      for(const key of Object.keys(nextConfig))delete nextConfig[key];
-    }
-    const child=branch(
-      next,
-      nextTurnDepth,
-      Math.max(1,plyBudget-1),
-      item.action,
-      nextSeen,
-      nextConfig,
-      isEnd?structuralTurn+1:structuralTurn,
-      isEnd?childTurnBudget:Math.max(1,Math.min(budgetForTurn-1,childTurnBudget)),
-      isEnd?null:turnPlanBase
-    );
-    localNodes+=Number(child.nodes||0);
-    const v=child.value+item.progress;
-    if(!best||(maximizing?v>best.value:v<best.value)){
-      best={value:v,line:[item.action,...child.line]};
-    }
-    if(isEnd)examinedEndTurn=true;
-    /*
-     * Once the turn has a clearly coherent leader, do not spend the rest of
-     * the current-turn budget proving tiny differences.  This is the
-     * turn-level version of the adaptive search target.
-     */
-    const nextPriority=ranked.find(x=>x.action!==item.action)?.priority;
-    if(examinedEndTurn&&best&&nextPriority!=null&&
-       Math.abs(best.value-(ahTelemetryShadowUtility(state,p)+nextPriority))>=
-       ahTelemetrySearchTargetFloor(complexity,Math.max(1,turnDepth))){
-      break;
-    }
+  for(const opPlan of oppPlans){
+    const nextSelf=opPlan.state?.currentPlayer===p
+      ?buildTurnPlans(opPlan.state,p,nextSelfBudget,3,3)
+      :[];
+    const next=nextSelf[0]||null;
+    const terminalState=next?.state||opPlan.state;
+    const value=turnPlanScore(terminalState,p,before);
+    const line=selfPlan.seq.concat(opPlan.seq).concat(next?.seq||[]);
+    const rec={value,line,opponentReply:opPlan.seq[0]||null,nextPlan:next};
+    if(!best||value>best.value)best=rec;
   }
-  seen.delete(signature);
-  return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
+  return best||{value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
  };
 
  const after=ahTelemetryShadowApply(before,action);
- const searchPly=Math.max(8,Math.min(40,maxDepth*10));
- const search=branch(
-   after,
-   Math.max(0,maxDepth),
-   searchPly,
-   null,
-   null,
-   null,
-   0,
-   turnBudgets[0]||fallbackTurnBudget,
-   null
- );
- const value=search.value-rootValue;
- const line=search.line||[];
+ if(!after)return null;
 
- let opponentIndex=-1;
- if(action?.type==='endTurn'){
-   opponentIndex=0;
+ /*
+  * If the root action itself ends the turn, start directly at the opponent.
+  * Otherwise the first stage is the remainder of the root player's turn.
+  */
+ const rootEnded=action?.type==='endTurn';
+ const total=Math.max(1,maxNodes);
+ const currentBudget=Math.max(8,Math.floor(total*(.42+.08*complexity)));
+ const opponentBudget=Math.max(8,Math.floor(total*(.30+.05*complexity)));
+ const nextSelfBudget=Math.max(6,Math.floor(total*(.18+.03*complexity)));
+ const plans=rootEnded
+   ?[{state:after,seq:[],value:turnPlanScore(after,after.currentPlayer,before),turnEnded:true}]
+   :buildTurnPlans(after,p,currentBudget,5,4);
+
+ let best=null;
+ if(rootEnded){
+  const r=evaluateOpponentAndNext(plans[0],opponentBudget,nextSelfBudget);
+  best=r;
  }else{
+  for(const plan of plans){
+    const r=evaluateOpponentAndNext(plan,opponentBudget,nextSelfBudget);
+    if(!best||r.value>best.value)best=r;
+    if(nodes>=maxNodes){truncated=true;stopReason=stopReason||'global-node-cap';break;}
+  }
+ }
+
+ const value=(best?.value??ahTelemetryShadowUtility(after,p))-rootValue;
+ const line=best?.line||[];
+ let opponentIndex=-1;
+ if(rootEnded)opponentIndex=0;
+ else{
    const endTurnIndex=line.findIndex(a=>a?.type==='endTurn');
    opponentIndex=endTurnIndex>=0?endTurnIndex+1:-1;
  }
- const opponentReply=opponentIndex>=0?(line[opponentIndex]||null):null;
+ const opponentReply=best?.opponentReply||(
+   opponentIndex>=0?(line[opponentIndex]||null):null
+ );
  const continuation=opponentIndex>=0?(line[opponentIndex+1]||null):(line[0]||null);
+ const plan=line.slice(0,Math.max(0,(line.findIndex(a=>a?.type==='endTurn')+1)||0));
+
  return {
-  schema:'shadow-rollout-v6',
+  schema:'shadow-rollout-v7',
   depth:maxDepth,
   action:ahTelemetryClone(action),
   rootPlayer:p,
@@ -3615,13 +3566,15 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   opponentReply:ahTelemetryClone(opponentReply),
   opponentPlayer:opponentReply?.player||null,
   continuation:ahTelemetryClone(continuation),
-  continuationPlayer:continuation?.player||null,
   principalVariation:ahTelemetryClone(line),
+  plan:ahTelemetryClone(plan),
+  planValue:Number((best?.value??0).toFixed(3)),
+  nextTurnPlan:ahTelemetryClone(best?.nextPlan?.seq||[]),
   after:ahTelemetryClone(after),
   nodes,
   truncated,
   stopReason,
-  turnBudgets:turnBudgets.slice(0,3),
+  turnBudgets:[currentBudget,opponentBudget,nextSelfBudget],
   complexity:Number(complexity.toFixed(3))
  };
 }
