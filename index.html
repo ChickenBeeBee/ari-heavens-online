@@ -3378,20 +3378,41 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const budget=Number(options?.maxNodes);
  const maxNodes=Math.max(1,Number.isFinite(budget)?budget:Infinity);
- let nodes=0,truncated=false;
+ let nodes=0,truncated=false,stopReason=null;
  const rootValue=ahTelemetryShadowUtility(before,p);
+
  /*
-  * Search in turns, not in raw actions.
+  * Think in turns rather than treating every low-level action as equally
+  * important.  The current player gets a bounded "plan window", the
+  * opponent gets a response window, and the next self turn gets a smaller
+  * continuation window.  This keeps within-turn planning intact while
+  * making endTurn an actual strategic boundary.
   *
-  * A real turn may contain several low-level actions before endTurn.
-  * The rollout therefore keeps the same player while actions remain, and
-  * only changes the maximizing/minimizing side when endTurn is reached.
-  * This makes the first response after our turn a genuine opponent reply.
+  * The exact numbers are deliberately provisional.  The important part of
+  * this first implementation is the thought structure:
   *
-  * Because attach/detach do not consume an action in the shadow model,
-  * a small ply guard prevents an accidental infinite branch while still
-  * allowing the normal multi-action turn to be represented.
+  *   current situation -> build a coherent turn plan
+  *   -> hand control to opponent -> observe response
+  *   -> evaluate what remains possible next turn.
+  *
+  * Future Opportunity and utility remain action-agnostic, so no particular
+  * tactic (card, battle, candy, movement, etc.) is hard-coded as "the goal".
   */
+ const complexity=ahTelemetryBoardComplexity(before,options?.previousState||null,p);
+ const totalBudget=Math.max(1,Number.isFinite(budget)?budget:maxDepth*96);
+ const reserve=Math.max(2,Math.floor(totalBudget*.08));
+ const turnBudgets=[
+   Math.max(4,Math.floor(totalBudget*(.46+.12*complexity))),
+   Math.max(3,Math.floor(totalBudget*(.30+.04*complexity))),
+   Math.max(2,Math.floor(totalBudget*(.16+.02*complexity)))
+ ];
+ const allocated=turnBudgets.reduce((a,b)=>a+b,0)+reserve;
+ if(allocated>totalBudget){
+   const scale=Math.max(.1,(totalBudget-reserve)/Math.max(1,allocated-reserve));
+   for(let i=0;i<turnBudgets.length;i++)turnBudgets[i]=Math.max(2,Math.floor(turnBudgets[i]*scale));
+ }
+ const fallbackTurnBudget=Math.max(2,Math.floor(totalBudget*.08));
+
  const isImmediateInverse=(prev,next)=>{
   if(!prev||!next)return false;
   if(prev.candyId==null||next.candyId==null)return false;
@@ -3399,12 +3420,56 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   return (prev.type==='attachAnt'&&next.type==='detachAnt')||
          (prev.type==='detachAnt'&&next.type==='attachAnt');
  };
- const branch=(state,turnDepth,plyBudget,lastAction=null,seenSignatures=null,turnConfigCounts=null)=>{
+
+ /*
+  * A turn-level "plan" is not a fixed list of goals.  It is the best
+  * coherent improvement available from the current board.  We remember the
+  * strongest utility/opportunity direction at the start of each turn and
+  * prefer continuations that keep or improve that direction.  This lets the
+  * eventual goal emerge from the board instead of hard-coding
+  * "collect candy", "battle", etc.
+  */
+ const turnPlan=(state,turnActor)=>{
+  const u=ahTelemetryShadowUtilityBreakdown(state,turnActor);
+  return {
+   utility:Number(ahTelemetryShadowUtility(state,turnActor)||0),
+   opportunity:Number(ahTelemetryShadowFutureOpportunityValue(state,turnActor)||0),
+   score:Number(u?.scoreDiff||0),
+   candy:Number(u?.candyValue||0),
+   position:Number(u?.positionValue||0),
+   threat:Number(u?.threatValue||0),
+   win:Number(u?.raw?.winProb||0)
+  };
+ };
+ const planProgress=(base,next,turnActor)=>{
+  const b=base||{},n=next||{};
+  const utilityDelta=(n.utility||0)-(b.utility||0);
+  const opportunityDelta=(n.opportunity||0)-(b.opportunity||0);
+  const winDelta=(n.win||0)-(b.win||0);
+  /*
+   * Coherence bonus is intentionally small.  Immediate utility and the
+   * normal future-opportunity terms still dominate.  It simply prevents a
+   * turn from being evaluated as a pile of unrelated actions when a sequence
+   * consistently improves the same board direction.
+   */
+  return utilityDelta*.08+opportunityDelta*.12+winDelta*.08;
+ };
+
+ const branch=(state,turnDepth,plyBudget,lastAction=null,seenSignatures=null,turnConfigCounts=null,turnIndex=0,turnBudget=null,plan=null)=>{
   nodes++;
-  if(nodes>maxNodes){truncated=true;return {value:ahTelemetryShadowUtility(state,p),line:[]};}
+  if(nodes>maxNodes){truncated=true;stopReason='global-node-cap';return {value:ahTelemetryShadowUtility(state,p),line:[]};}
   if(!state||state.result||turnDepth<=0||plyBudget<=0)return {value:ahTelemetryShadowUtility(state,p),line:[]};
 
   const turnActor=state.currentPlayer||p;
+  const structuralTurn=turnIndex;
+  const budgetForTurn=turnBudget==null
+    ? (turnBudgets[Math.min(structuralTurn,turnBudgets.length-1)]||fallbackTurnBudget)
+    : turnBudget;
+  if(budgetForTurn<=0){
+   truncated=true;stopReason=stopReason||'turn-budget';
+   return {value:ahTelemetryShadowUtility(state,p),line:[]};
+  }
+
   const signature=ahTelemetryShadowStateSignature(state);
   const seen=seenSignatures||new Map();
   const visits=seen.get(signature)||0;
@@ -3422,14 +3487,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const baseUtility=ahTelemetryShadowUtility(state,p);
   const baseOpportunity=ahTelemetryShadowFutureOpportunityValue(state,turnActor);
   const baseWin=ahTelemetryWinProbability(state,p);
+  const turnPlanBase=plan||turnPlan(state,turnActor);
 
-  /*
-   * Rank branches by how much they change the strategic situation.
-   * This is deliberately action-agnostic: attach/detach/move/card/battle
-   * are not intrinsically good or bad.  A configuration move survives when
-   * the resulting state creates immediate value, future opportunity, or
-   * win-probability change.
-   */
   const ranked=acts.map((a,index)=>{
     if(isImmediateInverse(lastAction,a))return {index,action:a,skip:true,priority:-Infinity};
     const candyKey=a.candyId!=null?String(a.candyId):null;
@@ -3443,15 +3502,17 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     const opportunityDelta=nextOpportunity-baseOpportunity;
     const nextWin=ahTelemetryWinProbability(next,p);
     const winDelta=nextWin-baseWin;
+    const progress=planProgress(turnPlanBase,turnPlan(next,turnActor),turnActor);
     const transitionBonus=a.type==='endTurn'?.03:0;
-    return {index,action:a,next,immediate,opportunityDelta,winDelta,priority:immediate+opportunityDelta*.55+winDelta*.18+transitionBonus};
+    return {
+      index,action,a,next,immediate,opportunityDelta,winDelta,progress,
+      priority:immediate+opportunityDelta*.55+winDelta*.18+progress+transitionBonus
+    };
   }).filter(x=>!x.skip).sort((a,b)=>b.priority-a.priority);
 
   /*
-   * Search only the strongest strategic branches.  End-turn is retained
-   * when legal because it is the state transition that hands control to the
-   * opponent.  We still keep all action types legal; this is only a search
-   * ordering/pruning decision.
+   * End-turn is a structural branch and always gets a budget opportunity.
+   * Other actions remain fully legal; ranking only decides search order.
    */
   const candidates=ranked.slice(0,6);
   const endTurn=ranked.find(x=>x.action.type==='endTurn');
@@ -3461,42 +3522,78 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   }
 
   let best=null;
+  let examinedEndTurn=false;
+  let localNodes=0;
   for(const item of candidates){
+    if(localNodes>=budgetForTurn){
+      truncated=true;stopReason=stopReason||'turn-budget';
+      break;
+    }
     const next=item.next||ahTelemetryShadowApply(state,item.action);
-    const nextTurnDepth=item.action.type==='endTurn'?turnDepth-1:turnDepth;
+    const isEnd=item.action.type==='endTurn';
+    const childTurnBudget=isEnd
+      ? (turnBudgets[Math.min(structuralTurn+1,turnBudgets.length-1)]||fallbackTurnBudget)
+      : Math.max(1,budgetForTurn-Math.max(1,Math.floor((item.priority===ranked[0]?.priority?1:0))));
+    const nextTurnDepth=isEnd?turnDepth-1:turnDepth;
     const nextSeen=new Map(seen);
     const nextConfig={...configCounts};
     const candyKey=item.action.candyId!=null?String(item.action.candyId):null;
     const isConfig=item.action.type==='attachAnt'||item.action.type==='detachAnt';
     const configKey=isConfig&&candyKey?String(turnActor)+':'+candyKey:null;
     if(isConfig&&configKey)nextConfig[configKey]=(nextConfig[configKey]||0)+1;
-    if(item.action.type==='endTurn'){
+    if(isEnd){
       nextSeen.clear();
       for(const key of Object.keys(nextConfig))delete nextConfig[key];
     }
-    const child=branch(next,nextTurnDepth,plyBudget-1,item.action,nextSeen,nextConfig);
-    const v=child.value;
-    if(!best||(maximizing?v>best.value:v<best.value))best={value:v,line:[item.action,...child.line]};
+    const child=branch(
+      next,
+      nextTurnDepth,
+      Math.max(1,plyBudget-1),
+      item.action,
+      nextSeen,
+      nextConfig,
+      isEnd?structuralTurn+1:structuralTurn,
+      isEnd?childTurnBudget:Math.max(1,Math.min(budgetForTurn-1,childTurnBudget)),
+      isEnd?null:turnPlanBase
+    );
+    localNodes+=Number(child.nodes||0);
+    const v=child.value+item.progress;
+    if(!best||(maximizing?v>best.value:v<best.value)){
+      best={value:v,line:[item.action,...child.line]};
+    }
+    if(isEnd)examinedEndTurn=true;
+    /*
+     * Once the turn has a clearly coherent leader, do not spend the rest of
+     * the current-turn budget proving tiny differences.  This is the
+     * turn-level version of the adaptive search target.
+     */
+    const nextPriority=ranked.find(x=>x.action!==item.action)?.priority;
+    if(examinedEndTurn&&best&&nextPriority!=null&&
+       Math.abs(best.value-(ahTelemetryShadowUtility(state,p)+nextPriority))>=
+       ahTelemetrySearchTargetFloor(complexity,Math.max(1,turnDepth))){
+      break;
+    }
   }
   seen.delete(signature);
   return best||{value:ahTelemetryShadowUtility(state,p),line:[]};
-};
+ };
+
  const after=ahTelemetryShadowApply(before,action);
- const searchPly=Math.max(8,Math.min(32,maxDepth*8));
- const search=branch(after,Math.max(0,maxDepth),searchPly);
+ const searchPly=Math.max(8,Math.min(40,maxDepth*10));
+ const search=branch(
+   after,
+   Math.max(0,maxDepth),
+   searchPly,
+   null,
+   null,
+   null,
+   0,
+   turnBudgets[0]||fallbackTurnBudget,
+   null
+ );
  const value=search.value-rootValue;
  const line=search.line||[];
- /*
-  * The root action is already applied before branch() starts.
-  * Therefore the audit boundary depends on whether that root action
-  * itself ended the turn:
-  *   - endTurn root: line[0] is the opponent's first action.
-  *   - other root: the first endTurn in line closes our turn, and
-  *     the following action is the opponent's first action.
-  *
-  * Keep the player explicitly in the audit so this can be verified
-  * without interpreting a large principalVariation object manually.
-  */
+
  let opponentIndex=-1;
  if(action?.type==='endTurn'){
    opponentIndex=0;
@@ -3507,7 +3604,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const opponentReply=opponentIndex>=0?(line[opponentIndex]||null):null;
  const continuation=opponentIndex>=0?(line[opponentIndex+1]||null):(line[0]||null);
  return {
-  schema:'shadow-rollout-v5',
+  schema:'shadow-rollout-v6',
   depth:maxDepth,
   action:ahTelemetryClone(action),
   rootPlayer:p,
@@ -3522,7 +3619,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   principalVariation:ahTelemetryClone(line),
   after:ahTelemetryClone(after),
   nodes,
-  truncated
+  truncated,
+  stopReason,
+  turnBudgets:turnBudgets.slice(0,3),
+  complexity:Number(complexity.toFixed(3))
  };
 }
 function ahTelemetryAction(actor,action,before,immediate){
