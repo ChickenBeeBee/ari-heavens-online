@@ -3930,16 +3930,39 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
 }
 function ahTelemetryPilotSearchAudit(state,player,options={}){
  /*
-  * Audit-only adaptive pilot. It does not alter live CPU behavior.
-  * The pilot first asks a small question, then optionally probes the
-  * same top candidate at larger budgets so the audit can measure where
-  * the decision actually stabilizes. None of this changes live CPU.
+  * Pilot Search v0.3 — progressive budget discovery.
+  *
+  * The pilot is still audit-only. It does NOT directly control live CPU.
+  * Instead of guessing a budget from one shallow margin, it asks the same
+  * decision question at progressively larger budgets and stops when:
+  *   1) the Top-K ranking is stable,
+  *   2) the decision margin is stable enough, and
+  *   3) no new strategic information appeared.
+  *
+  * This turns "recommendedBudget" from a threshold guess into an observed
+  * stopping point. The full search can still go to 300 when the decision
+  * genuinely keeps changing.
   */
  if(!state||!player)return null;
  const legal=ahTelemetryShadowLegalActions(state,player)||[];
  if(!legal.length)return null;
+
  const compression=ahTelemetryStrategicCompression(state,player);
- const quick=legal.map((action,index)=>{
+ const profile=ahTelemetryPredictionProfile(state,player);
+ const opponentPlayer=player==='A'?'B':'A';
+ const opponentModel=ahTelemetryOpponentActionModel(state,opponentPlayer,profile);
+ const route=compression?.route||'neutral';
+ const complexity=Number(compression?.strategicComplexity||0);
+ const themeCount=Number(compression?.themeCount||0);
+ const interaction=Number(compression?.interaction||0);
+ const battleThreat=Number(compression?.battleThreat||0);
+
+ const branchLimit=Math.max(2,Math.min(4,Number(options.branchLimit)||3));
+ const pilotNodes=Math.max(4,Math.min(12,Number(options.pilotNodes)||8));
+ const depth=Math.min(3,Math.max(2,Number(options.depth)||2));
+ const probeBudgets=[32,80,160,300];
+
+ const cheap=legal.map((action,index)=>{
   const next=ahTelemetryShadowApply(state,action);
   if(!next)return null;
   const before=ahTelemetryShadowUtilityBreakdown(state,player);
@@ -3953,16 +3976,10 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    (after.winProbability||0)-(before.winProbability||0)+
    (after.terminalValue||0)-(before.terminalValue||0)
   );
-  return {index,action,cheap:Number(immediate.toFixed(4))};
+  return {index,action:ahTelemetryClone(action),cheap:Number(immediate.toFixed(4))};
  }).filter(Boolean).sort((a,b)=>b.cheap-a.cheap);
 
- const branchLimit=Math.max(2,Math.min(3,Number(options.branchLimit)||3));
- const branches=quick.slice(0,branchLimit);
- const pilotNodes=Math.max(4,Math.min(12,Number(options.pilotNodes)||8));
- const profile=ahTelemetryPredictionProfile(state,player);
- const opponentModel=ahTelemetryOpponentActionModel(state,player==='A'?'B':'A',profile);
- const depth=Math.min(3,Math.max(2,Number(options.depth)||2));
-
+ const branches=cheap.slice(0,branchLimit);
  const runProbe=(action,maxNodes)=>{
   const raw=ahTelemetryRollout(action,player,depth,null,{
    maxNodes,
@@ -3979,115 +3996,213 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   };
  };
 
- const scored=branches.map(item=>runProbe(item.action,pilotNodes))
-  .sort((a,b)=>b.score-a.score);
-
- const top=scored[0]||null,second=scored[1]||null;
- const margin=top&&second?Number((top.score-second.score).toFixed(4)):1;
- const scoreSpread=scored.length>1
-  ?Number((scored[0].score-scored[scored.length-1].score).toFixed(4)):0;
- const route= compression?.route||'neutral';
- const complexity=Number(compression?.strategicComplexity||0);
-
- /*
-  * These are intentionally diagnostic signals, not hard decisions.
-  * "stability" means the pilot's top score is separated from its runner-up.
-  * "complexity" comes from Strategic Compression. "novelty" is whether the
-  * pilot rollout exposed a longer line than the shallow probe itself.
-  */
- const stability=Math.max(0,Math.min(1,
-   margin>=.12?1:
-   margin>=.08?.85:
-   margin>=.05?.68:
-   margin>=.025?.45:
-   .20
- ));
- const novelty=top
-  ? Number(Math.min(1,
-     ((top.principalVariation?.length||0)>2?.18:0)+
-     (top.truncated?.14:0)+
-     (Math.abs(top.score-(top.principalVariation?.length?top.score:0))>0?.0:0)
-    ).toFixed(3))
-  :0;
-
- const uncertainty=Math.min(1,
-   (margin<.035?.36:margin<.07?.20:0)+
-   (complexity*.22)+
-   ((compression?.themeCount||0)>=4?.14:0)+
-   ((compression?.interaction||0)>=.35?.14:0)+
-   ((compression?.battleThreat||0)>=.25?.10:0)
- );
-
- let recommendedBudget=32;
- let reason='pilot_stable';
- if(uncertainty>=.58||margin<.025){
-  recommendedBudget=300; reason='pilot_high_uncertainty';
- }else if(uncertainty>=.40||margin<.05){
-  recommendedBudget=160; reason='pilot_needs_deeper_search';
- }else if(uncertainty>=.24||margin<.09){
-  recommendedBudget=80; reason='pilot_moderate_uncertainty';
- }
+ const rankSignature=list=>list.map(x=>x.action?.type||'unknown').join('>');
+ const actionKey=a=>JSON.stringify({
+  type:a?.type||null,
+  node:a?.node||null,
+  from:a?.from||null,
+  to:a?.to||null,
+  candyId:a?.candyId||null,
+  card:a?.card||null,
+  dir:a?.dir||null
+ });
+ const actionSignature=list=>list.map(x=>actionKey(x.action)).join('|');
 
  /*
-  * Optional convergence probe for the audit. By default it is enabled for
-  * self-play audit but can be disabled by passing probe:false. Only the
-  * currently leading pilot candidate is re-read, keeping the cost bounded.
+  * A small pilot is deliberately treated as an observation stage.
+  * The first stage answers "is there an obvious leader?".
+  * If not, only the most relevant survivors are expanded.
   */
- const doProbe=options.probe!==false;
- const probeBudgets=[32,80,160,300];
- const convergence=[];
- if(doProbe&&top){
-  let prev=top;
-  for(const budget of probeBudgets){
-   const p=runProbe(top.action,budget);
-   const prevScore=convergence.length?convergence[convergence.length-1].score:top.score;
-   const scoreDelta=Number((p.score-prevScore).toFixed(4));
-   const actionStable=p.action?.type===top.action?.type;
-   convergence.push({
-    budget,
-    score:p.score,
-    scoreDelta,
-    actionType:p.action?.type||null,
-    actionStable,
-    nodes:p.nodes,
-    truncated:p.truncated,
-    pvLength:p.principalVariation?.length||0
-   });
-   prev=p;
+ let scored=branches.map(item=>runProbe(item.action,pilotNodes))
+   .sort((a,b)=>b.score-a.score);
+ let previousRank=rankSignature(scored);
+ let previousTop=actionSignature(scored.slice(0,3));
+ const stages=[{
+  budget:pilotNodes,
+  candidates:scored,
+  rank:previousRank,
+  top:previousTop,
+  topScore:scored[0]?.score??0,
+  secondScore:scored[1]?.score??null,
+  margin:scored[0]&&scored[1]?Number((scored[0].score-scored[1].score).toFixed(4)):1,
+  scoreSpread:scored.length>1?Number((scored[0].score-scored[scored.length-1].score).toFixed(4)):0,
+  nodes:scored.reduce((n,x)=>n+Number(x.nodes||0),0),
+  novelty:0
+ }];
+
+ const strategicFingerprint=()=>{
+  const c=ahTelemetryStrategicCompression(state,player);
+  const curve=ahTelemetryStrategyCurve(state,player);
+  return {
+   route:c?.route||null,
+   themes:[...(c?.themes||[])].sort(),
+   themeCount:c?.themeCount||0,
+   complexity:Number(c?.strategicComplexity||0),
+   interaction:Number(c?.interaction||0),
+   battleThreat:Number(c?.battleThreat||0),
+   routeSeparation:Number(curve?.routeSeparation||0),
+   bestTurnAction:curve?.bestTurnAction?.type||null
+  };
+ };
+ const baseFingerprint=strategicFingerprint();
+
+ let stopBudget=null;
+ let stopReason=null;
+ let rankStable=false;
+ let marginStable=false;
+ let newStrategyFound=false;
+ let totalPilotNodes=stages[0].nodes;
+
+ for(let si=0;si<probeBudgets.length;si++){
+  const budget=probeBudgets[si];
+  const survivors=stages[stages.length-1].candidates.slice(0,Math.min(3,branches.length));
+  const next=survivors.map(item=>runProbe(item.action,budget))
+    .sort((a,b)=>b.score-a.score);
+
+  const rank=rankSignature(next);
+  const top=actionSignature(next.slice(0,3));
+  const prev=stages[stages.length-1];
+  const margin=next[0]&&next[1]?Number((next[0].score-next[1].score).toFixed(4)):1;
+  const scoreDelta=Number(((next[0]?.score??0)-(prev.topScore??0)).toFixed(4));
+  const marginDelta=Number((margin-(prev.margin??0)).toFixed(4));
+  const top1Changed=actionKey(next[0]?.action)!==actionKey(prev.candidates[0]?.action);
+  const top2Changed=actionKey(next[1]?.action)!==actionKey(prev.candidates[1]?.action);
+  const rankChanged=rank!==prev.rank;
+  const candidateChanged=top!==prev.top;
+  const fingerprint=strategicFingerprint();
+  const strategicDelta=(
+   (fingerprint.route!==baseFingerprint.route?0.22:0)+
+   (fingerprint.bestTurnAction!==baseFingerprint.bestTurnAction?0.16:0)+
+   (fingerprint.themeCount!==baseFingerprint.themeCount?0.16:0)+
+   (fingerprint.complexity-baseFingerprint.complexity>.08?0.14:0)+
+   (fingerprint.interaction-baseFingerprint.interaction>.08?0.14:0)+
+   (fingerprint.battleThreat-baseFingerprint.battleThreat>.08?0.18:0)
+  );
+  const novelty=Number(Math.min(1,
+   strategicDelta+
+   (top1Changed?.18:0)+
+   (candidateChanged?.14:0)+
+   ((next[0]?.principalVariation?.length||0)> (prev.candidates[0]?.principalVariation?.length||0)+1 ? .10:0)
+  ).toFixed(3));
+
+  rankStable=!rankChanged && !top1Changed;
+  /*
+   * Margin stability is intentionally relative, not just "score delta is
+   * small". A top action that keeps winning by a similar amount is stable;
+   * a tiny margin that changes sign is not.
+   */
+  marginStable=Math.abs(marginDelta)<=.02 && margin>=.025 && !top1Changed;
+  newStrategyFound=novelty>=.34;
+
+  const stage={
+   budget,
+   candidates:next,
+   rank,
+   top,
+   topScore:next[0]?.score??0,
+   secondScore:next[1]?.score??null,
+   margin,
+   marginDelta,
+   scoreDelta,
+   scoreSpread:next.length>1?Number((next[0].score-next[next.length-1].score).toFixed(4)):0,
+   top1Changed,
+   top2Changed,
+   rankChanged,
+   candidateChanged,
+   rankStable,
+   marginStable,
+   novelty,
+   strategicNovelty:newStrategyFound,
+   nodes:next.reduce((n,x)=>n+Number(x.nodes||0),0),
+   cumulativeNodes:totalPilotNodes+next.reduce((n,x)=>n+Number(x.nodes||0),0),
+   truncated:next.some(x=>x.truncated)
+  };
+  stages.push(stage);
+  totalPilotNodes=stage.cumulativeNodes;
+
+  if(newStrategyFound){
+   stopBudget=budget;
+   stopReason='new_strategy_found';
+   break;
   }
+  if(rankStable&&marginStable){
+   stopBudget=budget;
+   stopReason='rank_stable';
+   break;
+  }
+
+  previousRank=rank;
+  previousTop=top;
  }
- const last=convergence[convergence.length-1]||null;
- const firstStable=convergence.find((x,idx)=>{
-  if(idx===0)return false;
-  const prev=convergence[idx-1];
-  return x.actionStable&&Math.abs(x.scoreDelta)<=.015;
- })||null;
- const observedConvergenceBudget=firstStable?.budget??null;
- const actualStability=firstStable
-  ? Number(Math.max(0,Math.min(1,1-Math.abs(firstStable.scoreDelta)/.015)).toFixed(3))
-  : null;
+
+ if(stopBudget==null){
+  stopBudget=300;
+  stopReason='max_budget_reached';
+ }
+
+ const lastStage=stages[stages.length-1];
+ const margin=Number(lastStage.margin??0);
+ const scoreSpread=Number(lastStage.scoreSpread??0);
+ const uncertainty=Math.min(1,
+  (rankStable?.18:0)+
+  (margin<.025?.34:margin<.05?.20:margin<.09?.10:0)+
+  (complexity*.22)+
+  (themeCount>=4?.14:0)+
+  (interaction>=.35?.14:0)+
+  (battleThreat>=.25?.10:0)+
+  (stopReason==='max_budget_reached'?.18:0)+
+  (newStrategyFound?.12:0)
+ );
+ const stability=Math.max(0,Math.min(1,
+  rankStable&&marginStable?1:
+  rankStable?.78:
+  margin>=.12?.72:
+  margin>=.08?.58:
+  margin>=.05?.42:.20
+ ));
 
  return {
-  schema:'pilot-search-audit-v0.2',
+  schema:'pilot-search-audit-v0.3',
   pilotNodes,
   branchLimit,
   depth,
   route,
   strategicComplexity:complexity,
-  themeCount:compression?.themeCount||0,
-  interaction:compression?.interaction??0,
-  battleThreat:compression?.battleThreat??0,
+  themeCount,
+  interaction,
+  battleThreat,
   scoreMargin:margin,
   scoreSpread,
   stability:Number(stability.toFixed(3)),
-  novelty,
+  novelty:Number(lastStage.novelty||0),
   uncertainty:Number(uncertainty.toFixed(3)),
-  recommendedBudget,
-  reason,
-  branches:scored,
-  convergence,
-  observedConvergenceBudget,
-  observedConvergenceStability:actualStability,
+  recommendedBudget:stopBudget,
+  stopBudget,
+  stopReason,
+  rankStable,
+  marginStable,
+  newStrategyFound,
+  totalPilotNodes,
+  branches:lastStage.candidates,
+  stages,
+  convergence:stages.map(x=>({
+   budget:x.budget,
+   score:x.topScore,
+   scoreDelta:x.scoreDelta??null,
+   margin:x.margin,
+   marginDelta:x.marginDelta??null,
+   rank:x.rank,
+   rankChanged:x.rankChanged??false,
+   top1Changed:x.top1Changed??false,
+   rankStable:x.rankStable??false,
+   marginStable:x.marginStable??false,
+   novelty:x.novelty??0,
+   nodes:x.nodes,
+   cumulativeNodes:x.cumulativeNodes??x.nodes,
+   truncated:!!x.truncated
+  })),
+  observedConvergenceBudget:stopBudget,
+  observedConvergenceStability:Number(stability.toFixed(3)),
   profile:{
    strength:profile?.strength??null,
    phase:profile?.phase??null,
@@ -5061,7 +5176,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   if(choice.action.type==='endTurn')continue;
  }
  const out={
-  schema:'selfplay-audit-v5',
+  schema:'selfplay-audit-v6',
   seed:String(seed),
   firstPlayer:state.first,
   steps:rows,
@@ -5074,7 +5189,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v5',
+  schema:'selfplay-audit-summary-v6',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
