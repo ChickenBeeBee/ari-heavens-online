@@ -4319,6 +4319,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      continuation:rollout?.continuation??null,
      continuationPlayer:rollout?.continuationPlayer??null,
      principalVariation:rollout?.principalVariation??[],
+     decisionLine:choice?.action
+      ?[ahTelemetryClone(choice.action)].concat(rollout?.principalVariation||[])
+      :(rollout?.principalVariation||[]),
      rolloutDepth:rollout?.depth??null,
      rolloutNodes:rollout?.nodes??null,
      rolloutTruncated:!!rollout?.truncated,
@@ -4373,6 +4376,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    turn:x.turn,
    player:x.player,
    chosen:x.chosen?.type||null,
+   chosenRootAction:x.chosenAudit?.action?.type||null,
    rolloutNodes:x.chosenAudit?.rolloutNodes??null,
    rolloutTruncated:!!x.chosenAudit?.rolloutTruncated,
    rootPlayer:x.chosenAudit?.rootPlayer||null,
