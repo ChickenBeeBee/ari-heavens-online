@@ -3509,12 +3509,15 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    if(selected.some(a=>JSON.stringify(a)===JSON.stringify(x.a)))continue;
    selected.push(x.a);classes.push('skeptic');skepticCandidates++;
    skepticBest=Math.max(skepticBest,x.quick);
-   if(x.quick>predictionBest)skepticFoundBetter=true;
   }
   for(let i=0;i<selected.length;i++)if(classes[i]==='prediction'){
    const ns=ahTelemetryShadowApply(stateForOpponentSelection,selected[i]);
    predictionBest=Math.max(predictionBest,quickOpponentValue(ns,opp(p)));
   }
+  /* Compare only after predictionBest has been finalized.
+   * This flag is telemetry, not a search-control signal.
+   */
+  skepticFoundBetter=Number.isFinite(skepticBest)&&skepticBest>predictionBest;
   const allocation={
    predictionBudgetShare:Number(predictionBudgetShare.toFixed(3)),
    skepticBudgetShare:Number(skepticBudgetShare.toFixed(3)),
