@@ -4196,6 +4196,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  }
 
  const lastStage=stages[stages.length-1];
+ const finalDecisionPressure=Number(lastStage.decisionPressure||0);
  const uncertainty=Math.max(0,Math.min(1,
   .12+
   (lastStage.rankChanged?.28:0)+
@@ -4203,7 +4204,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   (lastStage.margin<lastStage.requiredMargin?.18:0)+
   (!lastStage.scoreStable?.10:0)+
   (lastStage.novelty>=.18?.08:0)+
-  (decisionPressure*.16)+
+  (finalDecisionPressure*.16)+
   (lastStage.truncated&&stopReason==='max_budget_reached'?.10:0)
  ));
  const stability=Math.max(0,Math.min(1,
