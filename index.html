@@ -4196,7 +4196,6 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  }
 
  const lastStage=stages[stages.length-1];
- const finalDecisionPressure=Number(lastStage.decisionPressure||0);
  const uncertainty=Math.max(0,Math.min(1,
   .12+
   (lastStage.rankChanged?.28:0)+
