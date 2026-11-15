@@ -4599,7 +4599,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      skepticBest:rollout?.skepticBest??null,
      searchExpansionReason:rollout?.searchExpansionReason??[],
      strategyCurveScore:choice?.strategyCurveScore??null,
-     strategyCurve:choice?.strategyCurve??null
+     strategyCurve:choice?.strategyCurve??null,
+     strategyCurveTransition:choice?.action?ahTelemetryStrategyCurveTransition(state,p,choice.action,choice.strategyCurve||null):null,
+     strategyCurveTransitions:ahTelemetryStrategyCurveActionTransitions(state,p,choice?.strategyCurve||null,8)
     };
    })():null;
   rows.push({
