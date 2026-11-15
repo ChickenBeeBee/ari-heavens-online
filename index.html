@@ -1197,8 +1197,7 @@ button{font:inherit;color:inherit}
   }
   /* The numeric ×N label is authoritative; limit decorative icons to keep the row compact. */
   #board .node.has-candy:not(.center) > .ants .agrp svg.ant:nth-of-type(n+4) { display:none !important; }
-  #board .node.has-candy:not(.center) > .ants .cn {
-    display:inline-block !important; font-size:8px !important; line-height:1 !important;
+  #board .node.has-candy:not(.center) > .ants .cn {    display:inline-block !important; font-size:8px !important; line-height:1 !important;
     margin:0 1px !important; white-space:nowrap !important;
   }
 
@@ -2397,8 +2396,7 @@ function cpuGenericCardValue(key){
   const meta=CARD_META[key],ai=CPU_CARD_AI[key];
   if(!meta||!ai)return {value:0,reason:'AI評価情報が未登録のため温存。'};
   const rules=meta.rules||[],stats=meta.stats||[],turns=cpuTurnsLeft();
-  const own=fieldAnts(CPU),enemy=fieldAnts(HUMAN),lead=S.score.B-S.score.A;
-  let value=0,reason='カードの効果と盤面を比較。';
+  const own=fieldAnts(CPU),enemy=fieldAnts(HUMAN),lead=S.score.B-S.score.A;  let value=0,reason='カードの効果と盤面を比較。';
   // Generic baseline: role determines what board advantage is worth evaluating.
   if(ai.role==='score'){
     const targets=S.candies.filter(c=>!c.type.bomb&&c.att[HUMAN]===0);
@@ -3459,6 +3457,47 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const complexity=ahTelemetryBoardComplexity(before,options?.previousState||null,p);
  const predictionProfile=options?.predictionProfile||ahTelemetryPredictionProfile(before,p);
  const opponentModel=options?.opponentModel||ahTelemetryOpponentActionModel(before,opp(p),predictionProfile);
+ let predictionNodes=0,skepticNodes=0,predictionCandidates=0,skepticCandidates=0,wideningSteps=0;
+ let skepticFoundBetter=false,predictionBest=-Infinity,skepticBest=-Infinity;
+ const opponentSearchReason=[];
+ const quickOpponentValue=(state,turnActor)=>{
+  if(!state)return -Infinity;
+  const u=ahTelemetryShadowUtilityBreakdown(state,turnActor),opv=ahTelemetryShadowFutureOpportunityValue(state,turnActor);
+  return Number(((u?.total||0)+(opv||0)*.18).toFixed(5));
+ };
+ const chooseOpponentBranches=(acts,depth,remaining,stateForOpponentSelection)=>{
+  const beforeCount=acts.length;
+  if(beforeCount<=3)return {selected:acts.slice(),classes:acts.map(()=> 'prediction')};
+  const strength=Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0));
+  const width=Math.max(3,Math.min(beforeCount,3+depth+Math.floor(Math.max(0,remaining)/40)));
+  const ranked=acts.slice().sort((a,b)=>Number(opponentModel?.priors?.[JSON.stringify(b)]||0)-Number(opponentModel?.priors?.[JSON.stringify(a)]||0));
+  const predicted=ranked.slice(0,width),selected=[],classes=[];
+  const predictedKeys=new Set(predicted.map(a=>JSON.stringify(a)));
+  const end=ranked.find(a=>a.type==='endTurn');
+  for(const a of predicted){selected.push(a);classes.push('prediction');predictionCandidates++;}
+  if(end&&!selected.some(a=>JSON.stringify(a)===JSON.stringify(end))){
+   selected[selected.length-1]=end;classes[classes.length-1]='prediction';
+  }
+  const outsiders=ranked.filter(a=>!predictedKeys.has(JSON.stringify(a)));
+  const skepticWidth=outsiders.length?Math.max(1,Math.min(2,Math.ceil((1-strength)*2))):0;
+  const scored=outsiders.slice(0,Math.min(14,outsiders.length)).map(a=>{
+   const ns=ahTelemetryShadowApply(stateForOpponentSelection,a);
+   const quick=quickOpponentValue(ns,opp(p)),prior=Number(opponentModel?.priors?.[JSON.stringify(a)]||0);
+   return {a,quick,score:quick+Math.max(0,.08-prior)};
+  }).sort((a,b)=>b.score-a.score);
+  for(const x of scored.slice(0,skepticWidth)){
+   if(selected.some(a=>JSON.stringify(a)===JSON.stringify(x.a)))continue;
+   selected.push(x.a);classes.push('skeptic');skepticCandidates++;skepticBest=Math.max(skepticBest,x.quick);
+   if(x.quick>predictionBest)skepticFoundBetter=true;
+  }
+  for(let i=0;i<selected.length;i++)if(classes[i]==='prediction'){
+   const ns=ahTelemetryShadowApply(stateForOpponentSelection,selected[i]);
+   predictionBest=Math.max(predictionBest,quickOpponentValue(ns,opp(p)));
+  }
+  if(selected.length<beforeCount)wideningSteps++;
+  opponentSearchReason.push({depth,before:beforeCount,after:selected.length,prediction:classes.filter(x=>x==='prediction').length,skeptic:classes.filter(x=>x==='skeptic').length,remaining,reason:'progressive-widening'});
+  return {selected,classes};
+ };
 
  /*
   * shadow-rollout-v7
@@ -3523,35 +3562,16 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       if(turnActor!==p){
        const beforeCount=acts.length;
        opponentBranchesBefore+=beforeCount;
-       const limit=Math.max(3,Math.min(beforeCount,Number(predictionProfile?.opponentBranchLimit)||beforeCount));
-       if(beforeCount>limit){
-        const rankedByPrior=acts.slice().sort((a,b)=>{
-         const pa=Number(opponentModel?.priors?.[JSON.stringify(a)]||0);
-         const pb=Number(opponentModel?.priors?.[JSON.stringify(b)]||0);
-         return pb-pa;
-        });
-        let selected=rankedByPrior.slice(0,limit);
-        const end=rankedByPrior.find(a=>a.type==='endTurn');
-        if(end&&!selected.some(a=>JSON.stringify(a)===JSON.stringify(end))){
-         selected=selected.slice(0,Math.max(0,limit-1)).concat([end]);
-        }
-        if(Number(predictionProfile?.strength||0)<.78){
-         const exploratory=rankedByPrior.find(a=>!selected.some(x=>JSON.stringify(x)===JSON.stringify(a)));
-         if(exploratory){
-          selected=selected.slice(0,Math.max(0,limit-1)).concat([exploratory]);
-          if(end&&!selected.some(a=>JSON.stringify(a)===JSON.stringify(end))){
-           selected[selected.length-1]=end;
-          }
-         }
-        }
-        acts=selected;
-       }
+       const chosen=chooseOpponentBranches(acts,depth,Math.max(0,stageBudget-expansions),item.state);
+       acts=chosen.selected;
+       acts.forEach((a,i)=>{a.__ahSearchClass=chosen.classes[i]||'prediction';});
        opponentBranchesAfter+=acts.length;
       }
       const ranked=[];
       for(const a of acts){
         if(expansions>=stageBudget){truncated=true;stopReason=stopReason||'turn-plan-budget';break;}
         expansions++;nodes++;
+        if(a.__ahSearchClass==='skeptic')skepticNodes++;else if(turnActor!==p)predictionNodes++;
         if(nodes>maxNodes){truncated=true;stopReason='global-node-cap';break;}
         const prev=item.seq[item.seq.length-1];
         if(immediateInverse(prev,a))continue;
@@ -3597,8 +3617,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const evaluateOpponentAndNext=(selfPlan,opponentBudget,nextSelfBudget)=>{
   const oppActor=selfPlan.state?.currentPlayer;
   if(!oppActor||oppActor===p){
-    return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
-  }
+    return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};  }
   const oppPlans=buildTurnPlans(selfPlan.state,oppActor,opponentBudget,4,3);
   if(!oppPlans.length){
     return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
@@ -3691,7 +3710,12 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   predictionInteraction:Number((Number(predictionProfile?.interaction)||0).toFixed(3)),
   opponentBranchesBefore,
   opponentBranchesAfter,
-  opponentBranchesPruned:Math.max(0,opponentBranchesBefore-opponentBranchesAfter)
+  opponentBranchesPruned:Math.max(0,opponentBranchesBefore-opponentBranchesAfter),
+  predictionNodes,skepticNodes,predictionCandidates,skepticCandidates,wideningSteps,
+  skepticFoundBetter,
+  predictionBest:Number(isFinite(predictionBest)?predictionBest.toFixed(3):0),
+  skepticBest:Number(isFinite(skepticBest)?skepticBest.toFixed(3):0),
+  searchExpansionReason:ahTelemetryClone(opponentSearchReason)
  };
 }
 function ahTelemetryRecordOpponentPredictionOutcome(actor,action,before){
@@ -4797,8 +4821,7 @@ function trackViewportEffect(overlay, update, duration){
   update();
   if(performance.now()-started<duration)requestAnimationFrame(tick);
  };
- requestAnimationFrame(tick);
-}
+ requestAnimationFrame(tick);}
 function setFixedRect(el, rect){
  el.style.left=rect.left+'px';el.style.top=rect.top+'px';
  el.style.width=rect.width+'px';el.style.height=rect.height+'px';
@@ -5997,8 +6020,7 @@ function cpuPickTarget(){
     const atSite=c.att[CPU]+S.free[c.node][CPU];
     const missing=Math.max(0,t.need-atSite);
     const av=[];
-    for(const n in S.free){
-      const k=S.free[n][CPU];if(!k||n===c.node)continue; // local free ants are already included in atSite
+    for(const n in S.free){      const k=S.free[n][CPU];if(!k||n===c.node)continue; // local free ants are already included in atSite
       const d=bdist(n,c.node);for(let i=0;i<k;i++)av.push(d);
     }
     av.sort((a,b)=>a-b);
@@ -7197,8 +7219,7 @@ function tickScheduledEffects(){
  // Antlion: after three full turns, the chance rises exponentially each turn; it fires once.
  const pending=S.antlions||[],fired=[];
  for(const x of pending){
-  const elapsed=S.turnCount-x.castTurn;
-  if(elapsed<3)continue;
+  const elapsed=S.turnCount-x.castTurn;  if(elapsed<3)continue;
   const chance=Math.min(.95,.02*Math.pow(2,elapsed-3));
   if(Math.random()<chance)fired.push(x);
  }
