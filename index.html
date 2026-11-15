@@ -4401,6 +4401,129 @@ function ahTelemetryStrategyCurveCandidate(state,player,action,baseCurve){
  return {score,curve};
 }
 
+/*
+ * Strategy Compression v0.1 — audit-only semantic abstraction.
+ *
+ * The full shadow state is never discarded.  This layer answers only:
+ *   "What are the few strategic facts that explain this position?"
+ *
+ * It intentionally avoids a fake numeric compression ratio.  The useful
+ * signal is the number and intensity of active strategic themes, plus the
+ * stable signature that survives ordinary tactical changes.
+ */
+function ahTelemetryStrategicCompression(state,player){
+ if(!state||!player)return null;
+ const q=player==='A'?'B':'A';
+ const turn=Number(state.turn||0);
+ const phase=turn<=2?'early':turn<=6?'mid':'late';
+ const scoreA=Number(state.score?.A||0),scoreB=Number(state.score?.B||0);
+ const scoreGap=Number((scoreA-scoreB).toFixed(2));
+ const myScore=Number(state.score?.[player]||0),oppScore=Number(state.score?.[q]||0);
+ const scoreLead=Number((myScore-oppScore).toFixed(2));
+ const candies=Array.isArray(state.candies)?state.candies:[];
+ const myNest=player+'1',oppNest=q+'1';
+ const valueOf=c=>Number(c?.bomb?4:(c?.points||0));
+ const needOf=c=>Math.max(1,Number(c?.need||0));
+ const attachTotal=c=>Number(c?.attached?.A||0)+Number(c?.attached?.B||0);
+ const myAttached=c=>Number(c?.attached?.[player]||0);
+ const oppAttached=c=>Number(c?.attached?.[q]||0);
+ const liveCandies=candies.filter(c=>c&&c.node);
+ const contested=liveCandies.filter(c=>myAttached(c)>0&&oppAttached(c)>0)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const highValue=liveCandies.filter(c=>valueOf(c)>=3)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const myReady=liveCandies.filter(c=>c.node===myNest&&myAttached(c)>0)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const oppReady=liveCandies.filter(c=>c.node===oppNest&&oppAttached(c)>0)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const carriedMy=liveCandies.filter(c=>myAttached(c)>0&&c.node!==myNest);
+ const carriedOpp=liveCandies.filter(c=>oppAttached(c)>0&&c.node!==oppNest);
+ const totalMyAnts=Number(state.hand?.[player]||0)+Object.values(state.free||{}).reduce((n,v)=>n+Number(v?.[player]||0),0)+candies.reduce((n,c)=>n+myAttached(c),0);
+ const totalOppAnts=Number(state.hand?.[q]||0)+Object.values(state.free||{}).reduce((n,v)=>n+Number(v?.[q]||0),0)+candies.reduce((n,c)=>n+oppAttached(c),0);
+ const battleThreat=contested.length?Math.min(1,contested.reduce((n,c)=>n+Math.min(1,Math.abs(myAttached(c)-oppAttached(c))/Math.max(1,needOf(c))),0)/2):0;
+ const deliveryThreat=Math.min(1,(myReady.length+oppReady.length)*.5+(carriedMy.length+carriedOpp.length)*.18);
+ const cardPressure=Number((Math.min(1,
+   ((state.cards?.[player]||[]).filter?.(c=>c&&!c.used).length||0)*.18+
+   (state.cardUsed?0:.12)+
+   (Object.values(state.effects||{}).filter(Boolean).length*.04)
+ )).toFixed(3));
+ const boardBusy=Number((Math.min(1,
+   liveCandies.length*.06+
+   contested.length*.18+
+   (Object.keys(state.free||{}).filter(n=>Number(state.free?.[n]?.A||0)+Number(state.free?.[n]?.B||0)>0).length)*.04+
+   (totalMyAnts+totalOppAnts)*.012
+ )).toFixed(3));
+ const interaction=Number((Math.min(1,
+   contested.length*.35+
+   ((carriedMy.length&&carriedOpp.length)?0.18:0)+
+   (battleThreat*.32)+
+   (cardPressure*.18)
+ )).toFixed(3));
+ const initiative=scoreLead>0.5?'self':scoreLead<-0.5?'opponent':'neutral';
+ const routeCurve=ahTelemetryStrategyCurve(state,player);
+ const route=routeCurve?.selectedRoute||'neutral';
+ const themes=[];
+ if(highValue.length)themes.push('score');
+ if(contested.length)themes.push('contest');
+ if(myReady.length||oppReady.length||carriedMy.length||carriedOpp.length)themes.push('delivery');
+ if(battleThreat>=.25)themes.push('battle');
+ if(cardPressure>=.35)themes.push('cards');
+ if(interaction>=.45)themes.push('interaction');
+ const strategicComplexity=Number(Math.min(1,
+   themes.length*.12+
+   interaction*.28+
+   battleThreat*.18+
+   deliveryThreat*.14+
+   Math.min(.16,Math.abs(scoreLead)/10)
+ ).toFixed(3));
+ return {
+  schema:'strategic-compression-v0.1',
+  player,phase,
+  scoreGap,scoreLead,initiative,
+  route,
+  themes,
+  themeCount:themes.length,
+  keyCandy:{
+   contestedId:contested[0]?.id??null,
+   contestedValue:contested[0]?valueOf(contested[0]):0,
+   highValueId:highValue[0]?.id??null,
+   highValueValue:highValue[0]?valueOf(highValue[0]):0
+  },
+  delivery:{
+   selfReady:!!myReady.length,
+   opponentReady:!!oppReady.length,
+   selfCarrying:!!carriedMy.length,
+   opponentCarrying:!!carriedOpp.length
+  },
+  battleThreat:Number(battleThreat.toFixed(3)),
+  cardPressure,
+  boardBusy,
+  interaction,
+  routeSeparation:Number((routeCurve?.routeSeparation||0).toFixed(3)),
+  strategicComplexity
+ };
+}
+function ahTelemetryStrategicCompressionTransition(state,player,action,baseCompression=null){
+ const before=baseCompression||ahTelemetryStrategicCompression(state,player);
+ const next=ahTelemetryShadowApply(state,action);
+ if(!next)return {valid:false,before,after:null};
+ const after=ahTelemetryStrategicCompression(next,player);
+ const beforeThemes=new Set(before?.themes||[]),afterThemes=new Set(after?.themes||[]);
+ const added=(after?.themes||[]).filter(x=>!beforeThemes.has(x));
+ const removed=(before?.themes||[]).filter(x=>!afterThemes.has(x));
+ return {
+  valid:true,
+  actionType:action?.type||null,
+  complexityDelta:Number(((after?.strategicComplexity||0)-(before?.strategicComplexity||0)).toFixed(3)),
+  interactionDelta:Number(((after?.interaction||0)-(before?.interaction||0)).toFixed(3)),
+  battleThreatDelta:Number(((after?.battleThreat||0)-(before?.battleThreat||0)).toFixed(3)),
+  themeAdded:added,themeRemoved:removed,
+  routeChanged:before?.route!==after?.route,
+  routeBefore:before?.route||null,routeAfter:after?.route||null,
+  before,after
+ };
+}
+
 /* Strategy Curve v0.4 — transition/deformation telemetry.
  * Shadow-only: the live decision/search remains authoritative.
  * The curve is treated as a hypothesis about direction, not as a target.
@@ -4686,6 +4809,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      predictionCardPressure:rollout?.predictionCardPressure??null,
      predictionBoardBusy:rollout?.predictionBoardBusy??null,
      predictionInteraction:rollout?.predictionInteraction??null,
+     strategicCompression:ahTelemetryStrategicCompression(state,p),
+     strategicCompressionTransition:ahTelemetryStrategicCompressionTransition(state,p,choice.action,ahTelemetryStrategicCompression(state,p)),
      predictionAuditContext:{
       strength:rollout?.predictionStrength??null,
       phase:rollout?.predictionPhase??null,
@@ -4721,7 +4846,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    baseUtility:ahTelemetryShadowUtilityBreakdown(state,p),
    topCandidates:quick.slice(0,8),
    chosen:choice?.action||null,
-   chosenAudit
+   chosenAudit,
+   strategicCompression:ahTelemetryStrategicCompression(state,p)
   };
   rows.push(row);
   if(!choice)break;
@@ -4765,7 +4891,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   if(choice.action.type==='endTurn')continue;
  }
  const out={
-  schema:'selfplay-audit-v2',
+  schema:'selfplay-audit-v3',
   seed:String(seed),
   firstPlayer:state.first,
   steps:rows,
@@ -4778,7 +4904,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v3',
+  schema:'selfplay-audit-summary-v4',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -4802,6 +4928,8 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     interaction:x.chosenAudit?.predictionInteraction??null
    },
    predictionAuditContext:x.chosenAudit?.predictionAuditContext??null,
+   strategicCompression:x.chosenAudit?.strategicCompression??null,
+   strategicCompressionTransition:x.chosenAudit?.strategicCompressionTransition??null,
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
    opponentBranches:{
