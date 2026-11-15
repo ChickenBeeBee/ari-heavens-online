@@ -4517,6 +4517,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
  const searchDepth=Math.max(1,Math.min(3,Number(options.depth)||2));
  let state=ahTelemetrySelfPlayInitialState(String(seed),options);
  const rows=[];
+ let pendingCurveObservation=null;
  let guard=0;
  while(!state.result&&guard++<maxSteps){
   const p=state.currentPlayer;
@@ -4549,6 +4550,29 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
   }).sort((a,b)=>b.score-a.score);
   const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:options.maxNodes??300});
+
+  /*
+   * Strategy Curve v0.4 transition audit:
+   * compare the previous step's predicted opponent response with the
+   * response that actually appears on the next shadow step.
+   * This is diagnostic only; it does not affect the chooser.
+   */
+  if(pendingCurveObservation&&p===pendingCurveObservation.opponentPlayer&&choice?.action){
+   const actual=ahTelemetryStrategyCurveTransition(
+    pendingCurveObservation.stateAfterChosen,
+    p,
+    choice.action,
+    pendingCurveObservation.curveAfterChosen
+   );
+   const error=ahTelemetryStrategyCurveTransitionError(
+    pendingCurveObservation.predicted,
+    actual
+   );
+   pendingCurveObservation.row.chosenAudit= pendingCurveObservation.row.chosenAudit||{};
+   pendingCurveObservation.row.chosenAudit.actualCurveTransition=actual;
+   pendingCurveObservation.row.chosenAudit.predictionError=error;
+  }
+
    /*
     * Expose the same future-sequence evidence used by the chooser.
     * This distinguishes immediate setup value from a genuinely useful
@@ -4604,7 +4628,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      strategyCurveTransitions:ahTelemetryStrategyCurveActionTransitions(state,p,choice?.strategyCurve||null,8)
     };
    })():null;
-  rows.push({
+  const row={
    turn:Number(state.turn||0),player:p,actions:Number(state.actions||0),
    hand:{A:Number(state.hand?.A||0),B:Number(state.hand?.B||0)},
    free:{A:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.A||0)>0)),B:Object.fromEntries(Object.entries(state.free||{}).filter(([,v])=>(v?.B||0)>0))},
@@ -4614,9 +4638,37 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    topCandidates:quick.slice(0,8),
    chosen:choice?.action||null,
    chosenAudit
-  });
+  };
+  rows.push(row);
   if(!choice)break;
-  state=ahTelemetryShadowApply(state,choice.action);
+
+  const stateAfterChosen=ahTelemetryShadowApply(state,choice.action);
+  const predictedOpponentAction=chosenAudit?.opponentReply||null;
+  const curveAfterChosen=stateAfterChosen
+   ? ahTelemetryStrategyCurve(stateAfterChosen,chosenAudit?.opponentPlayer||((p==='A')?'B':'A'))
+   : null;
+  const predictedOpponentTransition=(
+   stateAfterChosen&&predictedOpponentAction&&chosenAudit?.opponentPlayer
+  ) ? ahTelemetryStrategyCurveTransition(
+    stateAfterChosen,
+    chosenAudit.opponentPlayer,
+    predictedOpponentAction,
+    curveAfterChosen
+  ) : null;
+  if(chosenAudit){
+   chosenAudit.predictedOpponentCurveTransition=predictedOpponentTransition;
+  }
+  pendingCurveObservation=(
+   stateAfterChosen&&chosenAudit?.opponentPlayer&&predictedOpponentTransition
+  ) ? {
+    row,
+    opponentPlayer:chosenAudit.opponentPlayer,
+    stateAfterChosen,
+    curveAfterChosen,
+    predicted:predictedOpponentTransition
+  } : null;
+
+  state=stateAfterChosen;
   ahTelemetrySelfPlayTerminal(state);
   if(choice.action.type==='endTurn')continue;
  }
@@ -4681,6 +4733,11 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     directToVictory:x.chosenAudit?.strategyCurve?.directToVictoryDistance??null,
     bestTurnProgress:x.chosenAudit?.strategyCurve?.bestTurnProgress??null,
     bestTurnAction:x.chosenAudit?.strategyCurve?.bestTurnAction?.type??null
+   },
+   strategyCurveTransition:{
+    predictedOpponent:x.chosenAudit?.predictedOpponentCurveTransition??null,
+    actualOpponent:x.chosenAudit?.actualCurveTransition??null,
+    predictionError:x.chosenAudit?.predictionError??null
    }
   }))
  };
