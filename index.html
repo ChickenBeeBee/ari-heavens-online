@@ -3372,6 +3372,81 @@ function ahTelemetryUpdateThinkingSnapshot(state){
  if(AH_AI_THINKING_REMAINING>0)AH_AI_THINKING_BANK=Math.min(220,AH_AI_THINKING_REMAINING);
 }
 
+/* Predictive opponent profile: a cheap prior used to decide how much
+ * of the expensive turn-plan search is worth spending on opponent replies.
+ * It is intentionally probabilistic/soft: it narrows exploration but never
+ * becomes a hard prediction of the opponent's move.
+ */
+function ahTelemetryPredictionProfile(state,player){
+ const s=state||{},p=player||s.currentPlayer,q=opp(p);
+ const turn=Math.max(1,Number(s.turn||0)),maxTurn=Math.max(turn,Number(MAXTURN||20));
+ const phaseX=Math.max(0,Math.min(1,turn/maxTurn));
+ /* Prediction matters most in the middle game, not at the opening or finish. */
+ const phase=Math.max(0,Math.min(1,Math.sin(Math.PI*phaseX)));
+ const cardsRemaining=pl=>{
+  const deck=s.decks?.[pl]||[],used=s.cards?.[pl]||{};
+  return deck.reduce((n,k)=>n+(used[k]?0:1),0);
+ };
+ const myCards=cardsRemaining(p),oppCards=cardsRemaining(q);
+ const cardPressure=Math.max(0,Math.min(1,(myCards+oppCards)/6));
+ const la=ahTelemetryShadowLegalActions(s,p).length;
+ const lq=ahTelemetryShadowLegalActions(s,q).length;
+ const candies=s.candies||[];
+ let contested=0,battle=0,attached=0;
+ for(const c of candies){
+  const a=Number(c.attached?.A||0),b=Number(c.attached?.B||0);
+  attached+=a+b;
+  if(a>0&&b>0){contested++;battle++;}
+  else if(a>0||b>0)attached+=.35;
+ }
+ const busy=Math.max(0,Math.min(1,(la+lq)/28+Math.min(1,candies.length/8)*.18+Math.min(1,attached/10)*.12));
+ const interaction=Math.max(0,Math.min(1,contested*.18+battle*.16+Math.min(1,(la+lq)/20)*.08));
+ const strength=Math.max(0,Math.min(1,.08+.42*phase+.28*cardPressure+.34*busy+.18*interaction));
+ return {
+  strength:Number(strength.toFixed(3)),
+  phase:Number(phase.toFixed(3)),
+  cardPressure:Number(cardPressure.toFixed(3)),
+  boardBusy:Number(busy.toFixed(3)),
+  interaction:Number(interaction.toFixed(3)),
+  horizon:1+Math.round(strength*2.5),
+  opponentBranchLimit:Math.max(3,Math.min(7,Math.round(7-strength*4))),
+  currentTurn:turn,
+  myCards,oppCards,legalActions:{self:la,opponent:lq}
+ };
+}
+function ahTelemetryOpponentActionModel(state,opponent,profile){
+ const p=opponent,q=opp(p),counts={},recent=[];
+ const add=(a,w)=>{
+  const k=a?.type||'unknown';counts[k]=(counts[k]||0)+w;
+ };
+ try{
+  const ev=AH_AI_TELEMETRY?.events||[];
+  for(let i=ev.length-1,age=0;i>=0&&age<28;i--,age++){
+   const e=ev[i];
+   if(e?.type==='action'&&e.actor===p&&e.action){
+    const w=Math.exp(-age/7);
+    add(e.action,w);recent.push(e.action);
+   }
+  }
+ }catch(_){}
+ const legal=ahTelemetryShadowLegalActions(state,p);
+ const total=Object.values(counts).reduce((a,b)=>a+b,0);
+ const priors={};
+ for(const a of legal){
+  const freq=total?(counts[a.type]||0)/total:0;
+  const base=1/Math.max(1,legal.length);
+  priors[JSON.stringify(a)]=.55*freq+.45*base;
+ }
+ return {
+  player:p,
+  strength:Number(Math.max(0,Math.min(1,Number(profile?.strength)||0)).toFixed(3)),
+  priors,
+  counts,
+  sampleSize:recent.length,
+  likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
+ };
+}
+
 function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  // Shadow rollouts are pure state simulations and must not depend on live telemetry state.
  if(!S&&!rootState)return null;
@@ -3381,6 +3456,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  let nodes=0,truncated=false,stopReason=null;
  const rootValue=ahTelemetryShadowUtility(before,p);
  const complexity=ahTelemetryBoardComplexity(before,options?.previousState||null,p);
+ const predictionProfile=options?.predictionProfile||ahTelemetryPredictionProfile(before,p);
+ const opponentModel=options?.opponentModel||ahTelemetryOpponentActionModel(before,opp(p),predictionProfile);
 
  /*
   * shadow-rollout-v7
@@ -3522,8 +3599,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const rootEnded=action?.type==='endTurn';
  const total=Math.max(1,maxNodes);
  const currentBudget=Math.max(8,Math.floor(total*(.42+.08*complexity)));
- const opponentBudget=Math.max(8,Math.floor(total*(.30+.05*complexity)));
- const nextSelfBudget=Math.max(6,Math.floor(total*(.18+.03*complexity)));
+ /* Prediction strength shifts work away from blind opponent branching.  The
+  * saved nodes remain available to the self/continuation stages. */
+ const opponentBudget=Math.max(8,Math.floor(total*(.24+.05*complexity+.06*(1-predictionProfile.strength))));
+ const nextSelfBudget=Math.max(6,Math.floor(total*(.24+.03*complexity+.06*predictionProfile.strength)));
  const plans=rootEnded
    ?[{state:after,seq:[],value:turnPlanScore(after,after.currentPlayer,before),turnEnded:true}]
    :buildTurnPlans(after,p,currentBudget,5,4);
@@ -3713,11 +3792,13 @@ function ahTelemetryLiveSearchStep(){
  }).sort((a,b)=>b.score-a.score).slice(0,6);
  const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0))/2));
  const complexity=ahTelemetryBoardComplexity(ahTelemetryState(),AH_AI_THINKING_PREV_STATE,CPU);
- const depth=Math.min(5,Math.max(3,remaining<=2?remaining+1:3));
+ const depth=Math.min(5,Math.max(3,predictionProfile.horizon+1));
  let best=null;
  let spentThisStep=0;
  let examinedEndTurn=false;
  const targetFloor=ahTelemetrySearchTargetFloor(complexity,remaining);
+ const predictionProfile=ahTelemetryPredictionProfile(ahTelemetryState(),CPU);
+ const opponentModel=ahTelemetryOpponentActionModel(ahTelemetryState(),opp(CPU),predictionProfile);
  for(let si=0;si<shortlist.length;si++){
   const item=shortlist[si];
   const branchesLeft=Math.max(1,shortlist.length-si);
@@ -3725,7 +3806,7 @@ function ahTelemetryLiveSearchStep(){
    * available to later turns through the thinking bank. */
   const complexityScale=0.72+complexity*0.28;
   const nodeBudget=Math.max(12,Math.floor(AH_AI_THINKING_REMAINING*complexityScale/branchesLeft));
-  const raw=ahTelemetryRollout(item.action,CPU,depth,null,{maxNodes:nodeBudget});
+  const raw=ahTelemetryRollout(item.action,CPU,depth,null,{maxNodes:nodeBudget,predictionProfile,opponentModel});
   if(raw)spentThisStep+=Number(raw.nodes||0);
   if(!raw)continue;
   const correction=ahTelemetryPredictionCorrection(item.action);
@@ -3765,7 +3846,7 @@ function ahTelemetryLiveSearchStep(){
    before:ahTelemetryClone(ahTelemetryState()),
    after:ahTelemetryState(),
    availableActions:ahTelemetryLegalActions(),
-   immediate:{depth,score:best.score,rawRollout:best.rawRollout,calibration:best.correction,shortlist:shortlist.map(x=>({action:x.action,score:x.score}))}
+   immediate:{depth,score:best.score,rawRollout:best.rawRollout,calibration:best.correction,predictionProfile,opponentModel,shortlist:shortlist.map(x=>({action:x.action,score:x.score}))}
   });
  }
  if(executed){
