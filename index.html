@@ -4294,38 +4294,63 @@ function ahTelemetryStrategyVictoryRoutes(state,player){
    distance:Number((1-progress).toFixed(4))};
  }).sort((a,b)=>b.progress-a.progress);
 }
+function ahTelemetryStrategyRouteTargetVector(route){
+ return {
+  scoreDiff:Number(Math.tanh(Number(route?.goalScoreLead||0)/6).toFixed(4)),
+  candyValue:Number(Math.tanh(Number(route?.goalCandy||0)/4).toFixed(4)),
+  positionValue:Number(Math.tanh(Math.max(.2,Number(route?.goalReady||0)*.45)/4).toFixed(4)),
+  antValue:Number(Math.tanh(Number(route?.goalAnt||0)/8).toFixed(4)),
+  threatValue:Number(Math.tanh(-Math.max(0,Number(route?.goalEnemyCandy||0))/4).toFixed(4)),
+  winProbability:.92
+ };
+}
+function ahTelemetryStrategyCurveRequirementGap(state,player,route){
+ const current=ahTelemetryStrategyCurveVector(state,player);
+ const target=ahTelemetryStrategyRouteTargetVector(route);
+ return {
+  scoreDiff:Number((target.scoreDiff-current.scoreDiff).toFixed(4)),
+  candyValue:Number((target.candyValue-current.candyValue).toFixed(4)),
+  positionValue:Number((target.positionValue-current.positionValue).toFixed(4)),
+  antValue:Number((target.antValue-current.antValue).toFixed(4)),
+  threatValue:Number((target.threatValue-current.threatValue).toFixed(4)),
+  winProbability:Number((target.winProbability-current.winProbability).toFixed(4))
+ };
+}
 function ahTelemetryStrategyCurve(state,player,options={}){
  const p=player||state?.currentPlayer||'B',current=ahTelemetryStrategyCurveVector(state,p);
  const routes=ahTelemetryStrategyVictoryRoutes(state,p);
  const legal=ahTelemetryShadowLegalActions(state,p)||[];
  const routePlans=routes.map(route=>{
   const currentProgress=route.progress;
+  const requirement=ahTelemetryStrategyRouteTargetVector(route);
   const candidates=legal.map(action=>{
    const next=ahTelemetryShadowApply(state,action);
    if(!next)return null;
    const progress=ahTelemetryStrategyRouteProgress(next,p,route);
-   return {action,next,progress,delta:Number((progress-currentProgress).toFixed(4))};
-  }).filter(Boolean).sort((a,b)=>b.delta-a.delta);
+   const gapAfter=ahTelemetryStrategyCurveDistance(ahTelemetryStrategyCurveVector(next,p),requirement);
+   return {action,next,progress,gapAfter,delta:Number((progress-currentProgress).toFixed(4))};
+  }).filter(Boolean).sort((a,b)=>{
+   if(Math.abs(b.delta-a.delta)>0.0001)return b.delta-a.delta;
+   return a.gapAfter-b.gapAfter;
+  });
   const best=candidates[0]||null;
   const nextProgress=best?best.progress:currentProgress;
   const routeDistance=1-nextProgress;
-  return {...route,bestAction:best?.action?ahTelemetryClone(best.action):null,bestProgress:Number((best?.delta||0).toFixed(4)),
+  return {...route,requirement,currentRequirementGap:ahTelemetryStrategyCurveDistance(current,requirement),
+   bestAction:best?.action?ahTelemetryClone(best.action):null,
+   bestProgress:Number((best?.delta||0).toFixed(4)),
+   bestRequirementGap:Number((best?.gapAfter??ahTelemetryStrategyCurveDistance(current,requirement)).toFixed(4)),
    progressAfter:Number(nextProgress.toFixed(4)),routeDistance:Number(routeDistance.toFixed(4))};
  });
- routePlans.sort((a,b)=>b.progressAfter-a.progressAfter);
+ routePlans.sort((a,b)=>{
+  if(Math.abs(b.progressAfter-a.progressAfter)>0.0001)return b.progressAfter-a.progressAfter;
+  return a.bestRequirementGap-b.bestRequirementGap;
+ });
  const bestRoute=routePlans[0]||null;
- const bestTurn=bestRoute?.bestAction?ahTelemetryShadowApply(state,bestRoute.bestAction):state;
- const turnHypothesis=ahTelemetryStrategyCurveVector(bestTurn,p);
- const victory=bestRoute?{
-  scoreDiff:Number(Math.tanh(bestRoute.goalScoreLead/6).toFixed(4)),
-  candyValue:Number(Math.tanh(bestRoute.goalCandy/4).toFixed(4)),
-  positionValue:Number(Math.tanh(Math.max(.2,bestRoute.goalReady*.45)/4).toFixed(4)),
-  antValue:Number(Math.tanh(bestRoute.goalAnt/8).toFixed(4)),
-  threatValue:Number(Math.tanh(-Math.max(0,bestRoute.goalEnemyCandy)/4).toFixed(4)),
-  winProbability:.92
- }:current;
+ const turnHypothesis=bestRoute?.requirement||current;
+ const victory=bestRoute?.requirement||current;
  const dCurrent=ahTelemetryStrategyCurveDistance(current,turnHypothesis);
- const dTurn=ahTelemetryStrategyCurveDistance(turnHypothesis,victory);
+ const dTurn=bestRoute?ahTelemetryStrategyCurveDistance(turnHypothesis,victory):0;
  const dDirect=ahTelemetryStrategyCurveDistance(current,victory);
  const curvature=Math.max(0,Math.min(1,(dCurrent+dTurn-dDirect)*1.8));
  const stability=Math.max(0,Math.min(1,1-curvature));
@@ -4341,9 +4366,12 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   Math.min(1,routeSwitches/3)*.08
  ).toFixed(4));
  return {
-  schema:'strategy-curve-v0.2',
-  current,turnHypothesis,victoryHypothesis:victory,
-  victoryRoutes:routePlans.map(r=>({id:r.id,kind:r.kind,horizon:r.horizon,progress:r.progress,progressAfter:r.progressAfter,distance:r.routeDistance,feasibility:r.feasibility,bestAction:r.bestAction})),
+  schema:'strategy-curve-v0.3',
+  current,
+  turnHypothesis,
+  victoryHypothesis:victory,
+  requirementGap:bestRoute?ahTelemetryStrategyCurveRequirementGap(state,p,bestRoute):null,
+  victoryRoutes:routePlans.map(r=>({id:r.id,kind:r.kind,horizon:r.horizon,progress:r.progress,progressAfter:r.progressAfter,distance:r.routeDistance,feasibility:r.feasibility,bestAction:r.bestAction,currentRequirementGap:r.currentRequirementGap,bestRequirementGap:r.bestRequirementGap})),
   selectedRoute:bestRoute?.id||null,
   routeSeparation:Number(routeSeparation.toFixed(4)),
   routeSwitches,
@@ -4590,6 +4618,10 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    decisionLine:(x.chosenAudit?.decisionLine||[]).map(a=>`${a.player||x.player}:${a.type}`).join(' → '),
    strategyCurve:{
     score:x.chosenAudit?.strategyCurveScore??null,
+    schema:x.chosenAudit?.strategyCurve?.schema??null,
+    selectedRoute:x.chosenAudit?.strategyCurve?.selectedRoute??null,
+    routeSeparation:x.chosenAudit?.strategyCurve?.routeSeparation??null,
+    routeSwitches:x.chosenAudit?.strategyCurve?.routeSwitches??null,
     curvature:x.chosenAudit?.strategyCurve?.curvature??null,
     stability:x.chosenAudit?.strategyCurve?.stability??null,
     currentToTurn:x.chosenAudit?.strategyCurve?.currentToTurnDistance??null,
