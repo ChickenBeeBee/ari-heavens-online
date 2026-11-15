@@ -3694,6 +3694,51 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   opponentBranchesPruned:Math.max(0,opponentBranchesBefore-opponentBranchesAfter)
  };
 }
+function ahTelemetryRecordOpponentPredictionOutcome(actor,action,before){
+ /*
+  * Preserve the moment where the prediction model is challenged by a real
+  * opponent action. This creates a reusable dataset for prediction misses
+  * and for the skeptical branch that was considered at the same time.
+  */
+ if(!AH_AI_TELEMETRY||actor===CPU||!action||!before)return;
+ try{
+  const ev=AH_AI_TELEMETRY.events||[];
+  let source=null;
+  for(let i=ev.length-1;i>=0;i--){
+   if(ev[i]?.type==='searchDecision'&&ev[i]?.actor===CPU){source=ev[i];break;}
+  }
+  const model=source?.immediate?.opponentModel;
+  if(!model)return;
+  const legal=ahTelemetryShadowLegalActions(before,actor)||[];
+  const key=JSON.stringify(action);
+  const ranked=legal.slice().sort((a,b)=>
+   Number(model.priors?.[JSON.stringify(b)]||0)-Number(model.priors?.[JSON.stringify(a)]||0)
+  );
+  const rank=ranked.findIndex(a=>JSON.stringify(a)===key);
+  const predictedProbability=Number(model.priors?.[key]||0);
+  const top=ranked.slice(0,Math.max(3,Number(model?.likely?.length)||5));
+  const skeptical=ranked.slice(Math.max(3,Number(model?.likely?.length)||5),Math.max(5,Math.min(8,ranked.length)));
+  const miss=!top.some(a=>JSON.stringify(a)===key);
+  const surprise=Math.max(0,Math.min(1,1-predictedProbability));
+  ahTelemetryRecord('opponentPredictionOutcome',{
+   actor,
+   action:ahTelemetryClone(action),
+   before:ahTelemetryClone(before),
+   after:ahTelemetryState(),
+   immediate:{
+    predictionSource:'searchDecision',
+    predictedProbability:Number(predictedProbability.toFixed(4)),
+    predictionRank:rank>=0?rank+1:null,
+    predictionTop:ahTelemetryClone(top),
+    skepticalCandidates:ahTelemetryClone(skeptical),
+    miss,
+    surprise:Number(surprise.toFixed(4)),
+    modelStrength:Number(model.strength||0),
+    sampleSize:Number(model.sampleSize||0)
+   }
+  });
+ }catch(_){}
+}
 function ahTelemetryAction(actor,action,before,immediate){
  const info=ahTelemetryClone(immediate||{});
  if(action?.type==='useCard')info.timingProfile=ahTelemetryCardTimingProfile(action.card,actor);
@@ -3707,6 +3752,7 @@ function ahTelemetryAction(actor,action,before,immediate){
   if(prediction)info.prediction=prediction;
  }
  ahTelemetryRecord('action',{actor,action,before,after:ahTelemetryState(),availableActions:ahTelemetryLegalActions(),immediate:info});
+ if(actor!==CPU&&before)ahTelemetryRecordOpponentPredictionOutcome(actor,action,before);
 }
 /*
  * CPU candidate telemetry.
@@ -4249,6 +4295,19 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    opponentPlayer:x.chosenAudit?.opponentPlayer||null,
    opponentReply:x.chosenAudit?.opponentReply?.type||null,
    continuation:x.chosenAudit?.continuation?.type||null,
+   prediction:{
+    strength:x.chosenAudit?.predictionStrength??null,
+    phase:x.chosenAudit?.predictionPhase??null,
+    cardPressure:x.chosenAudit?.predictionCardPressure??null,
+    boardBusy:x.chosenAudit?.predictionBoardBusy??null,
+    interaction:x.chosenAudit?.predictionInteraction??null
+   },
+   opponentBranches:{
+    before:x.chosenAudit?.opponentBranchesBefore??null,
+    after:x.chosenAudit?.opponentBranchesAfter??null,
+    pruned:x.chosenAudit?.opponentBranchesPruned??null
+   },
+   turnBudgets:x.chosenAudit?.turnBudgets??null,
    line:(x.chosenAudit?.principalVariation||[]).map(a=>`${a.player}:${a.type}`).join(' → ')
   }))
  };
