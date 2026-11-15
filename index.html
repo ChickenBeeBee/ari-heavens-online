@@ -3930,37 +3930,45 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
 }
 function ahTelemetryPilotSearchAudit(state,player,options={}){
  /*
-  * Pilot Search v0.3 — progressive budget discovery.
+  * Pilot Search v0.4 — parameter-driven progressive search controller.
   *
-  * The pilot is still audit-only. It does NOT directly control live CPU.
-  * Instead of guessing a budget from one shallow margin, it asks the same
-  * decision question at progressively larger budgets and stops when:
-  *   1) the Top-K ranking is stable,
-  *   2) the decision margin is stable enough, and
-  *   3) no new strategic information appeared.
+  * Audit only for now.  The controller does not decide a live CPU budget yet.
+  * It uses the strategic information already produced elsewhere in the AI:
+  * compression, phase, card pressure, board busy, interaction, battle threat,
+  * Strategy Curve separation, prediction strength, and the stability of the
+  * actual candidate decision.
   *
-  * This turns "recommendedBudget" from a threshold guess into an observed
-  * stopping point. The full search can still go to 300 when the decision
-  * genuinely keeps changing.
+  * Important: complexity raises the required confidence; it does NOT by itself
+  * force a large search.  A complex position can stop early when the decision
+  * is already stable, while a simple position can continue when the ranking
+  * keeps changing.
   */
  if(!state||!player)return null;
  const legal=ahTelemetryShadowLegalActions(state,player)||[];
  if(!legal.length)return null;
 
- const compression=ahTelemetryStrategicCompression(state,player);
- const profile=ahTelemetryPredictionProfile(state,player);
+ const compression=ahTelemetryStrategicCompression(state,player)||{};
+ const curve=ahTelemetryStrategyCurve(state,player)||{};
+ const profile=ahTelemetryPredictionProfile(state,player)||{};
  const opponentPlayer=player==='A'?'B':'A';
  const opponentModel=ahTelemetryOpponentActionModel(state,opponentPlayer,profile);
- const route=compression?.route||'neutral';
- const complexity=Number(compression?.strategicComplexity||0);
- const themeCount=Number(compression?.themeCount||0);
- const interaction=Number(compression?.interaction||0);
- const battleThreat=Number(compression?.battleThreat||0);
+
+ const complexity=Number(compression.strategicComplexity||0);
+ const themeCount=Number(compression.themeCount||0);
+ const interaction=Number(compression.interaction||0);
+ const battleThreat=Number(compression.battleThreat||0);
+ const boardBusy=Number(profile.boardBusy??compression.boardBusy??0);
+ const cardPressure=Number(profile.cardPressure??compression.cardPressure??0);
+ const phase=Number(profile.phase??compression.phase??0);
+ const strength=Number(profile.strength??0);
+ const routeSeparation=Number(curve.routeSeparation||0);
 
  const branchLimit=Math.max(2,Math.min(4,Number(options.branchLimit)||3));
  const pilotNodes=Math.max(4,Math.min(12,Number(options.pilotNodes)||8));
  const depth=Math.min(3,Math.max(2,Number(options.depth)||2));
- const probeBudgets=[32,80,160,300];
+ const probeBudgets=[pilotNodes,32,80,160,300]
+   .filter((v,i,a)=>a.indexOf(v)===i)
+   .sort((a,b)=>a-b);
 
  const cheap=legal.map((action,index)=>{
   const next=ahTelemetryShadowApply(state,action);
@@ -3992,11 +4000,14 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    nodes:Number(raw?.nodes||0),
    truncated:!!raw?.truncated,
    principalVariation:ahTelemetryClone(raw?.principalVariation||[]),
-   rolloutDepth:raw?.depth??null
+   rolloutDepth:raw?.depth??null,
+   predictionStrength:raw?.predictionStrength??profile?.strength??null,
+   opponentBranches:raw?.opponentBranchesAfter??null,
+   opponentBest:ahTelemetryClone(raw?.predictionBest||null),
+   skepticFoundBetter:!!raw?.skepticFoundBetter
   };
  };
 
- const rankSignature=list=>list.map(x=>x.action?.type||'unknown').join('>');
  const actionKey=a=>JSON.stringify({
   type:a?.type||null,
   node:a?.node||null,
@@ -4007,180 +4018,230 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   dir:a?.dir||null
  });
  const actionSignature=list=>list.map(x=>actionKey(x.action)).join('|');
-
- /*
-  * A small pilot is deliberately treated as an observation stage.
-  * The first stage answers "is there an obvious leader?".
-  * If not, only the most relevant survivors are expanded.
-  */
- let scored=branches.map(item=>runProbe(item.action,pilotNodes))
-   .sort((a,b)=>b.score-a.score);
- let previousRank=rankSignature(scored);
- let previousTop=actionSignature(scored.slice(0,3));
- const stages=[{
-  budget:pilotNodes,
-  candidates:scored,
-  rank:previousRank,
-  top:previousTop,
-  topScore:scored[0]?.score??0,
-  secondScore:scored[1]?.score??null,
-  margin:scored[0]&&scored[1]?Number((scored[0].score-scored[1].score).toFixed(4)):1,
-  scoreSpread:scored.length>1?Number((scored[0].score-scored[scored.length-1].score).toFixed(4)):0,
-  nodes:scored.reduce((n,x)=>n+Number(x.nodes||0),0),
-  novelty:0
- }];
-
- const strategicFingerprint=()=>{
-  const c=ahTelemetryStrategicCompression(state,player);
-  const curve=ahTelemetryStrategyCurve(state,player);
+ const rankSignature=list=>list.map(x=>actionKey(x.action)).join('>');
+ const pvSignature=list=>(list||[]).slice(0,4).map(a=>a?.type||'unknown').join('>');
+ const compressionFingerprint=()=>{
+  const c=ahTelemetryStrategicCompression(state,player)||{};
+  const sc=ahTelemetryStrategyCurve(state,player)||{};
   return {
-   route:c?.route||null,
-   themes:[...(c?.themes||[])].sort(),
-   themeCount:c?.themeCount||0,
-   complexity:Number(c?.strategicComplexity||0),
-   interaction:Number(c?.interaction||0),
-   battleThreat:Number(c?.battleThreat||0),
-   routeSeparation:Number(curve?.routeSeparation||0),
-   bestTurnAction:curve?.bestTurnAction?.type||null
+   route:c.route||null,
+   themes:[...(c.themes||[])].sort().join('|'),
+   themeCount:Number(c.themeCount||0),
+   complexity:Number(c.strategicComplexity||0),
+   interaction:Number(c.interaction||0),
+   battleThreat:Number(c.battleThreat||0),
+   routeSeparation:Number(sc.routeSeparation||0),
+   curveAction:sc.bestTurnAction?.type||null
   };
  };
- const baseFingerprint=strategicFingerprint();
+ const baseFingerprint=compressionFingerprint();
 
+ const stages=[];
+ let totalPilotNodes=0;
+ let previous=null;
  let stopBudget=null;
  let stopReason=null;
  let rankStable=false;
  let marginStable=false;
+ let scoreStable=false;
+ let strategicStable=true;
+ let opponentStable=true;
  let newStrategyFound=false;
- let totalPilotNodes=stages[0].nodes;
 
  for(let si=0;si<probeBudgets.length;si++){
   const budget=probeBudgets[si];
-  const survivors=stages[stages.length-1].candidates.slice(0,Math.min(3,branches.length));
-  const next=survivors.map(item=>runProbe(item.action,budget))
+  const source=si===0?branches:(previous?.candidates||branches).slice(0,branchLimit);
+  const candidates=source.map(item=>runProbe(item.action,budget))
     .sort((a,b)=>b.score-a.score);
 
-  const rank=rankSignature(next);
-  const top=actionSignature(next.slice(0,3));
-  const prev=stages[stages.length-1];
-  const margin=next[0]&&next[1]?Number((next[0].score-next[1].score).toFixed(4)):1;
-  const scoreDelta=Number(((next[0]?.score??0)-(prev.topScore??0)).toFixed(4));
-  const marginDelta=Number((margin-(prev.margin??0)).toFixed(4));
-  const top1Changed=actionKey(next[0]?.action)!==actionKey(prev.candidates[0]?.action);
-  const top2Changed=actionKey(next[1]?.action)!==actionKey(prev.candidates[1]?.action);
-  const rankChanged=rank!==prev.rank;
-  const candidateChanged=top!==prev.top;
-  const fingerprint=strategicFingerprint();
+  const top=candidates[0]||null;
+  const second=candidates[1]||null;
+  const margin=top&&second?Number((top.score-second.score).toFixed(4)):1;
+  const scoreDelta=previous?Number((top?.score-(previous.topScore||0)).toFixed(4)):0;
+  const marginDelta=previous?Number((margin-(previous.margin||0)).toFixed(4)):0;
+  const rank=rankSignature(candidates);
+  const topSignature=actionSignature(candidates.slice(0,3));
+  const top1Changed=!!previous&&actionKey(top?.action)!==actionKey(previous.candidates?.[0]?.action);
+  const rankChanged=!!previous&&rank!==previous.rank;
+  const candidateChanged=!!previous&&topSignature!==previous.topSignature;
+
+  const fp=compressionFingerprint();
   const strategicDelta=(
-   (fingerprint.route!==baseFingerprint.route?0.22:0)+
-   (fingerprint.bestTurnAction!==baseFingerprint.bestTurnAction?0.16:0)+
-   (fingerprint.themeCount!==baseFingerprint.themeCount?0.16:0)+
-   (fingerprint.complexity-baseFingerprint.complexity>.08?0.14:0)+
-   (fingerprint.interaction-baseFingerprint.interaction>.08?0.14:0)+
-   (fingerprint.battleThreat-baseFingerprint.battleThreat>.08?0.18:0)
+   (fp.route!==baseFingerprint.route?.22:0)+
+   (fp.themes!==baseFingerprint.themes?.12:0)+
+   (fp.themeCount!==baseFingerprint.themeCount?.10:0)+
+   (Math.abs(fp.complexity-baseFingerprint.complexity)>=.08?.12:0)+
+   (Math.abs(fp.interaction-baseFingerprint.interaction)>=.08?.14:0)+
+   (Math.abs(fp.battleThreat-baseFingerprint.battleThreat)>=.08?.16:0)+
+   (Math.abs(fp.routeSeparation-baseFingerprint.routeSeparation)>=.04?.08:0)+
+   (fp.curveAction!==baseFingerprint.curveAction?.06:0)
   );
+  const pvChanged=!!previous&&pvSignature(top?.principalVariation)!==pvSignature(previous.candidates?.[0]?.principalVariation);
+  const opponentChanged=!!previous&&JSON.stringify(top?.opponentBest||null)!==JSON.stringify(previous.candidates?.[0]?.opponentBest||null);
   const novelty=Number(Math.min(1,
    strategicDelta+
-   (top1Changed?.18:0)+
+   (top1Changed?.20:0)+
    (candidateChanged?.14:0)+
-   ((next[0]?.principalVariation?.length||0)> (prev.candidates[0]?.principalVariation?.length||0)+1 ? .10:0)
+   (pvChanged?.10:0)+
+   (opponentChanged?.08:0)+
+   (top?.skepticFoundBetter?.12:0)
   ).toFixed(3));
 
-  rankStable=!rankChanged && !top1Changed;
   /*
-   * Margin stability is intentionally relative, not just "score delta is
-   * small". A top action that keeps winning by a similar amount is stable;
-   * a tiny margin that changes sign is not.
+   * Parameter-driven decision thresholds.
+   * Higher complexity / interaction / battle threat / card pressure means we
+   * require more evidence before stopping.  Phase and prediction strength
+   * matter because meaningful opponent interaction is more valuable in the
+   * middle of a game than in a nearly settled opening/endgame.
    */
-  marginStable=Math.abs(marginDelta)<=.02 && margin>=.025 && !top1Changed;
+  const decisionPressure=Math.max(0,Math.min(1,
+   complexity*.26+
+   interaction*.16+
+   battleThreat*.16+
+   cardPressure*.12+
+   boardBusy*.10+
+   routeSeparation*.08+
+   strength*.06+
+   (themeCount>=3?.06:0)
+  ));
+  const requiredMargin=Number(Math.max(.018,
+   .035+decisionPressure*.035
+  ).toFixed(4));
+  const scoreTolerance=Number(Math.max(.012,
+   .028-decisionPressure*.012
+  ).toFixed(4));
+
+  rankStable=!!previous&&!rankChanged&&!top1Changed;
+  marginStable=!!previous&&Math.abs(marginDelta)<=scoreTolerance&&margin>=requiredMargin&&!top1Changed;
+  scoreStable=!!previous&&Math.abs(scoreDelta)<=scoreTolerance;
+  strategicStable=novelty<.18;
+  opponentStable=!opponentChanged;
   newStrategyFound=novelty>=.34;
+
+  /*
+   * We stop only when the decision is stable AND the search stopped revealing
+   * strategically relevant information.  For low-pressure positions the
+   * evidence requirement is lighter; for high-pressure positions it is
+   * deliberately stricter.
+   */
+  const stableEnough=(
+   rankStable&&
+   marginStable&&
+   scoreStable&&
+   strategicStable&&
+   opponentStable
+  );
+  const lowPressureFastStop=(
+   decisionPressure<.22&&
+   rankStable&&
+   margin>=requiredMargin&&
+   scoreStable&&
+   strategicStable
+  );
 
   const stage={
    budget,
-   candidates:next,
+   candidates,
    rank,
-   top,
-   topScore:next[0]?.score??0,
-   secondScore:next[1]?.score??null,
+   topSignature,
+   topScore:top?.score??0,
+   secondScore:second?.score??null,
    margin,
    marginDelta,
    scoreDelta,
-   scoreSpread:next.length>1?Number((next[0].score-next[next.length-1].score).toFixed(4)):0,
+   scoreSpread:candidates.length>1?Number((top.score-candidates[candidates.length-1].score).toFixed(4)):0,
    top1Changed,
-   top2Changed,
    rankChanged,
    candidateChanged,
    rankStable,
    marginStable,
+   scoreStable,
+   strategicStable,
+   opponentStable,
    novelty,
    strategicNovelty:newStrategyFound,
-   nodes:next.reduce((n,x)=>n+Number(x.nodes||0),0),
-   cumulativeNodes:totalPilotNodes+next.reduce((n,x)=>n+Number(x.nodes||0),0),
-   truncated:next.some(x=>x.truncated)
+   decisionPressure:Number(decisionPressure.toFixed(3)),
+   requiredMargin,
+   scoreTolerance,
+   nodes:candidates.reduce((n,x)=>n+Number(x.nodes||0),0),
+   cumulativeNodes:totalPilotNodes+candidates.reduce((n,x)=>n+Number(x.nodes||0),0),
+   truncated:candidates.some(x=>x.truncated),
+   pvChanged,
+   opponentChanged
   };
   stages.push(stage);
   totalPilotNodes=stage.cumulativeNodes;
+  previous=stage;
 
-  if(newStrategyFound){
+  if(si>0&&newStrategyFound){
    stopBudget=budget;
    stopReason='new_strategy_found';
    break;
   }
-  if(rankStable&&marginStable){
+  if(si>0&&stableEnough){
    stopBudget=budget;
-   stopReason='rank_stable';
+   stopReason='rank_stable_margin_safe';
    break;
   }
-
-  previousRank=rank;
-  previousTop=top;
+  if(si>0&&lowPressureFastStop){
+   stopBudget=budget;
+   stopReason='low_pressure_stable';
+   break;
+  }
  }
 
  if(stopBudget==null){
-  stopBudget=300;
+  stopBudget=probeBudgets[probeBudgets.length-1];
   stopReason='max_budget_reached';
  }
 
  const lastStage=stages[stages.length-1];
- const margin=Number(lastStage.margin??0);
- const scoreSpread=Number(lastStage.scoreSpread??0);
- const uncertainty=Math.min(1,
-  (rankStable?.18:0)+
-  (margin<.025?.34:margin<.05?.20:margin<.09?.10:0)+
-  (complexity*.22)+
-  (themeCount>=4?.14:0)+
-  (interaction>=.35?.14:0)+
-  (battleThreat>=.25?.10:0)+
-  (stopReason==='max_budget_reached'?.18:0)+
-  (newStrategyFound?.12:0)
- );
+ const uncertainty=Math.max(0,Math.min(1,
+  .12+
+  (lastStage.rankChanged?.28:0)+
+  (lastStage.top1Changed?.18:0)+
+  (lastStage.margin<lastStage.requiredMargin?.18:0)+
+  (!lastStage.scoreStable?.10:0)+
+  (lastStage.novelty>=.18?.08:0)+
+  (decisionPressure*.16)+
+  (lastStage.truncated&&stopReason==='max_budget_reached'?.10:0)
+ ));
  const stability=Math.max(0,Math.min(1,
-  rankStable&&marginStable?1:
-  rankStable?.78:
-  margin>=.12?.72:
-  margin>=.08?.58:
-  margin>=.05?.42:.20
+  lastStage.rankStable&&lastStage.marginStable&&lastStage.scoreStable?1:
+  lastStage.rankStable&&lastStage.marginStable?.86:
+  lastStage.rankStable?.72:
+  lastStage.margin>=lastStage.requiredMargin?.56:.20
  ));
 
  return {
-  schema:'pilot-search-audit-v0.3',
+  schema:'pilot-search-audit-v0.4',
   pilotNodes,
   branchLimit,
   depth,
-  route,
+  route:compression.route||'neutral',
   strategicComplexity:complexity,
   themeCount,
   interaction,
   battleThreat,
-  scoreMargin:margin,
-  scoreSpread,
+  boardBusy,
+  cardPressure,
+  phase,
+  strength,
+  routeSeparation,
+  decisionPressure:Number(decisionPressure.toFixed(3)),
+  scoreMargin:Number(lastStage.margin.toFixed(4)),
+  scoreSpread:Number(lastStage.scoreSpread.toFixed(4)),
   stability:Number(stability.toFixed(3)),
   novelty:Number(lastStage.novelty||0),
   uncertainty:Number(uncertainty.toFixed(3)),
   recommendedBudget:stopBudget,
   stopBudget,
   stopReason,
-  rankStable,
-  marginStable,
+  rankStable:!!lastStage.rankStable,
+  marginStable:!!lastStage.marginStable,
+  scoreStable:!!lastStage.scoreStable,
+  strategicStable:!!lastStage.strategicStable,
+  opponentStable:!!lastStage.opponentStable,
   newStrategyFound,
   totalPilotNodes,
   branches:lastStage.candidates,
@@ -4196,7 +4257,11 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    top1Changed:x.top1Changed??false,
    rankStable:x.rankStable??false,
    marginStable:x.marginStable??false,
+   scoreStable:x.scoreStable??false,
+   strategicStable:x.strategicStable??false,
+   opponentStable:x.opponentStable??false,
    novelty:x.novelty??0,
+   decisionPressure:x.decisionPressure??0,
    nodes:x.nodes,
    cumulativeNodes:x.cumulativeNodes??x.nodes,
    truncated:!!x.truncated
