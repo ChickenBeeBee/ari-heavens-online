@@ -4451,6 +4451,70 @@ function ahTelemetryStrategyCurveActionTransitions(state,player,baseCurve=null,l
  }).filter(x=>x.transition?.valid);
 }
 
+/*
+ * Strategy Curve v0.5:
+ * turn the raw predicted-vs-actual transition into compact diagnostic
+ * evidence.  This remains audit-only; it never changes live CPU behavior.
+ */
+function ahTelemetryStrategyCurvePredictionAuditStats(){
+ return {
+  pairs:0,
+  actionMatches:0,
+  routeMatches:0,
+  errorSum:0,
+  progressAbsError:0,
+  distanceAbsError:0,
+  curvatureAbsError:0,
+  stabilityAbsError:0,
+  byPhase:{},
+  byRoute:{}
+ };
+}
+function ahTelemetryStrategyCurvePredictionAuditRecord(stats,predicted,actual,error){
+ if(!stats||!predicted||!actual)return;
+ const phase=predicted.before?.phase??predicted.after?.phase??null;
+ const route=predicted.routeAfter||predicted.routeBefore||'unknown';
+ stats.pairs++;
+ if(predicted.action?.type&&actual.action?.type&&predicted.action.type===actual.action.type)stats.actionMatches++;
+ if(predicted.routeAfter===actual.routeAfter)stats.routeMatches++;
+ stats.errorSum+=Number(error||0);
+ stats.progressAbsError+=Math.abs(Number(predicted.progressDelta||0)-Number(actual.progressDelta||0));
+ stats.distanceAbsError+=Math.abs(Number(predicted.distanceDelta||0)-Number(actual.distanceDelta||0));
+ stats.curvatureAbsError+=Math.abs(Number(predicted.curvatureDelta||0)-Number(actual.curvatureDelta||0));
+ stats.stabilityAbsError+=Math.abs(Number(predicted.stabilityDelta||0)-Number(actual.stabilityDelta||0));
+ const bump=(obj,key)=>{
+  const k=String(key??'unknown');
+  if(!obj[k])obj[k]={pairs:0,actionMatches:0,routeMatches:0,errorSum:0};
+  obj[k].pairs++;
+  if(predicted.action?.type&&actual.action?.type&&predicted.action.type===actual.action.type)obj[k].actionMatches++;
+  if(predicted.routeAfter===actual.routeAfter)obj[k].routeMatches++;
+  obj[k].errorSum+=Number(error||0);
+ };
+ bump(stats.byPhase,phase);
+ bump(stats.byRoute,route);
+}
+function ahTelemetryStrategyCurvePredictionAuditFinalize(stats){
+ const p=Math.max(1,Number(stats?.pairs||0));
+ const finishGroup=obj=>Object.fromEntries(Object.entries(obj||{}).map(([k,v])=>[k,{
+  pairs:v.pairs,
+  actionAccuracy:Number((v.actionMatches/Math.max(1,v.pairs)).toFixed(3)),
+  routeAccuracy:Number((v.routeMatches/Math.max(1,v.pairs)).toFixed(3)),
+  meanError:Number((v.errorSum/Math.max(1,v.pairs)).toFixed(4))
+ }]));
+ return {
+  pairs:Number(stats?.pairs||0),
+  actionAccuracy:Number(((stats?.actionMatches||0)/p).toFixed(3)),
+  routeAccuracy:Number(((stats?.routeMatches||0)/p).toFixed(3)),
+  meanPredictionError:Number(((stats?.errorSum||0)/p).toFixed(4)),
+  meanProgressAbsError:Number(((stats?.progressAbsError||0)/p).toFixed(4)),
+  meanDistanceAbsError:Number(((stats?.distanceAbsError||0)/p).toFixed(4)),
+  meanCurvatureAbsError:Number(((stats?.curvatureAbsError||0)/p).toFixed(4)),
+  meanStabilityAbsError:Number(((stats?.stabilityAbsError||0)/p).toFixed(4)),
+  byPhase:finishGroup(stats?.byPhase),
+  byRoute:finishGroup(stats?.byRoute)
+ };
+}
+
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
@@ -4513,10 +4577,11 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   *   2) shadow state transition,
   *   3) candidate ranking.
   */
- const maxSteps=Math.max(1,Math.min(20,Number(options.maxSteps)||6));
+ const maxSteps=Math.max(1,Math.min(30,Number(options.maxSteps)||12));
  const searchDepth=Math.max(1,Math.min(3,Number(options.depth)||2));
  let state=ahTelemetrySelfPlayInitialState(String(seed),options);
  const rows=[];
+ const curvePredictionAudit=ahTelemetryStrategyCurvePredictionAuditStats();
  let pendingCurveObservation=null;
  let guard=0;
  while(!state.result&&guard++<maxSteps){
@@ -4571,6 +4636,12 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    pendingCurveObservation.row.chosenAudit= pendingCurveObservation.row.chosenAudit||{};
    pendingCurveObservation.row.chosenAudit.actualCurveTransition=actual;
    pendingCurveObservation.row.chosenAudit.predictionError=error;
+   ahTelemetryStrategyCurvePredictionAuditRecord(
+    curvePredictionAudit,
+    pendingCurveObservation.predicted,
+    actual,
+    error
+   );
   }
 
    /*
@@ -4672,17 +4743,25 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   ahTelemetrySelfPlayTerminal(state);
   if(choice.action.type==='endTurn')continue;
  }
- const out={schema:'selfplay-audit-v1',seed:String(seed),firstPlayer:state.first,steps:rows,result:state.result||null};
+ const out={
+  schema:'selfplay-audit-v1',
+  seed:String(seed),
+  firstPlayer:state.first,
+  steps:rows,
+  result:state.result||null,
+  strategyCurvePredictionAudit:ahTelemetryStrategyCurvePredictionAuditFinalize(curvePredictionAudit)
+ };
  try{localStorage.setItem('ah_ai_selfplay_audit_v1',JSON.stringify(out));}catch(_){}
  return out;
 }
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
- const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??6,depth:options.depth??2});
+ const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v1',
+  schema:'selfplay-audit-summary-v2',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
+  strategyCurvePredictionAudit:out.strategyCurvePredictionAudit||null,
   steps:out.steps.map(x=>({
    turn:x.turn,
    player:x.player,
