@@ -4401,6 +4401,56 @@ function ahTelemetryStrategyCurveCandidate(state,player,action,baseCurve){
  return {score,curve};
 }
 
+/* Strategy Curve v0.4 — transition/deformation telemetry.
+ * Shadow-only: the live decision/search remains authoritative.
+ * The curve is treated as a hypothesis about direction, not as a target.
+ */
+function ahTelemetryStrategyCurveTransition(state,player,action,baseCurve=null){
+ const before=baseCurve||ahTelemetryStrategyCurve(state,player);
+ const next=ahTelemetryShadowApply(state,action);
+ if(!next)return {valid:false,before,after:null};
+ const after=ahTelemetryStrategyCurve(next,player);
+ const routeBefore=before?.selectedRoute||null;
+ const routeAfter=after?.selectedRoute||null;
+ const routeChanged=routeBefore!==routeAfter;
+ return {
+  valid:true,
+  routeBefore,
+  routeAfter,
+  routeChanged,
+  progressDelta:Number(((after.bestTurnProgress||0)-(before.bestTurnProgress||0)).toFixed(4)),
+  distanceDelta:Number(((before.directToVictoryDistance||0)-(after.directToVictoryDistance||0)).toFixed(4)),
+  curvatureDelta:Number(((after.curvature||0)-(before.curvature||0)).toFixed(4)),
+  stabilityDelta:Number(((after.stability||0)-(before.stability||0)).toFixed(4)),
+  scoreDelta:Number(((after.score||0)-(before.score||0)).toFixed(4)),
+  routeSeparationDelta:Number(((after.routeSeparation||0)-(before.routeSeparation||0)).toFixed(4)),
+  before,after
+ };
+}
+function ahTelemetryStrategyCurveTransitionError(predicted,actual){
+ if(!predicted||!actual)return null;
+ const routeMismatch=predicted.routeAfter!==actual.routeAfter?1:0;
+ const progress=Math.abs(Number(predicted.progressDelta||0)-Number(actual.progressDelta||0));
+ const distance=Math.abs(Number(predicted.distanceDelta||0)-Number(actual.distanceDelta||0));
+ const curvature=Math.abs(Number(predicted.curvatureDelta||0)-Number(actual.curvatureDelta||0));
+ const stability=Math.abs(Number(predicted.stabilityDelta||0)-Number(actual.stabilityDelta||0));
+ return Number(Math.min(1,
+  routeMismatch*.42+
+  Math.min(1,progress/.25)*.18+
+  Math.min(1,distance/.25)*.18+
+  Math.min(1,curvature/.12)*.10+
+  Math.min(1,stability/.20)*.12
+ ).toFixed(4));
+}
+function ahTelemetryStrategyCurveActionTransitions(state,player,baseCurve=null,limit=12){
+ const legal=ahTelemetryShadowLegalActions(state,player)||[];
+ const base=baseCurve||ahTelemetryStrategyCurve(state,player);
+ return legal.slice(0,Math.max(1,limit)).map(action=>{
+  const t=ahTelemetryStrategyCurveTransition(state,player,action,base);
+  return {action:ahTelemetryClone(action),transition:t};
+ }).filter(x=>x.transition?.valid);
+}
+
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
