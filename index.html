@@ -3997,8 +3997,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   return {
    action:ahTelemetryClone(action),
    score:Number((raw?.value??0).toFixed(4)),
-   nodes:Number(raw?.nodes||0),
-   truncated:!!raw?.truncated,
+   nodes:Number(raw?.nodes||0),   truncated:!!raw?.truncated,
    principalVariation:ahTelemetryClone(raw?.principalVariation||[]),
    rolloutDepth:raw?.depth??null,
    predictionStrength:raw?.predictionStrength??profile?.strength??null,
@@ -4228,7 +4227,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   phase,
   strength,
   routeSeparation,
-  decisionPressure:Number(decisionPressure.toFixed(3)),
+  decisionPressure:Number((lastStage.decisionPressure||0).toFixed(3)),
   scoreMargin:Number(lastStage.margin.toFixed(4)),
   scoreSpread:Number(lastStage.scoreSpread.toFixed(4)),
   stability:Number(stability.toFixed(3)),
@@ -7997,8 +7996,7 @@ async function createPeer(peerId,role){
         guestRetryCount=0;
         enableOnlineButtons();
         setOnlineStatus('そのIDの部屋が見つかりません。相手が部屋を作成済みか、IDが正しいか確認してください。');
-      }
-    }else if(type==='network'||type==='server-error'){
+      }    }else if(type==='network'||type==='server-error'){
       enableOnlineButtons();
       setOnlineStatus('PeerJSの通信サーバーに接続できません。CDNの読み込みは成功しましたが、通信サーバーへの接続が失敗しました。ネットワーク/VPN/フィルターを確認してください。');
     }else{
