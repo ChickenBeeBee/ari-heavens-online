@@ -4255,7 +4255,16 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      principalVariation:rollout?.principalVariation??[],
      rolloutDepth:rollout?.depth??null,
      rolloutNodes:rollout?.nodes??null,
-     rolloutTruncated:!!rollout?.truncated
+     rolloutTruncated:!!rollout?.truncated,
+     predictionStrength:rollout?.predictionStrength??null,
+     predictionPhase:rollout?.predictionPhase??null,
+     predictionCardPressure:rollout?.predictionCardPressure??null,
+     predictionBoardBusy:rollout?.predictionBoardBusy??null,
+     predictionInteraction:rollout?.predictionInteraction??null,
+     opponentBranchesBefore:rollout?.opponentBranchesBefore??null,
+     opponentBranchesAfter:rollout?.opponentBranchesAfter??null,
+     opponentBranchesPruned:rollout?.opponentBranchesPruned??null,
+     turnBudgets:rollout?.turnBudgets??null
     };
    })():null;
   rows.push({
