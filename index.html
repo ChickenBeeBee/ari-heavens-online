@@ -4160,7 +4160,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    opponentStable,
    novelty,
    strategicNovelty:newStrategyFound,
-   decisionPressure:Number(decisionPressure.toFixed(3)),
+   decisionPressure:Number(lastStage.decisionPressure||0),
    requiredMargin,
    scoreTolerance,
    nodes:candidates.reduce((n,x)=>n+Number(x.nodes||0),0),
@@ -4203,7 +4203,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   (lastStage.margin<lastStage.requiredMargin?.18:0)+
   (!lastStage.scoreStable?.10:0)+
   (lastStage.novelty>=.18?.08:0)+
-  (finalDecisionPressure*.16)+
+  (Number(lastStage.decisionPressure||0)*.16)+
   (lastStage.truncated&&stopReason==='max_budget_reached'?.10:0)
  ));
  const stability=Math.max(0,Math.min(1,
