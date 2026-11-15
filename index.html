@@ -4373,6 +4373,56 @@ function ahTelemetryStrategyCurveCandidate(state,player,action,baseCurve){
  return {score,curve};
 }
 
+function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
+ const legal=ahTelemetryShadowLegalActions(state,player);
+ if(!legal.length)return null;
+ const rootUtility=ahTelemetryShadowUtility(state,player);
+ const strategyCurve=options.strategyCurve===false?null:ahTelemetryStrategyCurve(state,player,options);
+ const strategyCurveWeight=Number.isFinite(Number(options.strategyCurveWeight))?Number(options.strategyCurveWeight):0.08;
+ const quick=legal.map((action,index)=>{
+  const next=ahTelemetryShadowApply(state,action);
+  if(!next)return null;
+  const immediate=ahTelemetryShadowUtility(next,player)-rootUtility;
+  const wp=ahTelemetryWinProbability(next,player);
+  let setup=0;
+  if(action.type==='carryCandy'){
+   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+   const pts=c?.bomb?4:(c?.points||0);
+   setup=action.target===player+'1'&&!c?.bomb?pts:pts*.18;
+  }else if(action.type==='attachAnt'){
+   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
+   setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
+  }else if(action.type==='placeAnt'){
+   setup=action.node===player+'1'?.25:action.node===player+'w'?.18:0;
+  }else if(action.type==='startBattle'){
+   setup=Math.max(0,immediate)*.25;
+  }else if(action.type==='useCard'){
+   setup=Math.max(0,immediate)*.15;
+  }
+  const actionCost=action.type==='endTurn'?0:-.08;
+  const base=immediate+setup+actionCost+(wp-.5)*.45;
+  const curveEval=strategyCurve?ahTelemetryStrategyCurveCandidate(state,player,action,strategyCurve):null;
+  const curveBonus=curveEval?curveEval.score*strategyCurveWeight:0;
+  return {index,action,next,immediate,base,score:Number((base+curveBonus).toFixed(4)),strategyCurveScore:curveEval?.score??null,strategyCurve:curveEval?.curve??null};
+ }).filter(Boolean).sort((a,b)=>b.score-a.score);
+ const shortlist=quick.slice(0,Math.min(8,quick.length));
+ const remaining=Math.max(1,Math.ceil((MAXTURN-Number(state.turn||0))/2));
+ const searchDepth=Math.min(5,Math.max(3,remaining<=2?remaining+1:depth));
+ let best=null;
+ for(const item of shortlist){
+  const raw=ahTelemetryRollout(item.action,player,searchDepth,state,options);
+  if(!raw){
+   if(!best||item.base>best.score)best={action:item.action,score:item.base,rollout:null,immediate:item.immediate,base:item.base};
+   continue;
+  }
+  const futureWeight=item.action.type==='endTurn'?0.16:0.42;
+  const finalScore=item.score+raw.value*futureWeight;
+  if(!best||finalScore>best.score){
+   best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base,strategyCurveScore:item.strategyCurveScore??null,strategyCurve:item.strategyCurve??null};
+  }
+ }
+ return best||{action:legal[0],score:0,rollout:null,immediate:0,base:0};
+}
 /* Compatibility alias for existing self-play callers and diagnostics. */
 function ahTelemetrySelfPlayChoose(state,player,depth=3){
  return ahTelemetryVeryHardShadowChoose(state,player,depth);
