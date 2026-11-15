@@ -4366,7 +4366,7 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
   }
   /* Future value is now a first-class decision signal. */
   const futureWeight=item.action.type==='endTurn'?0.16:0.42;
-  const finalScore=item.base+raw.value*futureWeight+(item.strategyCurveScore??0)*strategyCurveWeight;
+  const finalScore=item.score+raw.value*futureWeight;
   if(!best||finalScore>best.score){
    best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base,strategyCurveScore:item.strategyCurveScore??null,strategyCurve:item.strategyCurve??null};
   }
