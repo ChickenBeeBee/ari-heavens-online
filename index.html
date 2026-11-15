@@ -4288,7 +4288,16 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      opponentBranchesBefore:rollout?.opponentBranchesBefore??null,
      opponentBranchesAfter:rollout?.opponentBranchesAfter??null,
      opponentBranchesPruned:rollout?.opponentBranchesPruned??null,
-     turnBudgets:rollout?.turnBudgets??null
+     turnBudgets:rollout?.turnBudgets??null,
+     predictionNodes:rollout?.predictionNodes??null,
+     skepticNodes:rollout?.skepticNodes??null,
+     predictionCandidates:rollout?.predictionCandidates??null,
+     skepticCandidates:rollout?.skepticCandidates??null,
+     wideningSteps:rollout?.wideningSteps??null,
+     skepticFoundBetter:!!rollout?.skepticFoundBetter,
+     predictionBest:rollout?.predictionBest??null,
+     skepticBest:rollout?.skepticBest??null,
+     searchExpansionReason:rollout?.searchExpansionReason??[]
     };
    })():null;
   rows.push({
@@ -4339,6 +4348,17 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     before:x.chosenAudit?.opponentBranchesBefore??null,
     after:x.chosenAudit?.opponentBranchesAfter??null,
     pruned:x.chosenAudit?.opponentBranchesPruned??null
+   },
+   searchExpansion:{
+    predictionNodes:x.chosenAudit?.predictionNodes??null,
+    skepticNodes:x.chosenAudit?.skepticNodes??null,
+    predictionCandidates:x.chosenAudit?.predictionCandidates??null,
+    skepticCandidates:x.chosenAudit?.skepticCandidates??null,
+    wideningSteps:x.chosenAudit?.wideningSteps??null,
+    skepticFoundBetter:!!x.chosenAudit?.skepticFoundBetter,
+    predictionBest:x.chosenAudit?.predictionBest??null,
+    skepticBest:x.chosenAudit?.skepticBest??null,
+    reasons:x.chosenAudit?.searchExpansionReason??[]
    },
    turnBudgets:x.chosenAudit?.turnBudgets??null,
    line:(x.chosenAudit?.principalVariation||[]).map(a=>`${a.player}:${a.type}`).join(' → ')
