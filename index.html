@@ -3928,6 +3928,100 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
  const total=b.immediate+b.deny+b.survival+b.setup+b.actionCost;
  return {score:Number(total.toFixed(4)),breakdown:b};
 }
+function ahTelemetryPilotSearchAudit(state,player,options={}){
+ /*
+  * Audit-only adaptive pilot. It does not alter live CPU behavior.
+  * The pilot asks a deliberately small question first:
+  *   "Does the answer look stable enough to stop, or is more search justified?"
+  * It returns a recommended budget, not a forced budget.
+  */
+ if(!state||!player)return null;
+ const legal=ahTelemetryShadowLegalActions(state,player)||[];
+ if(!legal.length)return null;
+ const compression=ahTelemetryStrategicCompression(state,player);
+ const quick=legal.map((action,index)=>{
+  const next=ahTelemetryShadowApply(state,action);
+  if(!next)return null;
+  const before=ahTelemetryShadowUtilityBreakdown(state,player);
+  const after=ahTelemetryShadowUtilityBreakdown(next,player);
+  const immediate=(
+   (after.scoreDiff||0)-(before.scoreDiff||0)+
+   (after.candyValue||0)-(before.candyValue||0)+
+   (after.positionValue||0)-(before.positionValue||0)+
+   (after.antValue||0)-(before.antValue||0)+
+   (after.threatValue||0)-(before.threatValue||0)+
+   (after.winProbability||0)-(before.winProbability||0)+
+   (after.terminalValue||0)-(before.terminalValue||0)
+  );
+  return {index,action,cheap:Number(immediate.toFixed(4))};
+ }).filter(Boolean).sort((a,b)=>b.cheap-a.cheap);
+ const branchLimit=Math.max(2,Math.min(3,Number(options.branchLimit)||3));
+ const branches=quick.slice(0,branchLimit);
+ const pilotNodes=Math.max(4,Math.min(12,Number(options.pilotNodes)||8));
+ const profile=ahTelemetryPredictionProfile(state,player);
+ const opponentModel=ahTelemetryOpponentActionModel(state,player==='A'?'B':'A',profile);
+ const depth=Math.min(3,Math.max(2,Number(options.depth)||2));
+ const scored=branches.map(item=>{
+  const raw=ahTelemetryRollout(item.action,player,depth,null,{
+   maxNodes:pilotNodes,
+   predictionProfile:profile,
+   opponentModel
+  });
+  const value=raw?.value??item.cheap;
+  return {
+   action:ahTelemetryClone(item.action),
+   score:Number(value.toFixed(4)),
+   nodes:Number(raw?.nodes||0),
+   truncated:!!raw?.truncated
+  };
+ }).sort((a,b)=>b.score-a.score);
+ const top=scored[0]||null,second=scored[1]||null;
+ const margin=top&&second?Number((top.score-second.score).toFixed(4)):1;
+ const scoreSpread=scored.length>1
+  ?Number((scored[0].score-scored[scored.length-1].score).toFixed(4)):0;
+ const route= compression?.route||'neutral';
+ const complexity=Number(compression?.strategicComplexity||0);
+ const uncertainty=Math.min(1,
+   (margin<.035?.36:margin<.07?.20:0)+
+   (complexity*.22)+
+   ((compression?.themeCount||0)>=4?.14:0)+
+   ((compression?.interaction||0)>=.35?.14:0)+
+   ((compression?.battleThreat||0)>=.25?.10:0)
+ );
+ let recommendedBudget=32;
+ let reason='pilot_stable';
+ if(uncertainty>=.58||margin<.025){
+  recommendedBudget=300; reason='pilot_high_uncertainty';
+ }else if(uncertainty>=.40||margin<.05){
+  recommendedBudget=160; reason='pilot_needs_deeper_search';
+ }else if(uncertainty>=.24||margin<.09){
+  recommendedBudget=80; reason='pilot_moderate_uncertainty';
+ }
+ return {
+  schema:'pilot-search-audit-v0.1',
+  pilotNodes,
+  branchLimit,
+  depth,
+  route,
+  strategicComplexity:complexity,
+  themeCount:compression?.themeCount||0,
+  interaction:compression?.interaction??0,
+  battleThreat:compression?.battleThreat??0,
+  scoreMargin:margin,
+  scoreSpread,
+  uncertainty:Number(uncertainty.toFixed(3)),
+  recommendedBudget,
+  reason,
+  branches:scored,
+  profile:{
+   strength:profile?.strength??null,
+   phase:profile?.phase??null,
+   cardPressure:profile?.cardPressure??null,
+   boardBusy:profile?.boardBusy??null,
+   interaction:profile?.interaction??null
+  }
+ };
+}
 function ahTelemetryLiveSearchStep(){
  if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU||S.over)return false;
  const legal=getLegalActions(CPU);
@@ -4811,6 +4905,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      predictionInteraction:rollout?.predictionInteraction??null,
      strategicCompression:ahTelemetryStrategicCompression(state,p),
      strategicCompressionTransition:ahTelemetryStrategicCompressionTransition(state,p,choice.action,ahTelemetryStrategicCompression(state,p)),
+     pilotSearch:ahTelemetryPilotSearchAudit(state,p,{pilotNodes:8,branchLimit:3,depth:2}),
      predictionAuditContext:{
       strength:rollout?.predictionStrength??null,
       phase:rollout?.predictionPhase??null,
@@ -4891,7 +4986,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   if(choice.action.type==='endTurn')continue;
  }
  const out={
-  schema:'selfplay-audit-v3',
+  schema:'selfplay-audit-v4',
   seed:String(seed),
   firstPlayer:state.first,
   steps:rows,
@@ -4904,7 +4999,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v4',
+  schema:'selfplay-audit-summary-v5',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -4930,6 +5025,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    predictionAuditContext:x.chosenAudit?.predictionAuditContext??null,
    strategicCompression:x.chosenAudit?.strategicCompression??null,
    strategicCompressionTransition:x.chosenAudit?.strategicCompressionTransition??null,
+   pilotSearch:x.chosenAudit?.pilotSearch??null,
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
    opponentBranches:{
