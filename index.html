@@ -4418,6 +4418,7 @@ function ahTelemetryStrategyCurveTransition(state,player,action,baseCurve=null){
   routeBefore,
   routeAfter,
   routeChanged,
+  actionType: action?.type||null,
   progressDelta:Number(((after.bestTurnProgress||0)-(before.bestTurnProgress||0)).toFixed(4)),
   distanceDelta:Number(((before.directToVictoryDistance||0)-(after.directToVictoryDistance||0)).toFixed(4)),
   curvatureDelta:Number(((after.curvature||0)-(before.curvature||0)).toFixed(4)),
@@ -4643,8 +4644,10 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     curvePredictionAudit,
     pendingCurveObservation.predicted,
     actual,
-    error
+    error,
+    pendingCurveObservation.predictionContext||null
    );
+
   }
 
    /*
@@ -4683,6 +4686,13 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      predictionCardPressure:rollout?.predictionCardPressure??null,
      predictionBoardBusy:rollout?.predictionBoardBusy??null,
      predictionInteraction:rollout?.predictionInteraction??null,
+     predictionAuditContext:{
+      strength:rollout?.predictionStrength??null,
+      phase:rollout?.predictionPhase??null,
+      cardPressure:rollout?.predictionCardPressure??null,
+      boardBusy:rollout?.predictionBoardBusy??null,
+      interaction:rollout?.predictionInteraction??null
+     },
      opponentBranchesBefore:rollout?.opponentBranchesBefore??null,
      opponentBranchesAfter:rollout?.opponentBranchesAfter??null,
      opponentBranchesPruned:rollout?.opponentBranchesPruned??null,
@@ -4791,6 +4801,9 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     boardBusy:x.chosenAudit?.predictionBoardBusy??null,
     interaction:x.chosenAudit?.predictionInteraction??null
    },
+   predictionAuditContext:x.chosenAudit?.predictionAuditContext??null,
+   actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
+   predictionError:x.chosenAudit?.predictionError??null,
    opponentBranches:{
     before:x.chosenAudit?.opponentBranchesBefore??null,
     after:x.chosenAudit?.opponentBranchesAfter??null,
