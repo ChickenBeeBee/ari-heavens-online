@@ -4192,36 +4192,35 @@ function ahTelemetrySelfPlayTerminal(state){
 }
 
 /*
- * Strategy Curve v0.1
+ * Strategy Curve v0.2
  *
  * Shadow-only strategic trajectory layer.
- * It does not replace rollout/search.  It gives the existing search a
- * soft estimate of how well a candidate continues a trajectory from:
  *
- *   current state -> this-turn hypothesis -> victory-state hypothesis
+ * v0.1 used the existing utility vector as both the "this-turn" hypothesis
+ * and the victory hypothesis.  That made the curve almost straight and
+ * nearly identical across positions.
  *
- * The first implementation intentionally uses the existing state-value
- * components instead of introducing new game-specific tactical rules.
- * The goal is to test whether a trajectory-level signal can reduce
- * unnecessary branching before we tune the model.
+ * v0.2 instead builds several independent victory-route hypotheses from the
+ * actual remaining resources on the board.  A route is a region of states
+ * that can plausibly become a winning board:
+ *
+ *   current board -> this-turn requirement -> intermediate requirement -> victory region
+ *
+ * The route is not a hard-coded tactic.  The same legal actions compete for
+ * progress toward several routes, and the best route can change when the
+ * board changes.  Search remains authoritative; this layer is still a soft
+ * diagnostic/prioritization signal.
  */
 function ahTelemetryStrategyCurveVector(state,player){
- const b=ahTelemetryShadowUtilityBreakdown(state,player)||{};
- const raw=b.raw||{};
+ const b=ahTelemetryShadowUtilityBreakdown(state,player)||{},raw=b.raw||{};
  const n=(v,d=0)=>Number.isFinite(Number(v))?Number(v):d;
- const scoreDiff=n(b.scoreDiff,raw.scoreDiff);
- const candyValue=n(b.candyValue,raw.candyValue);
- const positionValue=n(b.positionValue,raw.positionValue);
- const antValue=n(b.antValue,raw.antValue);
- const threatValue=n(b.threatValue,raw.threatValue);
- const winProbability=n(raw.winProb,b.winProbability);
  return {
-  scoreDiff:Number(Math.tanh(scoreDiff/6).toFixed(4)),
-  candyValue:Number(Math.tanh(candyValue/4).toFixed(4)),
-  positionValue:Number(Math.tanh(positionValue/4).toFixed(4)),
-  antValue:Number(Math.tanh(antValue/8).toFixed(4)),
-  threatValue:Number(Math.tanh(threatValue/4).toFixed(4)),
-  winProbability:Number(Math.max(0,Math.min(1,winProbability)).toFixed(4))
+  scoreDiff:Number(Math.tanh(n(raw.scoreDiff,b.scoreDiff)/6).toFixed(4)),
+  candyValue:Number(Math.tanh(n(raw.candyValue,b.candyValue)/4).toFixed(4)),
+  positionValue:Number(Math.tanh(n(raw.positionValue,b.positionValue)/4).toFixed(4)),
+  antValue:Number(Math.tanh(n(raw.antDiff,b.antDiff)/8).toFixed(4)),
+  threatValue:Number(Math.tanh(n(raw.threat,0)/4).toFixed(4)),
+  winProbability:Number(Math.max(0,Math.min(1,n(raw.winProb,b.winProbability))).toFixed(4))
  };
 }
 function ahTelemetryStrategyCurveDistance(a,b){
@@ -4233,69 +4232,128 @@ function ahTelemetryStrategyCurveDistance(a,b){
  }
  return total?d/total:0;
 }
+function ahTelemetryStrategyRouteProgress(state,player,route){
+ const f=ahTelemetryWinFeatures(state,player),s=state||{},p=player||s.currentPlayer,q=opp(p);
+ const scoreLead=(f.scoreDiff||0), candy=(f.candyDiff||0), ant=(f.antDiff||0);
+ const ready=(f.readyDiff||0), hand=(f.handDiff||0);
+ const remain=Math.max(1,Number(MAXTURN||48)-Number(s.turn||1));
+ let v=0;
+ if(route.kind==='score'){
+  v += Math.min(1,Math.max(0,scoreLead-route.goalScoreLead)/Math.max(1,Math.abs(route.goalScoreLead)+2))*.46;
+  v += Math.min(1,Math.max(0,candy-route.goalCandy)/Math.max(1,Math.abs(route.goalCandy)+2))*.22;
+  v += Math.min(1,Math.max(0,ready-route.goalReady)/Math.max(1,Math.abs(route.goalReady)+2))*.16;
+  v += Math.min(1,Math.max(0,ant-route.goalAnt)/8)*.08;
+ }else if(route.kind==='pressure'){
+  v += Math.min(1,Math.max(0,scoreLead-route.goalScoreLead)/Math.max(1,Math.abs(route.goalScoreLead)+2))*.30;
+  v += Math.min(1,Math.max(0,ant-route.goalAnt)/10)*.20;
+  v += Math.min(1,Math.max(0,ready-route.goalReady)/Math.max(1,Math.abs(route.goalReady)+2))*.16;
+  v += Math.min(1,Math.max(0,-f.candyDiff+route.goalEnemyCandy)/Math.max(1,Math.abs(route.goalEnemyCandy)+2))*.12;
+  v += Math.min(1,Math.max(0,hand-route.goalHand)/10)*.08;
+ }else{
+  v += Math.min(1,Math.max(0,scoreLead-route.goalScoreLead)/Math.max(1,Math.abs(route.goalScoreLead)+2))*.34;
+  v += Math.min(1,Math.max(0,ant-route.goalAnt)/10)*.24;
+  v += Math.min(1,Math.max(0,hand-route.goalHand)/10)*.14;
+  v += Math.min(1,Math.max(0,ready-route.goalReady)/Math.max(1,Math.abs(route.goalReady)+2))*.12;
+ }
+ const horizonFit=route.horizon<=remain?1:Math.max(.35,remain/route.horizon);
+ return Number(Math.max(0,Math.min(1,v*horizonFit)).toFixed(4));
+}
+function ahTelemetryStrategyVictoryRoutes(state,player){
+ const s=state||{},p=player||s.currentPlayer,q=opp(p),f=ahTelemetryWinFeatures(s,p);
+ const remain=Math.max(1,Number(MAXTURN||48)-Number(s.turn||1));
+ const scoreLead=f.scoreDiff||0,candy=f.candyDiff||0,ant=f.antDiff||0,ready=f.readyDiff||0,hand=f.handDiff||0;
+ const leadNeed=Math.max(1,Math.ceil((Math.max(0,-scoreLead)+2)/2));
+ const candyPotential=Math.max(1,Math.round((s.candies||[]).reduce((n,c)=>n+(c.points||0)*Math.min(1,(c.attached?.[p]||0)/Math.max(1,c.need||1)),0)));
+ const routes=[
+  {
+   id:'score-race',kind:'score',label:'score-race',
+   horizon:Math.min(remain,Math.max(3,leadNeed+2)),
+   goalScoreLead:Math.max(3,scoreLead+leadNeed),
+   goalCandy:Math.max(1,candy*.7+Math.min(3,candyPotential*.35)),
+   goalReady:Math.max(1,ready+1),goalAnt:Math.max(-1,ant-1),goalHand:Math.max(0,hand-1),goalEnemyCandy:0
+  },
+  {
+   id:'pressure',kind:'pressure',label:'pressure',
+   horizon:Math.min(remain,Math.max(4,leadNeed+3)),
+   goalScoreLead:Math.max(2,scoreLead+1),
+   goalCandy:Math.max(0,candy*.35),goalReady:Math.max(1,ready),
+   goalAnt:Math.max(1,ant),goalHand:Math.max(0,hand-2),goalEnemyCandy:Math.max(1,-candy)
+  },
+  {
+   id:'survival-race',kind:'survival',label:'survival-race',
+   horizon:Math.min(remain,Math.max(3,leadNeed+2)),
+   goalScoreLead:Math.max(1,scoreLead+1),
+   goalCandy:Math.max(0,candy*.45),goalReady:Math.max(1,ready),
+   goalAnt:Math.max(2,ant+1),goalHand:Math.max(1,hand),goalEnemyCandy:0
+  }
+ ];
+ return routes.map(r=>{
+  const progress=ahTelemetryStrategyRouteProgress(s,p,r);
+  const feasibility=Math.max(.15,Math.min(1,remain>=r.horizon?1:remain/r.horizon));
+  return {...r,progress:Number(progress.toFixed(4)),feasibility:Number(feasibility.toFixed(4)),
+   distance:Number((1-progress).toFixed(4))};
+ }).sort((a,b)=>b.progress-a.progress);
+}
 function ahTelemetryStrategyCurve(state,player,options={}){
- const current=ahTelemetryStrategyCurveVector(state,player);
- const legal=ahTelemetryShadowLegalActions(state,player)||[];
- const oneStep=legal.map(action=>{
-  const next=ahTelemetryShadowApply(state,action);
-  if(!next)return null;
-  const v=ahTelemetryStrategyCurveVector(next,player);
-  const progress=(
-   (v.scoreDiff-current.scoreDiff)*.24+
-   (v.candyValue-current.candyValue)*.18+
-   (v.positionValue-current.positionValue)*.12+
-   (v.antValue-current.antValue)*.14+
-   (current.threatValue-v.threatValue)*.12+
-   (v.winProbability-current.winProbability)*.20
-  );
-  return {action,next,vector:v,progress:Number(progress.toFixed(4))};
- }).filter(Boolean).sort((a,b)=>b.progress-a.progress);
- const bestTurn=oneStep[0]||null;
-
- /*
-  * Victory hypothesis is a region, not an exact board.
-  * Its direction is deliberately conservative: improve the score lead,
-  * preserve ant/candy potential, reduce threat, and approach high win
-  * probability.  This is not a hard target and never makes a candidate
-  * illegal.
-  */
- const victory={
-  scoreDiff:Math.max(current.scoreDiff,0.55),
-  candyValue:Math.max(current.candyValue,0.35),
-  positionValue:Math.max(current.positionValue,0.20),
-  antValue:Math.max(current.antValue,0.25),
-  threatValue:Math.min(current.threatValue,0.18),
+ const p=player||state?.currentPlayer||'B',current=ahTelemetryStrategyCurveVector(state,p);
+ const routes=ahTelemetryStrategyVictoryRoutes(state,p);
+ const legal=ahTelemetryShadowLegalActions(state,p)||[];
+ const routePlans=routes.map(route=>{
+  const currentProgress=route.progress;
+  const candidates=legal.map(action=>{
+   const next=ahTelemetryShadowApply(state,action);
+   if(!next)return null;
+   const progress=ahTelemetryStrategyRouteProgress(next,p,route);
+   return {action,next,progress,delta:Number((progress-currentProgress).toFixed(4))};
+  }).filter(Boolean).sort((a,b)=>b.delta-a.delta);
+  const best=candidates[0]||null;
+  const nextProgress=best?best.progress:currentProgress;
+  const routeDistance=1-nextProgress;
+  return {...route,bestAction:best?.action?ahTelemetryClone(best.action):null,bestProgress:Number((best?.delta||0).toFixed(4)),
+   progressAfter:Number(nextProgress.toFixed(4)),routeDistance:Number(routeDistance.toFixed(4))};
+ });
+ routePlans.sort((a,b)=>b.progressAfter-a.progressAfter);
+ const bestRoute=routePlans[0]||null;
+ const bestTurn=bestRoute?.bestAction?ahTelemetryShadowApply(state,bestRoute.bestAction):state;
+ const turnHypothesis=ahTelemetryStrategyCurveVector(bestTurn,p);
+ const victory=bestRoute?{
+  scoreDiff:Number(Math.tanh(bestRoute.goalScoreLead/6).toFixed(4)),
+  candyValue:Number(Math.tanh(bestRoute.goalCandy/4).toFixed(4)),
+  positionValue:Number(Math.tanh(Math.max(.2,bestRoute.goalReady*.45)/4).toFixed(4)),
+  antValue:Number(Math.tanh(bestRoute.goalAnt/8).toFixed(4)),
+  threatValue:Number(Math.tanh(-Math.max(0,bestRoute.goalEnemyCandy)/4).toFixed(4)),
   winProbability:.92
- };
- const turnHypothesis=bestTurn?.vector||current;
+ }:current;
  const dCurrent=ahTelemetryStrategyCurveDistance(current,turnHypothesis);
  const dTurn=ahTelemetryStrategyCurveDistance(turnHypothesis,victory);
  const dDirect=ahTelemetryStrategyCurveDistance(current,victory);
- const curvature=Math.max(0,Math.min(1,Math.abs(dCurrent+dTurn-dDirect)));
+ const curvature=Math.max(0,Math.min(1,(dCurrent+dTurn-dDirect)*1.8));
  const stability=Math.max(0,Math.min(1,1-curvature));
- const bestProgress=bestTurn?.progress||0;
-
- /*
-  * Candidate score is a "stay on / improve the curve" signal.
-  * It is intentionally tiny; the existing rollout remains the authority.
-  */
+ const routeSeparation=routePlans.length>1?Math.abs(routePlans[0].progressAfter-routePlans[1].progressAfter):0;
+ const bestTurnProgress=bestRoute?.bestProgress||0;
+ const routeSwitches=routePlans.filter(r=>r.progressAfter>=Math.max(0,bestRoute?.progressAfter||0)-.04).length;
  const score=Number((
-  bestProgress*.55+
-  (dDirect-dTurn)*.35+
-  stability*.10
+  bestTurnProgress*.38+
+  (dDirect-dTurn)*.24+
+  (1-dCurrent)*.12+
+  stability*.10+
+  Math.min(1,routeSeparation*3)*.08+
+  Math.min(1,routeSwitches/3)*.08
  ).toFixed(4));
  return {
-  schema:'strategy-curve-v0.1',
-  current,
-  turnHypothesis,
-  victoryHypothesis:victory,
-  bestTurnAction:bestTurn?.action?ahTelemetryClone(bestTurn.action):null,
+  schema:'strategy-curve-v0.2',
+  current,turnHypothesis,victoryHypothesis:victory,
+  victoryRoutes:routePlans.map(r=>({id:r.id,kind:r.kind,horizon:r.horizon,progress:r.progress,progressAfter:r.progressAfter,distance:r.routeDistance,feasibility:r.feasibility,bestAction:r.bestAction})),
+  selectedRoute:bestRoute?.id||null,
+  routeSeparation:Number(routeSeparation.toFixed(4)),
+  routeSwitches,
+  bestTurnAction:bestRoute?.bestAction?ahTelemetryClone(bestRoute.bestAction):null,
   currentToTurnDistance:Number(dCurrent.toFixed(4)),
   turnToVictoryDistance:Number(dTurn.toFixed(4)),
   directToVictoryDistance:Number(dDirect.toFixed(4)),
   curvature:Number(curvature.toFixed(4)),
   stability:Number(stability.toFixed(4)),
-  bestTurnProgress:Number(bestProgress.toFixed(4)),
+  bestTurnProgress:Number(bestTurnProgress.toFixed(4)),
   score,
   candidateCount:legal.length
  };
@@ -4306,73 +4364,15 @@ function ahTelemetryStrategyCurveCandidate(state,player,action,baseCurve){
  const curve=ahTelemetryStrategyCurve(next,player);
  const base=baseCurve||ahTelemetryStrategyCurve(state,player);
  const score=Number((
-  curve.score*.72+
+  curve.score*.60+
   (base.directToVictoryDistance-curve.directToVictoryDistance)*.18+
-  (curve.stability-base.stability)*.10
+  (curve.stability-base.stability)*.10+
+  ((curve.routeSeparation||0)-(base.routeSeparation||0))*.06+
+  ((curve.routeSwitches||0)-(base.routeSwitches||0))*.06
  ).toFixed(4));
  return {score,curve};
 }
 
-function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
- /*
-  * Shadow counterpart of the live very-hard search.
-  * The immediate score is only the first layer.  The final decision also
-  * values the future line strongly enough to prefer a setup whose payoff
-  * appears after several actions.
-  *
-  * Rollout keeps the same player acting until endTurn, matching the real
-  * game.  Therefore place -> move -> move -> attach -> carry is a valid
-  * single-player continuation rather than an artificial A/B alternation.
-  */
- const legal=ahTelemetryShadowLegalActions(state,player);
- if(!legal.length)return null;
- const rootUtility=ahTelemetryShadowUtility(state,player);
- const strategyCurve=options.strategyCurve===false?null:ahTelemetryStrategyCurve(state,player,options);
- const strategyCurveWeight=Number.isFinite(Number(options.strategyCurveWeight))?Number(options.strategyCurveWeight):0.08;
- const quick=legal.map((action,index)=>{
-  const next=ahTelemetryShadowApply(state,action);
-  const immediate=ahTelemetryShadowUtility(next,player)-rootUtility;
-  const wp=ahTelemetryWinProbability(next,player);
-  let setup=0;
-  if(action.type==='carryCandy'){
-   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
-   const pts=c?.bomb?4:(c?.points||0);
-   setup=action.target===player+'1'&&!c?.bomb?pts:pts*.18;
-  }else if(action.type==='attachAnt'){
-   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
-   setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
-  }else if(action.type==='placeAnt'){
-   setup=action.node===player+'1'?.25:action.node===player+'w'?.18:0;
-  }else if(action.type==='startBattle'){
-   setup=Math.max(0,immediate)*.25;
-  }else if(action.type==='useCard'){
-   setup=Math.max(0,immediate)*.15;
-  }
-  const actionCost=action.type==='endTurn'?0:-.08;
-  const base=immediate+setup+actionCost+(wp-.5)*.45;
-  const curveEval=strategyCurve?ahTelemetryStrategyCurveCandidate(state,player,action,strategyCurve):null;
-  const curveBonus=curveEval?curveEval.score*strategyCurveWeight:0;
-  return {index,action,next,immediate,base,score:Number((base+curveBonus).toFixed(4)),strategyCurveScore:curveEval?.score??null,strategyCurve:curveEval?.curve??null};
- }).sort((a,b)=>b.score-a.score);
- const shortlist=quick.slice(0,Math.min(8,quick.length));
- const remaining=Math.max(1,Math.ceil((MAXTURN-Number(state.turn||0))/2));
- const searchDepth=Math.min(5,Math.max(3,remaining<=2?remaining+1:depth));
- let best=null;
- for(const item of shortlist){
-  const raw=ahTelemetryRollout(item.action,player,searchDepth,state,options);
-  if(!raw){
-   if(!best||item.base>best.score)best={action:item.action,score:item.base,rollout:null,immediate:item.immediate,base:item.base};
-   continue;
-  }
-  /* Future value is now a first-class decision signal. */
-  const futureWeight=item.action.type==='endTurn'?0.16:0.42;
-  const finalScore=item.score+raw.value*futureWeight;
-  if(!best||finalScore>best.score){
-   best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base,strategyCurveScore:item.strategyCurveScore??null,strategyCurve:item.strategyCurve??null};
-  }
- }
- return best||{action:legal[0],score:0,rollout:null,immediate:0,base:0};
-}
 /* Compatibility alias for existing self-play callers and diagnostics. */
 function ahTelemetrySelfPlayChoose(state,player,depth=3){
  return ahTelemetryVeryHardShadowChoose(state,player,depth);
