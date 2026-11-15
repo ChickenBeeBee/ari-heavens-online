@@ -4190,6 +4190,129 @@ function ahTelemetrySelfPlayTerminal(state){
  };
  return state.result;
 }
+
+/*
+ * Strategy Curve v0.1
+ *
+ * Shadow-only strategic trajectory layer.
+ * It does not replace rollout/search.  It gives the existing search a
+ * soft estimate of how well a candidate continues a trajectory from:
+ *
+ *   current state -> this-turn hypothesis -> victory-state hypothesis
+ *
+ * The first implementation intentionally uses the existing state-value
+ * components instead of introducing new game-specific tactical rules.
+ * The goal is to test whether a trajectory-level signal can reduce
+ * unnecessary branching before we tune the model.
+ */
+function ahTelemetryStrategyCurveVector(state,player){
+ const b=ahTelemetryShadowUtilityBreakdown(state,player)||{};
+ const raw=b.raw||{};
+ const n=(v,d=0)=>Number.isFinite(Number(v))?Number(v):d;
+ const scoreDiff=n(b.scoreDiff,raw.scoreDiff);
+ const candyValue=n(b.candyValue,raw.candyValue);
+ const positionValue=n(b.positionValue,raw.positionValue);
+ const antValue=n(b.antValue,raw.antValue);
+ const threatValue=n(b.threatValue,raw.threatValue);
+ const winProbability=n(raw.winProb,b.winProbability);
+ return {
+  scoreDiff:Number(Math.tanh(scoreDiff/6).toFixed(4)),
+  candyValue:Number(Math.tanh(candyValue/4).toFixed(4)),
+  positionValue:Number(Math.tanh(positionValue/4).toFixed(4)),
+  antValue:Number(Math.tanh(antValue/8).toFixed(4)),
+  threatValue:Number(Math.tanh(threatValue/4).toFixed(4)),
+  winProbability:Number(Math.max(0,Math.min(1,winProbability)).toFixed(4))
+ };
+}
+function ahTelemetryStrategyCurveDistance(a,b){
+ const weights={scoreDiff:.24,candyValue:.18,positionValue:.12,antValue:.14,threatValue:.12,winProbability:.20};
+ let d=0,total=0;
+ for(const k of Object.keys(weights)){
+  const x=Number(a?.[k]||0),y=Number(b?.[k]||0),w=weights[k];
+  d+=w*Math.abs(x-y);total+=w;
+ }
+ return total?d/total:0;
+}
+function ahTelemetryStrategyCurve(state,player,options={}){
+ const current=ahTelemetryStrategyCurveVector(state,player);
+ const legal=ahTelemetryShadowLegalActions(state,player)||[];
+ const oneStep=legal.map(action=>{
+  const next=ahTelemetryShadowApply(state,action);
+  if(!next)return null;
+  const v=ahTelemetryStrategyCurveVector(next,player);
+  const progress=(
+   (v.scoreDiff-current.scoreDiff)*.24+
+   (v.candyValue-current.candyValue)*.18+
+   (v.positionValue-current.positionValue)*.12+
+   (v.antValue-current.antValue)*.14+
+   (current.threatValue-v.threatValue)*.12+
+   (v.winProbability-current.winProbability)*.20
+  );
+  return {action,next,vector:v,progress:Number(progress.toFixed(4))};
+ }).filter(Boolean).sort((a,b)=>b.progress-a.progress);
+ const bestTurn=oneStep[0]||null;
+
+ /*
+  * Victory hypothesis is a region, not an exact board.
+  * Its direction is deliberately conservative: improve the score lead,
+  * preserve ant/candy potential, reduce threat, and approach high win
+  * probability.  This is not a hard target and never makes a candidate
+  * illegal.
+  */
+ const victory={
+  scoreDiff:Math.max(current.scoreDiff,0.55),
+  candyValue:Math.max(current.candyValue,0.35),
+  positionValue:Math.max(current.positionValue,0.20),
+  antValue:Math.max(current.antValue,0.25),
+  threatValue:Math.min(current.threatValue,0.18),
+  winProbability:.92
+ };
+ const turnHypothesis=bestTurn?.vector||current;
+ const dCurrent=ahTelemetryStrategyCurveDistance(current,turnHypothesis);
+ const dTurn=ahTelemetryStrategyCurveDistance(turnHypothesis,victory);
+ const dDirect=ahTelemetryStrategyCurveDistance(current,victory);
+ const curvature=Math.max(0,Math.min(1,Math.abs(dCurrent+dTurn-dDirect)));
+ const stability=Math.max(0,Math.min(1,1-curvature));
+ const bestProgress=bestTurn?.progress||0;
+
+ /*
+  * Candidate score is a "stay on / improve the curve" signal.
+  * It is intentionally tiny; the existing rollout remains the authority.
+  */
+ const score=Number((
+  bestProgress*.55+
+  (dDirect-dTurn)*.35+
+  stability*.10
+ ).toFixed(4));
+ return {
+  schema:'strategy-curve-v0.1',
+  current,
+  turnHypothesis,
+  victoryHypothesis:victory,
+  bestTurnAction:bestTurn?.action?ahTelemetryClone(bestTurn.action):null,
+  currentToTurnDistance:Number(dCurrent.toFixed(4)),
+  turnToVictoryDistance:Number(dTurn.toFixed(4)),
+  directToVictoryDistance:Number(dDirect.toFixed(4)),
+  curvature:Number(curvature.toFixed(4)),
+  stability:Number(stability.toFixed(4)),
+  bestTurnProgress:Number(bestProgress.toFixed(4)),
+  score,
+  candidateCount:legal.length
+ };
+}
+function ahTelemetryStrategyCurveCandidate(state,player,action,baseCurve){
+ const next=ahTelemetryShadowApply(state,action);
+ if(!next)return {score:-Infinity,curve:null};
+ const curve=ahTelemetryStrategyCurve(next,player);
+ const base=baseCurve||ahTelemetryStrategyCurve(state,player);
+ const score=Number((
+  curve.score*.72+
+  (base.directToVictoryDistance-curve.directToVictoryDistance)*.18+
+  (curve.stability-base.stability)*.10
+ ).toFixed(4));
+ return {score,curve};
+}
+
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  /*
   * Shadow counterpart of the live very-hard search.
@@ -4204,6 +4327,8 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
  const rootUtility=ahTelemetryShadowUtility(state,player);
+ const strategyCurve=options.strategyCurve===false?null:ahTelemetryStrategyCurve(state,player,options);
+ const strategyCurveWeight=Number.isFinite(Number(options.strategyCurveWeight))?Number(options.strategyCurveWeight):0.08;
  const quick=legal.map((action,index)=>{
   const next=ahTelemetryShadowApply(state,action);
   const immediate=ahTelemetryShadowUtility(next,player)-rootUtility;
@@ -4225,7 +4350,9 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
   }
   const actionCost=action.type==='endTurn'?0:-.08;
   const base=immediate+setup+actionCost+(wp-.5)*.45;
-  return {index,action,next,immediate,base,score:Number(base.toFixed(4))};
+  const curveEval=strategyCurve?ahTelemetryStrategyCurveCandidate(state,player,action,strategyCurve):null;
+  const curveBonus=curveEval?curveEval.score*strategyCurveWeight:0;
+  return {index,action,next,immediate,base,score:Number((base+curveBonus).toFixed(4)),strategyCurveScore:curveEval?.score??null,strategyCurve:curveEval?.curve??null};
  }).sort((a,b)=>b.score-a.score);
  const shortlist=quick.slice(0,Math.min(8,quick.length));
  const remaining=Math.max(1,Math.ceil((MAXTURN-Number(state.turn||0))/2));
@@ -4239,9 +4366,9 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
   }
   /* Future value is now a first-class decision signal. */
   const futureWeight=item.action.type==='endTurn'?0.16:0.42;
-  const finalScore=item.base+raw.value*futureWeight;
+  const finalScore=item.base+raw.value*futureWeight+(item.strategyCurveScore??0)*strategyCurveWeight;
   if(!best||finalScore>best.score){
-   best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base};
+   best={action:item.action,score:Number(finalScore.toFixed(4)),rollout:raw,immediate:item.immediate,base:item.base,strategyCurveScore:item.strategyCurveScore??null,strategyCurve:item.strategyCurve??null};
   }
  }
  return best||{action:legal[0],score:0,rollout:null,immediate:0,base:0};
@@ -4342,7 +4469,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      skepticFoundBetter:!!rollout?.skepticFoundBetter,
      predictionBest:rollout?.predictionBest??null,
      skepticBest:rollout?.skepticBest??null,
-     searchExpansionReason:rollout?.searchExpansionReason??[]
+     searchExpansionReason:rollout?.searchExpansionReason??[],
+     strategyCurveScore:choice?.strategyCurveScore??null,
+     strategyCurve:choice?.strategyCurve??null
     };
    })():null;
   rows.push({
@@ -4407,7 +4536,18 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     reasons:x.chosenAudit?.searchExpansionReason??[]
    },
    turnBudgets:x.chosenAudit?.turnBudgets??null,
-   line:(x.chosenAudit?.principalVariation||[]).map(a=>`${a.player}:${a.type}`).join(' → ')
+   line:(x.chosenAudit?.principalVariation||[]).map(a=>`${a.player}:${a.type}`).join(' → '),
+   decisionLine:(x.chosenAudit?.decisionLine||[]).map(a=>`${a.player||x.player}:${a.type}`).join(' → '),
+   strategyCurve:{
+    score:x.chosenAudit?.strategyCurveScore??null,
+    curvature:x.chosenAudit?.strategyCurve?.curvature??null,
+    stability:x.chosenAudit?.strategyCurve?.stability??null,
+    currentToTurn:x.chosenAudit?.strategyCurve?.currentToTurnDistance??null,
+    turnToVictory:x.chosenAudit?.strategyCurve?.turnToVictoryDistance??null,
+    directToVictory:x.chosenAudit?.strategyCurve?.directToVictoryDistance??null,
+    bestTurnProgress:x.chosenAudit?.strategyCurve?.bestTurnProgress??null,
+    bestTurnAction:x.chosenAudit?.strategyCurve?.bestTurnAction?.type??null
+   }
   }))
  };
 }
