@@ -4132,18 +4132,19 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    marginRecovered||
    (marginNearSafe&&!marginPersistentlyDown);
   const marginReversalRisk=Math.max(0,Math.min(1,
-   (!marginNearSafe?.42:0)+
+   (!marginNearSafe?.20:0)+
    (marginDirection==='down'?.22:0)+
    (marginPersistentlyDown?.24:0)+
    (!marginTrendStable?.12:0)
   ));
   const marginDiagnosticReason=
    margin>=requiredMargin?'above_required':
-   !marginNearSafe?'too_thin':
    marginPersistentlyDown?'persistent_decline':
    marginDirection==='down'?'declining':
    marginRecovered?'recovering':
-   'thin_but_stable';
+   marginTrendStable?'thin_but_stable':
+   !marginNearSafe?'too_thin':
+   'thin_but_unstable';
   const marginStable=
    !!previous&&
    marginTrendStable&&
@@ -4158,12 +4159,14 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   const topKStable=!!previous&&!topKChanged;
   const counterexample=!!top?.skepticFoundBetter;
   /*
-   * v0.7: margin-only early stop.
-   * A thin margin no longer forces the final 300-node probe when the
-   * decision itself is already stable and the margin is not deteriorating.
+   * v0.8: margin-only early stop.
+   * Absolute thinness is no longer treated as search instability by itself.
+   * What matters is whether the margin is moving in a dangerous direction.
+   * A thin-but-flat/recovering margin with stable Top-K evidence is safe to
+   * stop; persistent decline, reversal risk, or a skeptic counterexample
+   * still forces deeper probing.
    */
   const marginTrendSafeEnough=
-   marginNearSafe&&
    marginTrendStable&&
    marginReversalRisk<=.35&&
    !counterexample;
@@ -4270,7 +4273,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.7',
+  schema:'pilot-search-audit-v0.8',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -4283,7 +4286,6 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   uncertainty:Number(uncertainty.toFixed(3)),
   recommendedBudget:stopBudget,stopBudget,stopReason,
   marginEarlyStopEligible:!!(
-   lastStage.marginNearSafe&&
    lastStage.marginTrendStable&&
    Number(lastStage.marginReversalRisk||0)<=.35&&
    lastStage.rankStable&&lastStage.topKStable&&
@@ -4331,8 +4333,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    blockedByMargin:!lastStage.marginStable&&
     lastStage.rankStable&&lastStage.topKStable&&lastStage.scoreStable&&
     lastStage.strategicStable&&lastStage.opponentStable&&!lastStage.counterexample,
-   earlyStopEligible:lastStage.marginNearSafe&&
-    lastStage.marginTrendStable&&
+   earlyStopEligible:lastStage.marginTrendStable&&
     Number(lastStage.marginReversalRisk||0)<=.35&&
     lastStage.rankStable&&lastStage.topKStable&&
     lastStage.scoreStable&&lastStage.strategicStable&&
