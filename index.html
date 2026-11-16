@@ -5171,7 +5171,22 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
    return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
   }).sort((a,b)=>b.score-a.score);
-  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:options.maxNodes??300});
+  /*
+   * Pilot v0.9 audit controller:
+   * The pilot already measures how much evidence is needed for this exact
+   * position. Use that result to cap the expensive shadow rollout used by
+   * the audit itself. This is audit-only; live CPU search remains unchanged.
+   */
+  const pilotPre=ahTelemetryPilotSearchAudit(state,p,{pilotNodes:8,branchLimit:3,depth:2,probe:true});
+  const pilotBudget=(()=>{
+   const fallback=Math.max(32,Number(options.maxNodes??300));
+   const rec=Number(pilotPre?.recommendedBudget||fallback);
+   if(rec<=32)return Math.min(fallback,96);
+   if(rec<=80)return Math.min(fallback,128);
+   if(rec<=160)return Math.min(fallback,192);
+   return fallback;
+  })();
+  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:pilotBudget});
 
   /*
    * Strategy Curve v0.4 transition audit:
@@ -5233,6 +5248,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
       :(rollout?.principalVariation||[]),
      rolloutDepth:rollout?.depth??null,
      rolloutNodes:rollout?.nodes??null,
+     rolloutBudget:pilotBudget,
+     rolloutBudgetReason:pilotPre?.stopReason||null,
      rolloutTruncated:!!rollout?.truncated,
      predictionStrength:rollout?.predictionStrength??null,
      predictionPhase:rollout?.predictionPhase??null,
@@ -5241,7 +5258,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      predictionInteraction:rollout?.predictionInteraction??null,
      strategicCompression:ahTelemetryStrategicCompression(state,p),
      strategicCompressionTransition:ahTelemetryStrategicCompressionTransition(state,p,choice.action,ahTelemetryStrategicCompression(state,p)),
-     pilotSearch:ahTelemetryPilotSearchAudit(state,p,{pilotNodes:8,branchLimit:3,depth:2,probe:true}),
+     pilotSearch:pilotPre,
+     pilotRolloutBudget:pilotBudget,
      predictionAuditContext:{
       strength:rollout?.predictionStrength??null,
       phase:rollout?.predictionPhase??null,
