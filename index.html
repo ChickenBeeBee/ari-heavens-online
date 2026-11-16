@@ -4157,6 +4157,25 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    */
   const topKStable=!!previous&&!topKChanged;
   const counterexample=!!top?.skepticFoundBetter;
+  /*
+   * v0.7: margin-only early stop.
+   * A thin margin no longer forces the final 300-node probe when the
+   * decision itself is already stable and the margin is not deteriorating.
+   */
+  const marginTrendSafeEnough=
+   marginNearSafe&&
+   marginTrendStable&&
+   marginReversalRisk<=.35&&
+   !counterexample;
+
+  const marginRelaxedStop=
+   rankStable&&
+   topKStable&&
+   scoreStable&&
+   strategicStable&&
+   opponentStable&&
+   marginTrendSafeEnough;
+
   const stableEnough=
    rankStable&&
    topKStable&&
@@ -4212,6 +4231,11 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    stopReason='topk_stable_margin_safe';
    break;
   }
+  if(si>0&&marginRelaxedStop){
+   stopBudget=budget;
+   stopReason='topk_stable_margin_trend_safe';
+   break;
+  }
   if(si>0&&lowPressureFastStop){
    stopBudget=budget;
    stopReason='low_pressure_topk_stable';
@@ -4246,7 +4270,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.6',
+  schema:'pilot-search-audit-v0.7',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -4258,6 +4282,14 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   novelty:Number(lastStage.novelty||0),
   uncertainty:Number(uncertainty.toFixed(3)),
   recommendedBudget:stopBudget,stopBudget,stopReason,
+  marginEarlyStopEligible:!!(
+   lastStage.marginNearSafe&&
+   lastStage.marginTrendStable&&
+   Number(lastStage.marginReversalRisk||0)<=.35&&
+   lastStage.rankStable&&lastStage.topKStable&&
+   lastStage.scoreStable&&lastStage.strategicStable&&
+   lastStage.opponentStable&&!lastStage.counterexample
+  ),
   rankStable:!!lastStage.rankStable,
   topKStable:!!lastStage.topKStable,
   marginStable:!!lastStage.marginStable,
@@ -4299,6 +4331,12 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    blockedByMargin:!lastStage.marginStable&&
     lastStage.rankStable&&lastStage.topKStable&&lastStage.scoreStable&&
     lastStage.strategicStable&&lastStage.opponentStable&&!lastStage.counterexample,
+   earlyStopEligible:lastStage.marginNearSafe&&
+    lastStage.marginTrendStable&&
+    Number(lastStage.marginReversalRisk||0)<=.35&&
+    lastStage.rankStable&&lastStage.topKStable&&
+    lastStage.scoreStable&&lastStage.strategicStable&&
+    lastStage.opponentStable&&!lastStage.counterexample,
    reason:lastStage.marginDiagnosticReason,
    requiredMargin:lastStage.requiredMargin,
    observedMargin:lastStage.margin,
