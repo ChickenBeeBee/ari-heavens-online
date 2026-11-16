@@ -5220,10 +5220,52 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
  try{localStorage.setItem('ah_ai_selfplay_audit_v1',JSON.stringify(out));}catch(_){}
  return out;
 }
+function ahTelemetryPilotDiagnosticSummary(pilot){
+ if(!pilot)return null;
+ const stages=Array.isArray(pilot.stages)?pilot.stages:[];
+ const compactStages=stages.map(x=>({
+  budget:x.budget??null,
+  rankStable:!!x.rankStable,
+  topKStable:!!x.topKStable,
+  marginStable:!!x.marginStable,
+  scoreStable:!!x.scoreStable,
+  strategicStable:!!x.strategicStable,
+  opponentStable:!!x.opponentStable,
+  counterexample:!!x.counterexample,
+  novelty:Number(x.novelty||0),
+  decisionPressure:Number(x.decisionPressure||0),
+  stopReason:x.stopReason||null
+ }));
+ const marginOnlyBlock=stages.length>=2&&
+  stages.slice(0,-1).some(x=>x.rankStable&&x.topKStable&&x.scoreStable&&x.strategicStable&&x.opponentStable&&!x.marginStable)&&
+  !pilot.counterexample&&!pilot.newStrategyFound;
+ return {
+  schema:'pilot-diagnostic-v0.1',
+  recommendedBudget:pilot.recommendedBudget??null,
+  stopBudget:pilot.stopBudget??null,
+  stopReason:pilot.stopReason||null,
+  rankStable:!!pilot.rankStable,
+  topKStable:!!pilot.topKStable,
+  marginStable:!!pilot.marginStable,
+  scoreStable:!!pilot.scoreStable,
+  strategicStable:!!pilot.strategicStable,
+  opponentStable:!!pilot.opponentStable,
+  counterexample:!!pilot.counterexample,
+  newStrategyFound:!!pilot.newStrategyFound,
+  novelty:Number(pilot.novelty||0),
+  decisionPressure:Number(pilot.decisionPressure||0),
+  uncertainty:Number(pilot.uncertainty||0),
+  observedConvergenceBudget:pilot.observedConvergenceBudget??null,
+  observedConvergenceStability:pilot.observedConvergenceStability??null,
+  marginOnlyBlock,
+  stages:compactStages
+ };
+}
+
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v6',
+  schema:'selfplay-audit-summary-v7',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -5249,7 +5291,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    predictionAuditContext:x.chosenAudit?.predictionAuditContext??null,
    strategicCompression:x.chosenAudit?.strategicCompression??null,
    strategicCompressionTransition:x.chosenAudit?.strategicCompressionTransition??null,
-   pilotSearch:x.chosenAudit?.pilotSearch??null,
+   pilotSearch:ahTelemetryPilotDiagnosticSummary(x.chosenAudit?.pilotSearch),
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
    opponentBranches:{
