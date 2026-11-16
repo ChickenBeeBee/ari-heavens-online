@@ -3962,6 +3962,14 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  const phase=Number(profile.phase??compression.phase??0);
  const strength=Number(profile.strength??0);
  const routeSeparation=Number(curve.routeSeparation||0);
+ const routeSwitches=Number(curve.routeSwitches||0);
+ /* Strategy Curve ambiguity: tiny route separation or repeated route switching
+  * means a cheap convergence result is not yet strategically trustworthy. */
+ const routeInstability=Number(Math.max(0,Math.min(1,
+  (routeSeparation<.015?.58:routeSeparation<.035?.24:0)+
+  (routeSwitches>=3?.34:routeSwitches>=2?.12:0)
+ )).toFixed(3));
+ const routeUnstable=routeInstability>=.45;
 
  const branchLimit=Math.max(2,Math.min(4,Number(options.branchLimit)||3));
  const pilotNodes=Math.max(4,Math.min(12,Number(options.pilotNodes)||8));
@@ -4177,7 +4185,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    scoreStable&&
    strategicStable&&
    opponentStable&&
-   marginTrendSafeEnough;
+   marginTrendSafeEnough&&
+   !routeUnstable;
 
   const stableEnough=
    rankStable&&
@@ -4186,7 +4195,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    scoreStable&&
    strategicStable&&
    opponentStable&&
-   !counterexample;
+   !counterexample&&
+   !routeUnstable;
 
   const lowPressureFastStop=
    decisionPressure<.22&&
@@ -4207,6 +4217,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    top1Changed,rankChanged,topKChanged,outsiderChanged,
    rankStable,topKStable,marginStable,scoreStable,
    strategicStable,opponentStable,
+   routeSeparation,routeSwitches,routeInstability,routeUnstable,
    pvChanged,opponentChanged,
    counterexample,novelty,
    strategicNovelty:Number(strategicNovelty.toFixed(3)),
@@ -4254,6 +4265,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  const lastStage=stages[stages.length-1];
  const uncertainty=Math.max(0,Math.min(1,
   .12+
+  (lastStage.routeUnstable?.14:0)+
   (lastStage.rankChanged?.22:0)+
   (lastStage.topKChanged?.16:0)+
   (lastStage.top1Changed?.14:0)+
@@ -4273,7 +4285,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.8',
+  schema:'pilot-search-audit-v0.9',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -4283,6 +4295,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   scoreSpread:Number(lastStage.scoreSpread.toFixed(4)),
   stability:Number(stability.toFixed(3)),
   novelty:Number(lastStage.novelty||0),
+  routeInstability:Number(lastStage.routeInstability||0),
+  routeUnstable:!!lastStage.routeUnstable,
   uncertainty:Number(uncertainty.toFixed(3)),
   recommendedBudget:stopBudget,stopBudget,stopReason,
   marginEarlyStopEligible:!!(
@@ -5181,6 +5195,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   const pilotBudget=(()=>{
    const fallback=Math.max(32,Number(options.maxNodes??300));
    const rec=Number(pilotPre?.recommendedBudget||fallback);
+   if(pilotPre?.routeUnstable&&rec<=32)return Math.min(fallback,128);
+   if(pilotPre?.routeUnstable&&rec<=80)return Math.min(fallback,192);
    if(rec<=32)return Math.min(fallback,96);
    if(rec<=80)return Math.min(fallback,128);
    if(rec<=160)return Math.min(fallback,192);
