@@ -4099,10 +4099,56 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   const scoreTolerance=Number(Math.max(.012,.028-decisionPressure*.012).toFixed(4));
 
   const rankStable=!!previous&&!rankChanged&&!top1Changed;
-  const marginStable=!!previous&&Math.abs(marginDelta)<=scoreTolerance&&margin>=requiredMargin&&!top1Changed;
   const scoreStable=!!previous&&Math.abs(scoreDelta)<=scoreTolerance;
   const strategicStable=novelty<.18;
   const opponentStable=!opponentChanged;
+
+  /*
+   * Margin diagnosis v0.6:
+   * Do not immediately treat a thin margin as search instability.
+   * First distinguish:
+   *   - absolute thinness,
+   *   - margin movement,
+   *   - persistent deterioration,
+   *   - recovery/stabilization.
+   * This is audit-only for now; the live CPU still uses the existing search.
+   */
+  const marginHistory=stages.map(x=>Number(x.margin||0));
+  const recentMargins=marginHistory.slice(-2);
+  const prevMargin=previous?Number(previous.margin||0):null;
+  const marginChange=Number((margin-(prevMargin??margin)).toFixed(4));
+  const marginAbsThreshold=Number(Math.max(.006,requiredMargin*.45).toFixed(4));
+  const marginNearSafe=margin>=marginAbsThreshold;
+  const marginDirection=marginChange>scoreTolerance?'up':marginChange<-scoreTolerance?'down':'flat';
+  const priorMarginChange=marginHistory.length>=2
+   ?Number((marginHistory[marginHistory.length-1]-marginHistory[marginHistory.length-2]).toFixed(4))
+   :0;
+  const marginPersistentlyDown=
+   marginDirection==='down'&&priorMarginChange<-scoreTolerance;
+  const marginRecovered=
+   marginDirection==='up'&&priorMarginChange>=-scoreTolerance;
+  const marginTrendStable=
+   Math.abs(marginChange)<=scoreTolerance||
+   marginRecovered||
+   (marginNearSafe&&!marginPersistentlyDown);
+  const marginReversalRisk=Math.max(0,Math.min(1,
+   (!marginNearSafe?.42:0)+
+   (marginDirection==='down'?.22:0)+
+   (marginPersistentlyDown?.24:0)+
+   (!marginTrendStable?.12:0)
+  ));
+  const marginDiagnosticReason=
+   margin>=requiredMargin?'above_required':
+   !marginNearSafe?'too_thin':
+   marginPersistentlyDown?'persistent_decline':
+   marginDirection==='down'?'declining':
+   marginRecovered?'recovering':
+   'thin_but_stable';
+  const marginStable=
+   !!previous&&
+   marginTrendStable&&
+   margin>=requiredMargin&&
+   !top1Changed;
 
   /*
    * Evidence quality is deliberately Top-K based.  A single stable #1 is
@@ -4145,6 +4191,10 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    strategicTransition:fp,
    decisionPressure:Number(decisionPressure.toFixed(3)),
    requiredMargin,scoreTolerance,
+   marginAbsThreshold,marginNearSafe,marginDirection,
+   marginPersistentlyDown,marginRecovered,marginTrendStable,
+   marginReversalRisk:Number(marginReversalRisk.toFixed(3)),
+   marginDiagnosticReason,
    nodes,cumulativeNodes:totalPilotNodes+nodes,
    truncated:candidates.some(x=>x.truncated)
   };
@@ -4196,7 +4246,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.5',
+  schema:'pilot-search-audit-v0.6',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -4232,11 +4282,34 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    pvChanged:x.pvChanged??false,opponentChanged:x.opponentChanged??false,
    counterexample:x.counterexample??false,novelty:x.novelty??0,
    decisionPressure:x.decisionPressure??0,
+   marginAbsThreshold:x.marginAbsThreshold??null,
+   marginNearSafe:x.marginNearSafe??false,
+   marginDirection:x.marginDirection??'flat',
+   marginPersistentlyDown:x.marginPersistentlyDown??false,
+   marginRecovered:x.marginRecovered??false,
+   marginTrendStable:x.marginTrendStable??false,
+   marginReversalRisk:x.marginReversalRisk??null,
+   marginDiagnosticReason:x.marginDiagnosticReason??null,
    nodes:x.nodes,cumulativeNodes:x.cumulativeNodes??x.nodes,
    truncated:!!x.truncated
   })),
   observedConvergenceBudget:stopBudget,
   observedConvergenceStability:Number(stability.toFixed(3)),
+  marginDiagnosis:{
+   blockedByMargin:!lastStage.marginStable&&
+    lastStage.rankStable&&lastStage.topKStable&&lastStage.scoreStable&&
+    lastStage.strategicStable&&lastStage.opponentStable&&!lastStage.counterexample,
+   reason:lastStage.marginDiagnosticReason,
+   requiredMargin:lastStage.requiredMargin,
+   observedMargin:lastStage.margin,
+   marginAbsThreshold:lastStage.marginAbsThreshold,
+   marginNearSafe:lastStage.marginNearSafe,
+   direction:lastStage.marginDirection,
+   persistentlyDown:lastStage.marginPersistentlyDown,
+   recovered:lastStage.marginRecovered,
+   trendStable:lastStage.marginTrendStable,
+   reversalRisk:lastStage.marginReversalRisk
+  },
   profile:{
    strength:profile?.strength??null,
    phase:profile?.phase??null,
@@ -5265,7 +5338,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v7',
+  schema:'selfplay-audit-summary-v8',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
