@@ -3827,17 +3827,18 @@ function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=nu
   const intentMatch=ahTelemetryStrategicIntentMatch(strategicIntent,actionReq,a,profile);
   const necessityMatch=Math.max(0,Math.min(1,
    .55*requirementMatch+.25*(actionReq?.necessity||0)+.20*purposeMatch));
-  const strategicFit=.38*routeMatch+.27*purposeMatch+.35*necessityMatch;
-  priors[key]=.42*freq+.28*base+.30*strategicFit;
+  const strategicFit=.30*routeMatch+.20*purposeMatch+.25*necessityMatch+.25*intentMatch.score;
+  priors[key]=.36*freq+.24*base+.40*strategicFit;
   predictionEvidence[key]={
    actionType:a.type||null,historyFrequency:Number(freq.toFixed(4)),routeMatch,
    purposeMatch:Number(purposeMatch.toFixed(4)),requirementMatch:Number(requirementMatch.toFixed(4)),
    necessity:Number(actionReq?.necessity||0),necessityMatch:Number(necessityMatch.toFixed(4)),
+   intentMatch:Number(intentMatch.score.toFixed(4)),intentBreakdown:intentMatch.breakdown,
    strategicFit:Number(strategicFit.toFixed(4)),requiredStateChanges:actionReq?.activePurposes||[]
   };
  }
  return {player:p,strength:Number(Math.max(0,Math.min(1,Number(profile?.strength)||0)).toFixed(3)),priors,counts,sampleSize:recent.length,
-  strategicObservation,predictionEvidence,historySource:signalActions.length?'strategic-signal':'raw-fallback',
+  strategicObservation,strategicIntent,predictionEvidence,historySource:signalActions.length?'strategic-signal':'raw-fallback',
   likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)};
 }
 
