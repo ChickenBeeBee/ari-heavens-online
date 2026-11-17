@@ -4217,13 +4217,17 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    Math.abs(Number(x.purposeDelta||0)),
    Math.abs(Number(x.reachablePurposeDelta||0))
   )>=.06)
-  .sort((a,b)=>Math.max(
-   Math.abs(Number(b.purposeDelta||0)),
-   Math.abs(Number(b.reachablePurposeDelta||0))
-  )-Math.max(
-   Math.abs(Number(a.purposeDelta||0)),
-   Math.abs(Number(a.reachablePurposeDelta||0)
-  )))
+  .sort((a,b)=>{
+   const av=Math.max(
+    Math.abs(Number(a.purposeDelta||0)),
+    Math.abs(Number(a.reachablePurposeDelta||0))
+   );
+   const bv=Math.max(
+    Math.abs(Number(b.purposeDelta||0)),
+    Math.abs(Number(b.reachablePurposeDelta||0))
+   );
+   return bv-av;
+  })
   .find(x=>!primaryBranches.some(y=>y.index===x.index));
  const branches=purposeRescue
   ? primaryBranches.concat([purposeRescue])
@@ -5666,7 +5670,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v8',
+  schema:'selfplay-audit-summary-v9',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -5693,6 +5697,13 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    strategicCompression:x.chosenAudit?.strategicCompression??null,
    strategicCompressionTransition:x.chosenAudit?.strategicCompressionTransition??null,
    pilotSearch:ahTelemetryPilotDiagnosticSummary(x.chosenAudit?.pilotSearch),
+   purpose:{
+    immediate:x.chosenAudit?.purposeDelta??null,
+    reachable:x.chosenAudit?.reachablePurposeDelta??null,
+    breakdown:x.chosenAudit?.purposeBreakdown??null,
+    reachability:x.chosenAudit?.purposeReachability??null,
+    rollout:x.chosenAudit?.rolloutPurposeDelta??null
+   },
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
    opponentBranches:{
