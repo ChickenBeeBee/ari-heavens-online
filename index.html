@@ -2617,7 +2617,7 @@ function alive(p){let n=S.hand[p];for(const k in S.free)n+=S.free[k][p];S.candie
 const canAct=()=>S&&S.started&&!S.over&&!dialogOpen&&!ahCardPresentationBusy&&!ahCardUseBusy&&(mode!=='online'||(onlineConnected&&onlineStarted));
 /* ---------- AI telemetry (raw, versioned, offline-first) ---------- */
 const AH_AI_TELEMETRY_VERSION='1.0';
-const AH_AI_TELEMETRY_SCHEMA='ai-telemetry-v1';
+const AH_AI_TELEMETRY_SCHEMA='ai-telemetry-v1.1';
 const AH_AI_TELEMETRY_SCHEMA_VERSION='1.0';
 const AH_AI_TELEMETRY_STORAGE='ah_ai_telemetry_v1';
 const AH_AI_TELEMETRY_MAX_MATCHES=25;
@@ -3602,6 +3602,66 @@ function ahTelemetryPredictionProfile(state,player){
   myCards,oppCards,legalActions:{self:la,opponent:lq}
  };
 }
+/* Strategic Observation v0.1 — raw actions -> curve transitions -> compressed strategic line. Audit-only. */
+function ahTelemetryStrategicObservationClassify(before,after,action,actor,context={}){
+ if(!before||!after||!action)return null;
+ const curveBefore=ahTelemetryStrategyCurve(before,actor);
+ const t=ahTelemetryStrategyCurveTransition(before,actor,action,curveBefore);
+ const purpose=ahTelemetryPurposeProgress(before,after,actor);
+ const purposeDelta=Number(purpose?.delta?.total||0);
+ const progress=Number(t?.progressDelta||0),distance=Number(t?.distanceDelta||0),curveScore=Number(t?.scoreDelta||0);
+ const stateChanged=ahTelemetryShadowStateSignature(before)!==ahTelemetryShadowStateSignature(after);
+ const repeated=Number(context.repeatedCount||0),inverse=Number(context.inverseCount||0);
+ const curveEvidence=Math.max(Math.min(1,Math.abs(progress)/.08),Math.min(1,Math.abs(distance)/.08),Math.min(1,Math.abs(curveScore)/.12));
+ const purposeEvidence=Math.min(1,Math.abs(purposeDelta)/.06);
+ const reversalEvidence=Math.min(1,repeated/4)*.45+Math.min(1,inverse/2)*.35;
+ const noProgress=curveEvidence<.12&&purposeEvidence<.12?1:0;
+ const noiseScore=Math.max(0,Math.min(1,noProgress*.42+(stateChanged?0:.18)+reversalEvidence+
+   ((action.type==='attachAnt'||action.type==='detachAnt')&&repeated>=3?.12:0)-purposeEvidence*.16));
+ const meaningfulScore=Math.max(0,Math.min(1,curveEvidence*.48+purposeEvidence*.32+
+   Math.max(0,progress)*.9+Math.max(0,distance)*.5+Math.max(0,curveScore)*.25-reversalEvidence*.18));
+ const classification=noiseScore>=.62&&meaningfulScore<.38?'noise':meaningfulScore>=.42?'meaningful':'ambiguous';
+ return {action:ahTelemetryClone(action),actionType:action.type||null,route:t?.routeAfter||curveBefore?.selectedRoute||null,
+  progressDelta:progress,distanceDelta:distance,curveScoreDelta:curveScore,stabilityDelta:Number(t?.stabilityDelta||0),
+  purposeDelta,stateChanged,repeatedCount:repeated,inverseCount:inverse,curveEvidence:Number(curveEvidence.toFixed(3)),
+  purposeEvidence:Number(purposeEvidence.toFixed(3)),noiseScore:Number(noiseScore.toFixed(3)),
+  meaningfulScore:Number(meaningfulScore.toFixed(3)),classification,curveBefore,curveAfter:t?.after||null,purpose};
+}
+function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
+ const src=(events||[]).filter(e=>e?.type==='action'&&e?.actor===actor&&e?.before&&e?.after&&e?.action);
+ if(!src.length)return {schema:'strategic-observation-v0.1',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
+  meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null};
+ const recent=src.slice(-Math.max(1,Math.min(64,Number(options.maxActions)||32)));
+ const meaningful=[],noise=[],ambiguous=[],line=[],counts=new Map(),balance=new Map();
+ for(const e of recent){
+  const a=e.action,c=a?.candyId!=null?String(a.candyId):'',repeated=c?Number(counts.get(c)||0):0,inverse=c?Number(balance.get(c)||0):0;
+  const o=ahTelemetryStrategicObservationClassify(e.before,e.after,a,actor,{repeatedCount:repeated,inverseCount:inverse});
+  if(!o)continue;
+  if(c)counts.set(c,repeated+1);
+  if(c&&(a.type==='attachAnt'||a.type==='detachAnt'))balance.set(c,a.type==='attachAnt'?inverse+1:Math.max(0,inverse-1));
+  if(o.classification==='noise')noise.push(o);else if(o.classification==='meaningful')meaningful.push(o);else ambiguous.push(o);
+  if(o.classification!=='noise'){
+   const last=line[line.length-1];
+   if(last&&last.actionType===o.actionType&&last.route===o.route&&o.actionType!=='endTurn'){
+    last.count++;last.lastAction=ahTelemetryClone(a);last.progressDelta=Number((last.progressDelta+o.progressDelta).toFixed(4));
+    last.purposeDelta=Number((last.purposeDelta+o.purposeDelta).toFixed(4));
+   }else line.push({actionType:o.actionType,route:o.route,count:1,firstAction:ahTelemetryClone(a),lastAction:ahTelemetryClone(a),
+    progressDelta:Number(o.progressDelta.toFixed(4)),purposeDelta:Number(o.purposeDelta.toFixed(4))});
+  }
+ }
+ const totals={};for(const o of meaningful)for(const [k,v] of Object.entries(o.purpose?.delta||{}))if(k!=='total')totals[k]=Number(((totals[k]||0)+Number(v||0)).toFixed(4));
+ const purpose=Object.entries(totals).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+ const meaningfulRatio=meaningful.length/recent.length,noiseRatio=noise.length/recent.length,last=meaningful[meaningful.length-1];
+ const confidence=Math.max(0,Math.min(1,meaningfulRatio*.35+Math.min(1,Math.abs(Number(last?.progressDelta||0))/.18)*.22+
+  Math.min(1,Math.abs(Number(last?.purposeDelta||0))/.12)*.18+Number(last?.curveAfter?.stability||0)*.15+
+  (line.length?.10:0)-noiseRatio*.18));
+ return {schema:'strategic-observation-v0.1',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
+  ambiguousCount:ambiguous.length,meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
+  route:last?.route||null,purpose,purposeTotals:totals,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
+  lastMeaningful:ahTelemetryClone(last),noiseExamples:noise.slice(-5).map(x=>({action:x.action,actionType:x.actionType,noiseScore:x.noiseScore,
+   repeatedCount:x.repeatedCount,inverseCount:x.inverseCount,progressDelta:x.progressDelta,purposeDelta:x.purposeDelta}))};
+}
+
 function ahTelemetryOpponentActionModel(state,opponent,profile){
  const p=opponent,q=opp(p),counts={},recent=[];
  const add=(a,w)=>{
@@ -3617,7 +3677,7 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
    }
   }
  }catch(_){}
- const legal=ahTelemetryShadowLegalActions(state,p);
+ const legal=ahTelemetryShadowLegalActions(state,p);\n const strategicObservation=ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32});
  const total=Object.values(counts).reduce((a,b)=>a+b,0);
  const priors={};
  for(const a of legal){
@@ -3631,7 +3691,7 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
   priors,
   counts,
   sampleSize:recent.length,
-  likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
+  strategicObservation,\n  likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
  };
 }
 
