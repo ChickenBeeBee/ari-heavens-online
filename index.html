@@ -5608,9 +5608,19 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   if(chosenAudit){
    chosenAudit.predictedOpponentCurveTransition=predictedOpponentTransition;
   }
-  pendingCurveObservation=(
-   stateAfterChosen&&chosenAudit?.opponentPlayer&&predictedOpponentTransition
-  ) ? {
+  /*
+   * A predicted opponent response is only observable after the chosen action
+   * actually hands the turn to that opponent.  Previously this observation
+   * was overwritten by every same-turn action, so the audit was often one
+   * action late.  Keep the pending prediction only across a real player
+   * transition.
+   */
+  const opponentActuallyTurned=
+   !!stateAfterChosen&&
+   stateAfterChosen.currentPlayer===chosenAudit?.opponentPlayer&&
+   stateAfterChosen.currentPlayer!==p;
+  if(opponentActuallyTurned&&chosenAudit?.opponentPlayer&&predictedOpponentTransition){
+   pendingCurveObservation={
     row,
     opponentPlayer:chosenAudit.opponentPlayer,
     stateAfterChosen,
@@ -5624,7 +5634,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      interaction:chosenAudit.predictionInteraction,
      route:predictedOpponentTransition.routeAfter||predictedOpponentTransition.routeBefore||null
     }
-  } : null;
+   };
+  }
 
   state=stateAfterChosen;
   ahTelemetrySelfPlayTerminal(state);
@@ -5686,7 +5697,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v9',
+  schema:'selfplay-audit-summary-v10',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
