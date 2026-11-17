@@ -4108,7 +4108,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
 
   const rankStable=!!previous&&!rankChanged&&!top1Changed;
   const scoreStable=!!previous&&Math.abs(scoreDelta)<=scoreTolerance;
-  const strategicStable=novelty<.18;
+  const strategicStable=novelty<.18&&!routeUnstable;
   const opponentStable=!opponentChanged;
 
   /*
@@ -4205,7 +4205,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    margin>=requiredMargin&&
    scoreStable&&
    strategicStable&&
-   !counterexample;
+   !counterexample&&
+   !routeUnstable;
 
   newStrategyFound=novelty>=.34;
 
@@ -4285,7 +4286,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.9',
+  schema:'pilot-search-audit-v0.10',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
