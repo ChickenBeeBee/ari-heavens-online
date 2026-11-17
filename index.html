@@ -3654,7 +3654,7 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const meaningfulRatio=meaningful.length/recent.length,noiseRatio=noise.length/recent.length,last=meaningful[meaningful.length-1];
  const confidence=Math.max(0,Math.min(1,meaningfulRatio*.35+Math.min(1,Math.abs(Number(last?.progressDelta||0))/.18)*.22+
   Math.min(1,Math.abs(Number(last?.purposeDelta||0))/.12)*.18+Number(last?.curveAfter?.stability||0)*.15+
-  (line.length?.10:0)-noiseRatio*.18));
+  (line.length?0.10:0)-noiseRatio*.18));
  return {schema:'strategic-observation-v0.2',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
   ambiguousCount:ambiguous.length,meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
   route:last?.route||null,purpose,purposeTotals:totals,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
