@@ -3279,6 +3279,105 @@ function ahTelemetryShadowFutureOpportunityValue(state,actor){
  };
  return valueFor(p)-valueFor(q);
 }
+/*
+ * Intent / Purpose v0.1
+ *
+ * Low-level actions such as attachAnt are means, not strategies.
+ * Estimate the useful purposes currently represented by the board and
+ * measure how much a resulting state advances those purposes.
+ *
+ * Important: this does NOT assign a generic bonus to "having ants attached".
+ * Attachment only contributes when it supports a concrete purpose:
+ * delivery, denial, typhoon protection, transport efficiency, or battle setup.
+ */
+function ahTelemetryPurposeProfile(state,actor){
+ const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p);
+ const out={
+  delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,
+  battlePreparation:0,positioning:0,total:0
+ };
+ const candies=s.candies||[];
+ const free=s.free||{};
+ const routeToNest=node=>{
+  const nest=p+'1';
+  const d=ahTelemetryShadowRouteDistance(node,nest);
+  return d<99?d:Math.max(0,6-CHAIN.indexOf(node));
+ };
+ for(const c of candies){
+  const own=Number(c.attached?.[p]||0),enemy=Number(c.attached?.[q]||0);
+  const need=Math.max(1,Number(c.need||1)),pts=Math.max(0,Number(c.points||0));
+  const node=c.node,dist=routeToNest(node);
+  const ready=own>=need;
+  const enemyReady=enemy>=need;
+  const contested=own>0&&enemy>0;
+
+  // Delivery: ants already committed to a candy have value only insofar as
+  // the candy is realistically finishable and reachable from the nest.
+  if(own>0){
+   const completion=Math.min(1,own/need);
+   const proximity=dist<99?Math.max(0,(6-dist)/6):0;
+   out.delivery+=pts*completion*(.12+.28*proximity);
+   if(ready)out.delivery+=pts*.18;
+  }
+
+  // Denial: opposing progress is valuable when it can actually interfere
+  // with our score race, especially when the opponent is close to completion.
+  if(enemy>0){
+   const oppCompletion=Math.min(1,enemy/need);
+   const contestedValue=pts*(.08+.24*oppCompletion);
+   out.denial+=contested?contestedValue:contestedValue*.55;
+   if(enemyReady)out.denial+=pts*.28;
+  }
+
+  // Battle preparation: only a contested/contestable candy with a plausible
+  // combat value receives this purpose. Mere attachment is not enough.
+  if(own>0&&enemy>0){
+   const ev=battleEV(own,enemy,s.effects?.jaw===p?3:0);
+   out.battlePreparation+=Math.max(0,ev)*.16+Math.min(1,own/need)*pts*.06;
+  }
+
+  // Transport efficiency: grouping multiple ants around the same cargo can
+  // reduce future movement operations. Keep this deliberately small.
+  const grouped=Math.max(0,own-1);
+  if(grouped>0&&need>1)out.transportEfficiency+=Math.min(grouped,need-1)*pts/Math.max(1,need)*.10;
+
+  // Typhoon protection is a conditional purpose, not a permanent attachment
+  // bonus. It becomes relevant only while the effect is active.
+  if(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[p]){
+   if(own>0||enemy>0)out.typhoonProtection+=pts*.12;
+  }
+
+  // A ready candy near the nest is a concrete positional opportunity.
+  if(ready&&dist<99)out.positioning+=pts*Math.max(0,(5-dist)/5)*.08;
+ }
+
+ // Free ants can also support a purpose when they are close to a useful
+ // candy, but this is kept weaker than an actual committed plan.
+ for(const [node,counts] of Object.entries(free)){
+  const ants=Number(counts?.[p]||0);if(!ants)continue;
+  let best=0;
+  for(const c of candies){
+   if(c.bomb)continue;
+   const d=ahTelemetryShadowRouteDistance(node,c.node);
+   if(d>=99||d>2)continue;
+   const need=Math.max(1,Number(c.need||1)),pts=Math.max(0,Number(c.points||0));
+   if((c.attached?.[q]||0)>0)best=Math.max(best,pts/need*.12);
+   else best=Math.max(best,pts/need*.08);
+  }
+  out.positioning+=ants*best;
+ }
+ out.total=Object.keys(out).filter(k=>k!=='total').reduce((n,k)=>n+Number(out[k]||0),0);
+ return Object.fromEntries(Object.entries(out).map(([k,v])=>[k,Number(v.toFixed(4))]));
+}
+function ahTelemetryPurposeProgress(before,after,actor){
+ const b=ahTelemetryPurposeProfile(before,actor),a=ahTelemetryPurposeProfile(after,actor);
+ const keys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning'];
+ const delta={};
+ for(const k of keys)delta[k]=Number((a[k]-b[k]).toFixed(4));
+ delta.total=Number((a.total-b.total).toFixed(4));
+ return {before:b,after:a,delta};
+}
+
 function ahTelemetryShadowStateSignature(state){
  const s=state||{};
  const free=Object.keys(s.free||{}).sort().map(n=>[n,s.free?.[n]?.A||0,s.free?.[n]?.B||0]);
@@ -3563,10 +3662,19 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const win=ahTelemetryWinProbability(state,p);
   const baseOpp=baseState?ahTelemetryShadowFutureOpportunityValue(baseState,turnActor):opp;
   const baseWin=baseState?ahTelemetryWinProbability(baseState,p):win;
+  const intent=baseState?ahTelemetryPurposeProgress(baseState,state,turnActor):null;
+  /*
+   * Purpose progress is intentionally a secondary term. It explains why a
+   * low-level action is useful without turning "attach" itself into a goal.
+   * A sequence that attaches and immediately detaches therefore gives almost
+   * no net purpose progress.
+   */
+  const intentDelta=Number(intent?.delta?.total||0);
   return Number((
     (ahTelemetryShadowUtility(state,p)||0)+
     (opp-baseOpp)*.55+
-    (win-baseWin)*.18
+    (win-baseWin)*.18+
+    intentDelta*.32
   ).toFixed(5));
  };
  const actionKey=a=>{
