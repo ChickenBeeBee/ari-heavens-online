@@ -4099,10 +4099,32 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    (after.threatValue||0)-(before.threatValue||0)+
    (after.winProbability||0)-(before.winProbability||0)+
    (after.terminalValue||0)-(before.terminalValue||0);
-  return {index,action:ahTelemetryClone(action),cheap:Number(immediate.toFixed(4))};
+  const purpose=ahTelemetryPurposeProgress(state,next,player);
+  const purposeDelta=Number(purpose?.delta?.total||0);
+  return {
+   index,
+   action:ahTelemetryClone(action),
+   cheap:Number(immediate.toFixed(4)),
+   purposeDelta,
+   purpose:purpose?.delta||null
+  };
  }).filter(Boolean).sort((a,b)=>b.cheap-a.cheap);
 
- const branches=cheap.slice(0,branchLimit);
+ /*
+  * Purpose-aware widening:
+  * attach/detach are means, not goals. Do not reserve nodes for attach.
+  * If a low-ranked action creates a clearly meaningful purpose gain,
+  * rescue it into the pilot branch set so a cheap immediate score cannot
+  * starve a strategically useful low-level action.
+  */
+ const primaryBranches=cheap.slice(0,branchLimit);
+ const purposeRescue=cheap
+  .filter(x=>Math.abs(Number(x.purposeDelta||0))>=.06)
+  .sort((a,b)=>Math.abs(Number(b.purposeDelta||0))-Math.abs(Number(a.purposeDelta||0)))
+  .find(x=>!primaryBranches.some(y=>y.index===x.index));
+ const branches=purposeRescue
+  ? primaryBranches.concat([purposeRescue])
+  : primaryBranches;
  const runProbe=(action,maxNodes)=>{
   const raw=ahTelemetryRollout(action,player,depth,null,{
    maxNodes,
@@ -4111,6 +4133,9 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   });
   return {
    action:ahTelemetryClone(action),
+   purposeDelta:Number(
+    ahTelemetryPurposeProgress(state,ahTelemetryShadowApply(state,action),player)?.delta?.total||0
+   ),
    score:Number((raw?.value??0).toFixed(4)),
    nodes:Number(raw?.nodes||0),
    truncated:!!raw?.truncated,
@@ -4394,7 +4419,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.10',
+  schema:'pilot-search-audit-v0.11',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -5360,6 +5385,15 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      action:choice.action,
      immediate:actualImmediate,
      quickScore:chosenQuick?.score??null,
+     purposeDelta:Number(chosenQuick?.purposeDelta??0),
+     purposeBreakdown:chosenQuick?.purpose||null,
+     rolloutPurposeDelta:Number(
+      ahTelemetryPurposeProgress(
+       state,
+       ahTelemetryShadowApply(state,choice.action),
+       p
+      )?.delta?.total||0
+     ),
      rolloutValue:rollout?.value??null,
      combinedScore:choice.score??null,
      rootPlayer:rollout?.rootPlayer??p,
@@ -5418,7 +5452,11 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    candies:(state.candies||[]).map(c=>({id:c.id,node:c.node,points:c.points,need:c.need,attached:{A:c.attached?.A||0,B:c.attached?.B||0}})),
    legalCounts:counts,
    baseUtility:ahTelemetryShadowUtilityBreakdown(state,p),
-   topCandidates:quick.slice(0,8),
+   topCandidates:quick.slice(0,8).map(x=>({
+    ...x,
+    purposeDelta:Number(x.purposeDelta||0),
+    purpose:x.purpose||null
+   })),
    chosen:choice?.action||null,
    chosenAudit,
    strategicCompression:ahTelemetryStrategicCompression(state,p)
