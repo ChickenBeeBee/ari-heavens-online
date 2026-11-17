@@ -3758,6 +3758,110 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
    repeatedCount:x.repeatedCount,inverseCount:x.inverseCount,progressDelta:x.progressDelta,purposeDelta:x.purposeDelta}))};
 }
 
+/*
+ * Strategic Intent v0.1
+ *
+ * Predict the opponent's purpose, not just their next low-level action.
+ * Intent remains probabilistic: primary / secondary / counter-hypothesis.
+ * Low-level actions are scored by how well they advance the inferred intent.
+ */
+function ahTelemetryStrategicIntent(state,actor,profile=null,observation=null){
+ const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p);
+ const obs=observation||ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32})||{};
+ const comp=ahTelemetryStrategicCompression(s,p)||{};
+ const curve=ahTelemetryStrategyCurve(s,p)||{};
+ const purpose=obs?.purposeTotals||{};
+ const utility=ahTelemetryShadowUtilityBreakdown(s,p)||{};
+ const scoreDiff=Number(utility.scoreDiff||0);
+ const winProbability=Number(utility.winProbability??ahTelemetryWinProbability(s,p)??.5);
+ const phase=Number(profile?.phase??comp.phase??0);
+ const cardPressure=Number(profile?.cardPressure??comp.cardPressure??0);
+ const interaction=Number(profile?.interaction??comp.interaction??0);
+ const battleThreat=Number(profile?.battleThreat??comp.battleThreat??0);
+
+ const raw={
+  delivery:Math.max(0,Number(purpose.delivery||0))+
+   Math.max(0,Number(purpose.transportEfficiency||0))*.45,
+  denial:Math.max(0,Number(purpose.denial||0))+
+   interaction*.28+battleThreat*.12,
+  battle:Math.max(0,Number(purpose.battlePreparation||0))+
+   battleThreat*.48,
+  positioning:Math.max(0,Number(purpose.positioning||0))+
+   Math.max(0,Number(purpose.transportEfficiency||0))*.18,
+  cardPressure:cardPressure*.62+interaction*.12,
+  survival:Math.max(0,-scoreDiff)*.08+
+   Math.max(0,.5-winProbability)*.72+
+   Math.max(0,1-phase)*.03,
+  scoreRace:Math.max(0,Number(purpose.delivery||0))*.72+
+   Math.max(0,scoreDiff)*.14+
+   Math.max(0,phase-.25)*.08
+ };
+
+ /* A strong observed purpose should dominate weak generic signals. */
+ const total=Object.values(raw).reduce((a,b)=>a+Math.max(0,Number(b)||0),0);
+ const dist={};
+ for(const [k,v] of Object.entries(raw)){
+  dist[k]=Number((total?Math.max(0,v)/total:1/Object.keys(raw).length).toFixed(4));
+ }
+ const ranked=Object.entries(dist).sort((a,b)=>b[1]-a[1]);
+ const primary=ranked[0]?.[0]||'positioning';
+ const secondary=ranked[1]?.[0]||primary;
+ const counterHypothesis=ranked[2]?.[0]||secondary;
+ const top=ranked[0]?.[1]||0,second=ranked[1]?.[1]||0;
+ const confidence=Number(Math.max(0,Math.min(1,
+  top*.72+(top-second)*.55+
+  Math.min(1,(Number(obs?.meaningfulCount)||0)/4)*.12+
+  (obs?.confidence||0)*.18
+ )).toFixed(3));
+
+ return {
+  schema:'strategic-intent-v0.1',
+  actor:p,
+  primary,secondary,counterHypothesis,
+  distribution:dist,
+  confidence,
+  source:{
+   observation:obs?.sampleSize>0?'strategic-observation':'state-derived',
+   purposeTotals:ahTelemetryClone(purpose),
+   route:obs?.route||curve.selectedRoute||null,
+   routeSeparation:Number(curve.routeSeparation||0),
+   strategicComplexity:Number(comp.strategicComplexity||0)
+  }
+ };
+}
+
+function ahTelemetryStrategicIntentMatch(intent,actionRequirement,action,profile=null){
+ if(!intent)return {score:0,breakdown:{}};
+ const d=actionRequirement?.purpose?.delta||{};
+ const active=actionRequirement?.activePurposes||[];
+ const weights={
+  delivery:{delivery:1,positioning:.28,transportEfficiency:.22},
+  denial:{denial:1,battlePreparation:.30},
+  battle:{battlePreparation:1,denial:.32},
+  positioning:{positioning:1,transportEfficiency:.28,delivery:.16},
+  cardPressure:{denial:.48,battlePreparation:.22,delivery:.16},
+  survival:{denial:.35,positioning:.25,battlePreparation:.18},
+  scoreRace:{delivery:.72,positioning:.22,transportEfficiency:.16}
+ };
+ const fitFor=(name)=>{
+  const map=weights[name]||{};
+  let v=0;
+  for(const [k,w] of Object.entries(map))v+=Math.max(0,Number(d[k]||0))*w;
+  if(active.includes(name))v+=.12;
+  if(name==='cardPressure'&&action?.type==='useCard')v+=.30;
+  if(name==='battle'&&action?.type==='startBattle')v+=.24;
+  if(name==='delivery'&&action?.type==='carryCandy')v+=.16;
+  return Math.max(0,Math.min(1,v/.32));
+ };
+ const bd={};
+ for(const name of Object.keys(intent.distribution||{}))bd[name]=Number(fitFor(name).toFixed(4));
+ const primary=Number(bd[intent.primary]||0),secondary=Number(bd[intent.secondary]||0),counter=Number(bd[intent.counterHypothesis]||0);
+ const weighted=primary*(intent.distribution?.[intent.primary]||0)+
+  secondary*(intent.distribution?.[intent.secondary]||0)+
+  counter*(intent.distribution?.[intent.counterHypothesis]||0);
+ return {score:Number(Math.max(0,Math.min(1,weighted+.10*primary)).toFixed(4)),breakdown:bd};
+}
+
 function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=null){
  const p=opponent,q=opp(p),counts={},recent=[];
  const sourceEvents=Array.isArray(eventsOverride)?eventsOverride:(AH_AI_TELEMETRY?.events||[]);
@@ -3781,12 +3885,14 @@ function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=nu
  const reconstructedPurpose=strategicObservation?.purpose||null;
  const purposeTotals=strategicObservation?.purposeTotals||{};
  const requirementVector=strategicObservation?.requirementVector||{};
+ const strategicIntent=ahTelemetryStrategicIntent(state,p,profile,strategicObservation);
  const priors={},predictionEvidence={};
  for(const a of legal){
   const key=JSON.stringify(a),freq=total?(counts[a.type]||0)/total:0,base=1/Math.max(1,legal.length);
   const curve=ahTelemetryStrategyCurveTransition(state,p,a,ahTelemetryStrategyCurve(state,p));
   const applied=ahTelemetryShadowApply(state,a);
-  const purposeDelta=applied?Number(ahTelemetryPurposeProgress(state,applied,p)?.delta?.total||0):0;
+  const purposeProgress=applied?ahTelemetryPurposeProgress(state,applied,p):null;
+  const purposeDelta=Number(purposeProgress?.delta?.total||0);
   const actionReq=applied?ahTelemetryActionRequirement(state,applied,a,p):null;
   const routeMatch=reconstructedRoute&&curve?.routeAfter===reconstructedRoute?1:0;
   const purposeMatch=reconstructedPurpose&&purposeTotals[reconstructedPurpose]?
@@ -3794,17 +3900,19 @@ function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=nu
   const requirementMatch=ahTelemetryPurposeVectorMatch(actionReq,{requirement:requirementVector});
   const necessityMatch=Math.max(0,Math.min(1,
    .55*requirementMatch+.25*(actionReq?.necessity||0)+.20*purposeMatch));
-  const strategicFit=.38*routeMatch+.27*purposeMatch+.35*necessityMatch;
-  priors[key]=.42*freq+.28*base+.30*strategicFit;
+  const intentMatch=ahTelemetryStrategicIntentMatch(strategicIntent,actionReq,a,profile);
+  const strategicFit=.30*routeMatch+.20*purposeMatch+.25*necessityMatch+.25*intentMatch.score;
+  priors[key]=.36*freq+.24*base+.40*strategicFit;
   predictionEvidence[key]={
    actionType:a.type||null,historyFrequency:Number(freq.toFixed(4)),routeMatch,
    purposeMatch:Number(purposeMatch.toFixed(4)),requirementMatch:Number(requirementMatch.toFixed(4)),
    necessity:Number(actionReq?.necessity||0),necessityMatch:Number(necessityMatch.toFixed(4)),
+   intentMatch:Number(intentMatch.score.toFixed(4)),intentBreakdown:intentMatch.breakdown,
    strategicFit:Number(strategicFit.toFixed(4)),requiredStateChanges:actionReq?.activePurposes||[]
   };
  }
  return {player:p,strength:Number(Math.max(0,Math.min(1,Number(profile?.strength)||0)).toFixed(3)),priors,counts,sampleSize:recent.length,
-  strategicObservation,predictionEvidence,historySource:signalActions.length?'strategic-signal':'raw-fallback',
+  strategicObservation,strategicIntent,predictionEvidence,historySource:signalActions.length?'strategic-signal':'raw-fallback',
   likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)};
 }
 
@@ -4704,7 +4812,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.12',
+  schema:'pilot-search-audit-v0.13',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -5704,6 +5812,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      opponentPlayer:rollout?.opponentPlayer??null,
      opponentActionModel:rollout?.opponentActionModel??null,
      opponentPredictionEvidence:rollout?.opponentActionModel?.predictionEvidence??null,
+     strategicIntent:rollout?.opponentActionModel?.strategicIntent??null,
      opponentHistorySource:rollout?.opponentActionModel?.historySource??null,
      strategicObservation:rollout?.opponentActionModel?.strategicObservation??null,
      continuation:rollout?.continuation??null,
@@ -5881,7 +5990,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v12',
+  schema:'selfplay-audit-summary-v13',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -5907,6 +6016,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    predictionAuditContext:x.chosenAudit?.predictionAuditContext??null,
    strategicObservation:x.chosenAudit?.strategicObservation??x.chosenAudit?.opponentActionModel?.strategicObservation??null,
    opponentPredictionEvidence:x.chosenAudit?.opponentPredictionEvidence??x.chosenAudit?.opponentActionModel?.predictionEvidence??null,
+   strategicIntent:x.chosenAudit?.strategicIntent??x.chosenAudit?.opponentActionModel?.strategicIntent??null,
    opponentHistorySource:x.chosenAudit?.opponentHistorySource??x.chosenAudit?.opponentActionModel?.historySource??null,
    strategicCompression:x.chosenAudit?.strategicCompression??null,
    strategicCompressionTransition:x.chosenAudit?.strategicCompressionTransition??null,
