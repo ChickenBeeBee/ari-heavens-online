@@ -3813,6 +3813,7 @@ function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=nu
  const purposeTotals=strategicObservation?.purposeTotals||{};
  const requirementVector=strategicObservation?.requirementVector||{};
  const priors={},predictionEvidence={};
+ const strategicIntent=ahTelemetryStrategicIntent(state,p,profile,strategicObservation);
  for(const a of legal){
   const key=JSON.stringify(a),freq=total?(counts[a.type]||0)/total:0,base=1/Math.max(1,legal.length);
   const curve=ahTelemetryStrategyCurveTransition(state,p,a,ahTelemetryStrategyCurve(state,p));
@@ -3823,7 +3824,6 @@ function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=nu
   const purposeMatch=reconstructedPurpose&&purposeTotals[reconstructedPurpose]?
    Math.max(0,Math.min(1,Math.max(0,purposeDelta)/Math.max(.04,Math.abs(Number(purposeTotals[reconstructedPurpose]||0))))):0;
   const requirementMatch=ahTelemetryPurposeVectorMatch(actionReq,{requirement:requirementVector});
-  const strategicIntent=ahTelemetryStrategicIntent(state,p,profile,strategicObservation);
   const intentMatch=ahTelemetryStrategicIntentMatch(strategicIntent,actionReq,a,profile);
   const necessityMatch=Math.max(0,Math.min(1,
    .55*requirementMatch+.25*(actionReq?.necessity||0)+.20*purposeMatch));
