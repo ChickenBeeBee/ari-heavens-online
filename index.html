@@ -3677,7 +3677,8 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
    }
   }
  }catch(_){}
- const legal=ahTelemetryShadowLegalActions(state,p);\n const strategicObservation=ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32});
+ const legal=ahTelemetryShadowLegalActions(state,p);
+ const strategicObservation=ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32});
  const total=Object.values(counts).reduce((a,b)=>a+b,0);
  const priors={};
  for(const a of legal){
@@ -3691,7 +3692,8 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
   priors,
   counts,
   sampleSize:recent.length,
-  strategicObservation,\n  likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
+  strategicObservation,
+  likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
  };
 }
 
