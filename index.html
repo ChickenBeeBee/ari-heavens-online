@@ -3437,8 +3437,9 @@ function ahTelemetryPurposeReachability(state,action,actor,options={}){
   }
   next.sort((a,b)=>{
    const ad=Number(a.transition?.delta?.total||0),bd=Number(b.transition?.delta?.total||0);
-   return (bd-bd*0)+(Number(b.score)-Number(a.score))*0.35-(Number(a.depth)-Number(b.depth))*0.002
-    -((ad-a.transition?.delta?.total||0));
+   const as=Number(a.score||0),bs=Number(b.score||0);
+   const depthPenalty=(Number(a.depth||0)-Number(b.depth||0))*.002;
+   return (bd-ad)*.65+(bs-as)*.35-depthPenalty;
   });
   frontier=next.slice(0,beam);
   if(!frontier.length)break;
@@ -5415,6 +5416,14 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    }
    const immediate=delta.scoreDiff+delta.candyValue+delta.positionValue+delta.antValue+delta.threatValue+delta.winProbability+delta.terminalValue;
    const wp=after.raw.winProb;
+   const purposeProgress=next
+    ? ahTelemetryPurposeProgress(state,next,p)
+    : null;
+   const purposeReachability=next
+    ? ahTelemetryPurposeReachability(state,action,p,{maxDepth:2,beamWidth:3})
+    : null;
+   const purposeDelta=Number(purposeProgress?.delta?.total||0);
+   const reachablePurposeDelta=Number(purposeReachability?.reachableDelta||0);
    let setup=0;
    if(action.type==='carryCandy'){
     const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
@@ -5427,7 +5436,14 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
    }
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
-   return {type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,score:Number(score.toFixed(4)),delta};
+   return {
+    type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,
+    score:Number(score.toFixed(4)),delta,
+    purposeDelta,
+    reachablePurposeDelta,
+    purpose:purposeProgress?.delta||null,
+    purposeReachability
+   };
   }).sort((a,b)=>b.score-a.score);
   /*
    * Pilot v0.9 audit controller:
@@ -5615,7 +5631,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   if(choice.action.type==='endTurn')continue;
  }
  const out={
-  schema:'selfplay-audit-v6',
+  schema:'selfplay-audit-summary-v10',
   seed:String(seed),
   firstPlayer:state.first,
   steps:rows,
