@@ -3602,7 +3602,7 @@ function ahTelemetryPredictionProfile(state,player){
   myCards,oppCards,legalActions:{self:la,opponent:lq}
  };
 }
-/* Strategic Observation v0.1 — raw actions -> curve transitions -> compressed strategic line. Audit-only. */
+/* Strategic Observation v0.2 — raw actions -> signal/noise classification -> curve/purpose reconstruction. Audit-only. */
 function ahTelemetryStrategicObservationClassify(before,after,action,actor,context={}){
  if(!before||!after||!action)return null;
  const curveBefore=ahTelemetryStrategyCurve(before,actor);
@@ -3629,7 +3629,7 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
 }
 function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const src=(events||[]).filter(e=>e?.type==='action'&&e?.actor===actor&&e?.before&&e?.after&&e?.action);
- if(!src.length)return {schema:'strategic-observation-v0.1',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
+ if(!src.length)return {schema:'strategic-observation-v0.2',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
   meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null};
  const recent=src.slice(-Math.max(1,Math.min(64,Number(options.maxActions)||32)));
  const meaningful=[],noise=[],ambiguous=[],line=[],counts=new Map(),balance=new Map();
@@ -3655,7 +3655,7 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const confidence=Math.max(0,Math.min(1,meaningfulRatio*.35+Math.min(1,Math.abs(Number(last?.progressDelta||0))/.18)*.22+
   Math.min(1,Math.abs(Number(last?.purposeDelta||0))/.12)*.18+Number(last?.curveAfter?.stability||0)*.15+
   (line.length?.10:0)-noiseRatio*.18));
- return {schema:'strategic-observation-v0.1',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
+ return {schema:'strategic-observation-v0.2',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
   ambiguousCount:ambiguous.length,meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
   route:last?.route||null,purpose,purposeTotals:totals,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
   lastMeaningful:ahTelemetryClone(last),noiseExamples:noise.slice(-5).map(x=>({action:x.action,actionType:x.actionType,noiseScore:x.noiseScore,
@@ -3671,20 +3671,49 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
   const ev=AH_AI_TELEMETRY?.events||[];
   for(let i=ev.length-1,age=0;i>=0&&age<28;i--,age++){
    const e=ev[i];
-   if(e?.type==='action'&&e.actor===p&&e.action){
-    const w=Math.exp(-age/7);
-    add(e.action,w);recent.push(e.action);
-   }
+   if(e?.type==='action'&&e.actor===p&&e.action)recent.push(e.action);
   }
  }catch(_){}
  const legal=ahTelemetryShadowLegalActions(state,p);
  const strategicObservation=ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32});
+
+ /*
+  * Strategic reconstruction is the primary behavioral history.
+  * Raw action frequency remains only a fallback when no meaningful signal
+  * has been reconstructed, so repeated attach/detach noise does not dominate.
+  */
+ const signalActions=[];
+ (strategicObservation?.reconstructedLine||[]).forEach(x=>{
+  if(x.firstAction)signalActions.push(x.firstAction);
+  if(x.lastAction&&JSON.stringify(x.lastAction)!==JSON.stringify(x.firstAction))signalActions.push(x.lastAction);
+ });
+ const signalSource=signalActions.length?signalActions:recent;
+ const signalAgeWeight=Math.max(1,signalSource.length);
+ signalSource.forEach((a,i)=>add(a,Math.exp(-(signalAgeWeight-1-i)/7)));
  const total=Object.values(counts).reduce((a,b)=>a+b,0);
- const priors={};
+ const reconstructedRoute=strategicObservation?.route||null;
+ const reconstructedPurpose=strategicObservation?.purpose||null;
+ const purposeTotals=strategicObservation?.purposeTotals||{};
+ const priors={},predictionEvidence={};
  for(const a of legal){
+  const key=JSON.stringify(a);
   const freq=total?(counts[a.type]||0)/total:0;
   const base=1/Math.max(1,legal.length);
-  priors[JSON.stringify(a)]=.55*freq+.45*base;
+  const curve=ahTelemetryStrategyCurveTransition(state,p,a,ahTelemetryStrategyCurve(state,p));
+  const routeMatch=reconstructedRoute&&curve?.routeAfter===reconstructedRoute?1:0;
+  const applied=ahTelemetryShadowApply(state,a);
+  const purposeDelta=applied?Number(ahTelemetryPurposeProgress(state,applied,p)?.delta?.total||0):0;
+  const purposeMatch=reconstructedPurpose&&purposeTotals[reconstructedPurpose]?
+   Math.max(0,Math.min(1,purposeDelta/Math.max(.04,Math.abs(Number(purposeTotals[reconstructedPurpose]||0))))):0;
+  const strategicFit=.55*routeMatch+.45*purposeMatch;
+  priors[key]=.55*freq+.45*base+.22*strategicFit;
+  predictionEvidence[key]={
+   actionType:a.type||null,
+   historyFrequency:Number(freq.toFixed(4)),
+   routeMatch,
+   purposeMatch:Number(purposeMatch.toFixed(4)),
+   strategicFit:Number(strategicFit.toFixed(4))
+  };
  }
  return {
   player:p,
@@ -3693,6 +3722,8 @@ function ahTelemetryOpponentActionModel(state,opponent,profile){
   counts,
   sampleSize:recent.length,
   strategicObservation,
+  predictionEvidence,
+  historySource:signalActions.length?'strategic-signal':'raw-fallback',
   likely:legal.slice().sort((a,b)=>(priors[JSON.stringify(b)]||0)-(priors[JSON.stringify(a)]||0)).slice(0,5)
  };
 }
