@@ -3378,6 +3378,96 @@ function ahTelemetryPurposeProgress(before,after,actor){
  return {before:b,after:a,delta};
 }
 
+/*
+ * Intent / Purpose v0.2
+ *
+ * v0.1 only measured immediate purpose gain. That misses "means" actions
+ * such as attachAnt when the useful consequence appears a move or two later.
+ * This probe performs a deliberately shallow, cheap continuation search and
+ * asks whether the action can reach a concrete purpose soon.
+ *
+ * This is evidence for widening/diagnostics, not a hard strategy rule.
+ * No action type receives a special bonus.
+ */
+function ahTelemetryPurposeReachability(state,action,actor,options={}){
+ const s=state||{},p=actor||s.currentPlayer||'B';
+ const maxDepth=Math.max(1,Math.min(3,Number(options.maxDepth||2)));
+ const beam=Math.max(1,Math.min(4,Number(options.beamWidth||3)));
+ const root=ahTelemetryShadowApply(s,action);
+ if(!root)return null;
+
+ const keys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning'];
+ const rootProfile=ahTelemetryPurposeProfile(s,p);
+ const scorePurpose=(st)=>{
+  const pr=ahTelemetryPurposeProfile(st,p);
+  const delta={};
+  for(const k of keys)delta[k]=Number((pr[k]-rootProfile[k]).toFixed(4));
+  delta.total=Number((pr.total-rootProfile.total).toFixed(4));
+  return {profile:pr,delta};
+ };
+ const actionKey=a=>JSON.stringify({
+  type:a?.type||null,node:a?.node||null,from:a?.from||null,to:a?.to||null,
+  candyId:a?.candyId||null,card:a?.card||null,dir:a?.dir||null
+ });
+
+ let frontier=[{state:root,line:[ahTelemetryClone(action)],score:0,depth:1,transition:scorePurpose(root)}];
+ let best=frontier[0];
+ const visited=new Set([ahTelemetryShadowStateSignature(root)]);
+
+ for(let depth=1;depth<maxDepth;depth++){
+  const next=[];
+  for(const item of frontier){
+   const legal=ahTelemetryShadowLegalActions(item.state,p)||[];
+   for(const a of legal.slice(0,12)){
+    const ns=ahTelemetryShadowApply(item.state,a);
+    if(!ns)continue;
+    const sig=ahTelemetryShadowStateSignature(ns);
+    if(visited.has(sig))continue;
+    visited.add(sig);
+    const tr=scorePurpose(ns);
+    const gain=Math.max(0,tr.delta.total);
+    next.push({
+     state:ns,
+     line:item.line.concat([ahTelemetryClone(a)]),
+     score:gain,
+     depth:depth+1,
+     transition:tr
+    });
+   }
+  }
+  next.sort((a,b)=>{
+   const ad=Number(a.transition?.delta?.total||0),bd=Number(b.transition?.delta?.total||0);
+   return (bd-bd*0)+(Number(b.score)-Number(a.score))*0.35-(Number(a.depth)-Number(b.depth))*0.002
+    -((ad-a.transition?.delta?.total||0));
+  });
+  frontier=next.slice(0,beam);
+  if(!frontier.length)break;
+  const localBest=frontier.reduce((x,y)=>
+   Number(y.transition?.delta?.total||0)>Number(x.transition?.delta?.total||0)?y:x,
+   frontier[0]);
+  if(Number(localBest.transition?.delta?.total||0)>Number(best.transition?.delta?.total||0))best=localBest;
+ }
+
+ const d=best.transition?.delta||{};
+ const active=keys.filter(k=>Number(d[k]||0)>0).sort((a,b)=>Number(d[b]||0)-Number(d[a]||0));
+ const confidence=Math.max(0,Math.min(1,
+   (active.length?0.35:0)+
+   Math.min(1,Math.max(0,Number(d.total||0))/0.12)*0.45+
+   (best.depth>1?0.12:0)+
+   (frontier.length?0.08:0)
+ ));
+ return {
+  immediate:Number((ahTelemetryPurposeProgress(s,root,p)?.delta?.total||0).toFixed(4)),
+  reachableDelta:Number((d.total||0).toFixed(4)),
+  purpose:active[0]||null,
+  purposeDeltas:Object.fromEntries(keys.map(k=>[k,Number(d[k]||0)])),
+  depth:Number(best.depth||1),
+  confidence:Number(confidence.toFixed(3)),
+  line:best.line,
+  expanded:visited.size
+ };
+}
+
 function ahTelemetryShadowStateSignature(state){
  const s=state||{};
  const free=Object.keys(s.free||{}).sort().map(n=>[n,s.free?.[n]?.A||0,s.free?.[n]?.B||0]);
@@ -4037,7 +4127,7 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
  return {score:Number(total.toFixed(4)),breakdown:b};
 }
 function ahTelemetryPilotSearchAudit(state,player,options={}){
- /* Pilot Search v0.5 — progressive evidence controller.
+ /* Pilot Search v0.12 — progressive evidence controller.
   *
   * Audit only for now.  This version does not change the live CPU budget.
   * It asks a more important question than "did the same action remain #1?":
@@ -4100,13 +4190,17 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    (after.winProbability||0)-(before.winProbability||0)+
    (after.terminalValue||0)-(before.terminalValue||0);
   const purpose=ahTelemetryPurposeProgress(state,next,player);
+  const reach=ahTelemetryPurposeReachability(state,action,player,{maxDepth:2,beamWidth:3});
   const purposeDelta=Number(purpose?.delta?.total||0);
+  const reachablePurposeDelta=Number(reach?.reachableDelta||0);
   return {
    index,
    action:ahTelemetryClone(action),
    cheap:Number(immediate.toFixed(4)),
    purposeDelta,
-   purpose:purpose?.delta||null
+   reachablePurposeDelta,
+   purpose:purpose?.delta||null,
+   purposeReachability:reach
   };
  }).filter(Boolean).sort((a,b)=>b.cheap-a.cheap);
 
@@ -4119,8 +4213,17 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   */
  const primaryBranches=cheap.slice(0,branchLimit);
  const purposeRescue=cheap
-  .filter(x=>Math.abs(Number(x.purposeDelta||0))>=.06)
-  .sort((a,b)=>Math.abs(Number(b.purposeDelta||0))-Math.abs(Number(a.purposeDelta||0)))
+  .filter(x=>Math.max(
+   Math.abs(Number(x.purposeDelta||0)),
+   Math.abs(Number(x.reachablePurposeDelta||0))
+  )>=.06)
+  .sort((a,b)=>Math.max(
+   Math.abs(Number(b.purposeDelta||0)),
+   Math.abs(Number(b.reachablePurposeDelta||0))
+  )-Math.max(
+   Math.abs(Number(a.purposeDelta||0)),
+   Math.abs(Number(a.reachablePurposeDelta||0)
+  )))
   .find(x=>!primaryBranches.some(y=>y.index===x.index));
  const branches=purposeRescue
   ? primaryBranches.concat([purposeRescue])
@@ -4135,6 +4238,9 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    action:ahTelemetryClone(action),
    purposeDelta:Number(
     ahTelemetryPurposeProgress(state,ahTelemetryShadowApply(state,action),player)?.delta?.total||0
+   ),
+   reachablePurposeDelta:Number(
+    ahTelemetryPurposeReachability(state,action,player,{maxDepth:2,beamWidth:3})?.reachableDelta||0
    ),
    score:Number((raw?.value??0).toFixed(4)),
    nodes:Number(raw?.nodes||0),
@@ -4419,7 +4525,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  ));
 
  return {
-  schema:'pilot-search-audit-v0.11',
+  schema:'pilot-search-audit-v0.12',
   pilotNodes,branchLimit,depth,
   route:compression.route||'neutral',
   strategicComplexity:complexity,themeCount,interaction,battleThreat,
@@ -5386,7 +5492,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      immediate:actualImmediate,
      quickScore:chosenQuick?.score??null,
      purposeDelta:Number(chosenQuick?.purposeDelta??0),
+     reachablePurposeDelta:Number(chosenQuick?.reachablePurposeDelta??0),
      purposeBreakdown:chosenQuick?.purpose||null,
+     purposeReachability:chosenQuick?.purposeReachability||null,
      rolloutPurposeDelta:Number(
       ahTelemetryPurposeProgress(
        state,
