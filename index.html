@@ -3390,7 +3390,7 @@ function ahTelemetryPurposeVector(state,actor,profile=null){
  const oppOpportunity=Math.max(0,Number(ahTelemetryShadowFutureOpportunityValue(s,op)||0));
  const totalOpportunity=Math.max(1,opportunity+oppOpportunity);
  const out={...base,
-  futureOpportunity:Number(Math.min(1,opportunity/totalOpportunity).toFixed(4)),
+  futureOpportunity:Number(Math.max(0,Math.min(1,opportunity/4)).toFixed(4)),
   scoreRace:Number(Math.max(0,Math.min(1,Math.max(0,scoreGap)/8+Math.max(0,Number(base.delivery||0))/12)).toFixed(4))};
  out.total=Object.keys(out).filter(k=>k!=='total').reduce((n,k)=>n+Math.max(0,Number(out[k]||0)),0);
  return Object.fromEntries(Object.entries(out).map(([k,v])=>[k,Number(Number(v||0).toFixed(4))]));
@@ -3417,7 +3417,14 @@ function ahTelemetryStrategicVector(state,actor,purposeVector=null,stateVector=n
 }
 function ahTelemetryCompositeStrategicVector(purposeVector,strategicVector,stateVector,context={}){
  const pv=purposeVector||{},gv=strategicVector||{},sv=stateVector||{},clamp=v=>Math.max(0,Math.min(1,Number(v)||0));
- const out={scoreRace:clamp(Number(pv.scoreRace||0)*.42+Number(gv.tempo||0)*.16+Number(sv.scoreLead||0)*.22+Number(pv.delivery||0)*.12),deliveryPush:clamp(Number(pv.delivery||0)*.50+Number(gv.tempo||0)*.16+Number(sv.deliveryReadiness||0)*.22+Number(gv.futureSetup||0)*.10),pressure:clamp(Number(gv.pressure||0)*.44+Number(gv.threat||0)*.20+Number(pv.denial||0)*.20+Number(sv.battleThreat||0)*.10),counterplay:clamp(Number(gv.counterplay||0)*.46+Number(pv.denial||0)*.24+Number(sv.activeCardThreat||0)*.18+Number(sv.battleThreat||0)*.08),futureControl:clamp(Number(gv.futureSetup||0)*.46+Number(pv.futureOpportunity||0)*.30+Number(gv.initiative||0)*.14),stability:clamp(Number(gv.safety||0)*.42+Number(sv.boardControl||0)*.28+Number(gv.flexibility||0)*.16),tacticalRisk:clamp(Number(gv.risk||0)*.58+Number(sv.battleThreat||0)*.18),strategicValue:0};
+ const out={scoreRace:clamp(Number(pv.scoreRace||0)*.42+Number(gv.tempo||0)*.16+Number(sv.scoreLead||0)*.22+Number(pv.delivery||0)*.12),deliveryPush:clamp(Number(pv.delivery||0)*.50+Number(gv.tempo||0)*.16+Number(sv.deliveryReadiness||0)*.22+Number(gv.futureSetup||0)*.10),pressure:clamp(Number(gv.pressure||0)*.44+Number(gv.threat||0)*.20+Number(pv.denial||0)*.20+Number(sv.battleThreat||0)*.10),counterplay:clamp(Number(gv.counterplay||0)*.46+Number(pv.denial||0)*.24+Number(sv.activeCardThreat||0)*.18+Number(sv.battleThreat||0)*.08),futureControl:clamp(
+  Number(gv.futureSetup||0)*.30+
+  Number(pv.futureOpportunity||0)*.20+
+  Number(gv.initiative||0)*.10+
+  Number(pv.delivery||0)*.16+
+  Number(pv.positioning||0)*.14+
+  Number(pv.transportEfficiency||0)*.10
+),stability:clamp(Number(gv.safety||0)*.42+Number(sv.boardControl||0)*.28+Number(gv.flexibility||0)*.16),tacticalRisk:clamp(Number(gv.risk||0)*.58+Number(sv.battleThreat||0)*.18),strategicValue:0};
  out.strategicValue=clamp(out.scoreRace*.18+out.deliveryPush*.16+out.pressure*.13+out.counterplay*.12+out.futureControl*.16+out.stability*.12+(1-out.tacticalRisk)*.13);
  const ranked=Object.entries(out).filter(([k])=>k!=='strategicValue').sort((a,b)=>b[1]-a[1]),confidence=clamp(Number(context.observationConfidence||0)*.35+Number(context.stateConfidence??1)*.35+Math.min(1,ranked[0]?.[1]||0)*.30);
  return {schema:'strategic-vector-stack-v0.2',purpose:{...pv},strategic:{...gv},state:{...sv},composite:out,dominantComposite:ranked[0]?.[0]||null,dominantPurpose:Object.entries(pv).filter(([k])=>k!=='total').sort((a,b)=>b[1]-a[1])[0]?.[0]||null,dominantStrategic:Object.entries(gv).sort((a,b)=>b[1]-a[1])[0]?.[0]||null,confidence:Number(confidence.toFixed(3))};
