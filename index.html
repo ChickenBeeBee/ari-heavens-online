@@ -6037,7 +6037,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v15',
+  schema:'selfplay-audit-summary-v16',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -6073,6 +6073,13 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     breakdown:x.chosenAudit?.purposeBreakdown??null,
     reachability:x.chosenAudit?.purposeReachability??null,
     rollout:x.chosenAudit?.rolloutPurposeDelta??null
+   },
+   strategicVector:{
+    progress:x.chosenAudit?.strategicVectorProgress??null,
+    futureStrategicValueDelta:x.chosenAudit?.futureStrategicValueDelta??null,
+    before:x.chosenAudit?.strategicVectorProgress?.before??null,
+    after:x.chosenAudit?.strategicVectorProgress?.after??null,
+    delta:x.chosenAudit?.strategicVectorProgress?.delta??null
    },
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
