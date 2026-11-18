@@ -5743,6 +5743,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     : null;
    const purposeDelta=Number(purposeProgress?.delta?.total||0);
    const reachablePurposeDelta=Number(purposeReachability?.reachableDelta||0);
+   const strategicVectorProgress=next
+    ? ahTelemetryStrategicVectorProgress(state,next,p)
+    : null;
    let setup=0;
    if(action.type==='carryCandy'){
     const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
@@ -5761,7 +5764,28 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     purposeDelta,
     reachablePurposeDelta,
     purpose:purposeProgress?.delta||null,
-    purposeReachability
+    purposeReachability,
+    strategicVectorProgress,
+    futureStrategicValueDelta:Number(strategicVectorProgress?.delta?.strategicValue||0),
+    vectorBreakdown:(()=>{
+      const v=strategicVectorProgress||{},b=v.before||{},a=v.after||{},pd={},gd={},sd={};
+      const pkeys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning','futureOpportunity','scoreRace'];
+      const gkeys=['tempo','initiative','pressure','counterplay','threat','flexibility','risk','safety','resourceEfficiency','futureSetup'];
+      const skeys=['scoreGap','scoreLead','boardControl','cardAvailability','activeCardThreat','battleThreat','deliveryReadiness','boardBusy','interaction','routeSeparation','phase','remainingTurns'];
+      pkeys.forEach(k=>pd[k]=Number(((a.purpose?.[k]||0)-(b.purpose?.[k]||0)).toFixed(4)));
+      gkeys.forEach(k=>gd[k]=Number(((a.strategic?.[k]||0)-(b.strategic?.[k]||0)).toFixed(4)));
+      skeys.forEach(k=>sd[k]=Number(((a.state?.[k]||0)-(b.state?.[k]||0)).toFixed(4)));
+      return {
+        dominantPurpose:a.purpose?.dominantPurpose??null,
+        dominantStrategic:a.strategic?.dominantStrategic??null,
+        dominantComposite:a.composite?.dominantComposite??null,
+        confidence:a.composite?.confidence??null,
+        purposeDelta:pd,
+        strategicDelta:gd,
+        stateDelta:sd,
+        compositeDelta:v.delta??{}
+      };
+    })()
    };
   }).sort((a,b)=>b.score-a.score);
   /*
