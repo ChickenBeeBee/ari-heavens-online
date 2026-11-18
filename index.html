@@ -5842,6 +5842,48 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     * This distinguishes immediate setup value from a genuinely useful
     * multi-action line.
     */
+   /*
+    * Candidate Comparison v0.1:
+    * expose the same quick candidates that were compared before the
+    * rollout/plan search. Diagnostic only; it does not alter selection.
+    * This lets the audit explain why the chosen action beat its nearest
+    * alternatives, including Purpose / Strategic / State / Composite deltas.
+    */
+   const candidateTopK=quick.slice(0,5).map((item,rank)=>{
+    const selected=!!choice?.action&&
+      item.type===choice.action.type&&
+      (item.node||null)===(choice.action.node||null)&&
+      (item.from||null)===(choice.action.from||null)&&
+      (item.to||null)===(choice.action.to||null)&&
+      (item.candyId||null)===(choice.action.candyId||null);
+    return {
+     rank:rank+1,
+     selected,
+     action:{
+      type:item.type||null,
+      node:item.node||null,
+      from:item.from||null,
+      to:item.to||null,
+      candyId:item.candyId||null
+     },
+     quickScore:item.score??null,
+     scoreMarginFromBest:Number(((quick[0]?.score||0)-(item.score||0)).toFixed(4)),
+     purposeDelta:Number(item.purposeDelta||0),
+     reachablePurposeDelta:Number(item.reachablePurposeDelta||0),
+     futureStrategicValueDelta:Number(item.futureStrategicValueDelta||0),
+     vectorBreakdown:item.vectorBreakdown||null,
+     purposeReachability:item.purposeReachability||null
+    };
+   });
+   const selectedCandidate=candidateTopK.find(x=>x.selected)||null;
+   const candidateComparison={
+    schema:'candidate-comparison-v0.1',
+    topK:candidateTopK,
+    selectedRank:selectedCandidate?.rank??null,
+    selectedScore:selectedCandidate?.quickScore??null,
+    selectedVsBestMargin:selectedCandidate?.scoreMarginFromBest??null
+   };
+
    const chosenAudit=choice?.action?(()=>{
     const chosenQuick=quick.find(x=>x.type===choice.action.type&&
       (x.node||null)===(choice.action.node||null)&&
@@ -5865,6 +5907,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
        p
       )?.delta?.total||0
      ),
+     candidateComparison,
      strategicVectorProgress:ahTelemetryStrategicVectorProgress(
       state,
       ahTelemetryShadowApply(state,choice.action),
@@ -6098,6 +6141,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     reachability:x.chosenAudit?.purposeReachability??null,
     rollout:x.chosenAudit?.rolloutPurposeDelta??null
    },
+   candidateComparison:x.chosenAudit?.candidateComparison??null,
    strategicVector:{
     progress:x.chosenAudit?.strategicVectorProgress??null,
     futureStrategicValueDelta:x.chosenAudit?.futureStrategicValueDelta??null,
