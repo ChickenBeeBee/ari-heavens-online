@@ -3627,39 +3627,167 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
   purposeEvidence:Number(purposeEvidence.toFixed(3)),noiseScore:Number(noiseScore.toFixed(3)),
   meaningfulScore:Number(meaningfulScore.toFixed(3)),classification,curveBefore,curveAfter:t?.after||null,purpose};
 }
+function ahTelemetryStrategicObservationSequenceClassify(sequence,actor){
+ const seq=Array.isArray(sequence)?sequence:[];
+ if(!seq.length)return null;
+ const first=seq[0],last=seq[seq.length-1],before=first?.before,after=last?.after;
+ if(!before||!after)return null;
+ const req={delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,battlePreparation:0,positioning:0,interaction:0,route:0,score:0};
+ const purpose={delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,battlePreparation:0,positioning:0,interaction:0,route:0};
+ let progress=0,distance=0,necessity=0,meaningfulActions=0,noiseActions=0,ambiguousActions=0;
+ const actionTypes=[],requiredStateChanges=[];
+ for(const e of seq){
+  const o=e.observation||ahTelemetryStrategicObservationClassify(e.before,e.after,e.action,actor,e.context||{});
+  const q=e.requirement||ahTelemetryActionRequirement(e.before,e.after,e.action,actor);
+  if(o?.classification==='meaningful')meaningfulActions++;
+  else if(o?.classification==='noise')noiseActions++;
+  else ambiguousActions++;
+  if(q?.requirement)for(const [k,v] of Object.entries(q.requirement))if(k in req)req[k]=Number((req[k]+Math.max(0,Number(v||0))).toFixed(4));
+  if(q?.activePurposes)q.activePurposes.forEach(k=>{if(!requiredStateChanges.includes(k))requiredStateChanges.push(k);});
+  progress+=Number(q?.progressDelta||o?.progressDelta||0);
+  distance+=Number(q?.distanceDelta||o?.distanceDelta||0);
+  necessity=Math.max(necessity,Number(q?.necessity||0));
+  if(e.action?.type)actionTypes.push(e.action.type);
+ }
+ const afterPurpose=ahTelemetryPurposeProgress(before,after,actor)?.delta||{};
+ Object.keys(purpose).forEach(k=>purpose[k]=Number(afterPurpose[k]||0));
+ const futureBefore=Number(ahTelemetryShadowFutureOpportunityValue(before,actor)||0);
+ const futureAfter=Number(ahTelemetryShadowFutureOpportunityValue(after,actor)||0);
+ const futureDelta=Number((futureAfter-futureBefore).toFixed(4));
+ const curve=ahTelemetryStrategyCurveTransition(before,actor,last.action,ahTelemetryStrategyCurve(before,actor));
+ const route=curve?.routeAfter||ahTelemetryStrategyCurve(before,actor)?.selectedRoute||null;
+ const strongest=Object.entries(req).filter(([k])=>k!=='score').sort((a,b)=>b[1]-a[1])[0];
+ const purposeStrongest=Object.entries(purpose).filter(([k])=>k!=='total').sort((a,b)=>b[1]-a[1])[0];
+ const sequenceNovelty=Math.max(0,Math.min(1,
+   Math.abs(futureDelta)/.08*.55+
+   Math.max(0,progress)/.18*.25+
+   Math.max(0,distance)/.25*.20
+ ));
+ const clearPurpose=strongest&&strongest[1]>=.025;
+ const clearStateChange=Math.abs(futureDelta)>=.018||Math.max(0,progress)>=.025||Math.max(0,distance)>=.04;
+ const meaningfulScore=Math.max(0,Math.min(1,
+   meaningfulActions/Math.max(1,seq.length)*.34+
+   (clearPurpose?.24:0)+
+   (clearStateChange?.22:0)+
+   Math.min(1,necessity)*.10+
+   sequenceNovelty*.18
+ ));
+ const noiseScore=Math.max(0,Math.min(1,
+   noiseActions/Math.max(1,seq.length)*.45+
+   (clearPurpose||clearStateChange?0:.28)+
+   (Math.abs(futureDelta)<.006&&Math.abs(progress)<.01&&Math.abs(distance)<.02?.20:0)
+ ));
+ const classification=meaningfulScore>=.48?'meaningful':noiseScore>=.60&&meaningfulScore<.40?'noise':'ambiguous';
+ const intentCandidates=[];
+ if(strongest&&strongest[1]>=.025)intentCandidates.push([strongest[0],strongest[1]]);
+ if(purposeStrongest&&purposeStrongest[1]>=.02&&!intentCandidates.some(x=>x[0]===purposeStrongest[0]))intentCandidates.push([purposeStrongest[0],purposeStrongest[1]]);
+ if(futureDelta>.018&&purpose.positioning>=0)intentCandidates.push(['positioning',Math.max(.025,futureDelta)]);
+ const sequenceIntent=intentCandidates.sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+ const confidence=Math.max(0,Math.min(1,
+   meaningfulScore*.62+
+   Math.min(1,seq.length/3)*.10+
+   Math.min(1,Math.abs(futureDelta)/.05)*.14+
+   (sequenceIntent?.08:0)+
+   Math.min(1,necessity)*.06
+ ));
+ return {
+  actor,classification,actionTypes,
+  firstAction:ahTelemetryClone(first.action),lastAction:ahTelemetryClone(last.action),
+  actionCount:seq.length,meaningfulActions,noiseActions,ambiguousActions,
+  requirementVector:req,purposeTotals:purpose,sequenceIntent,
+  progressDelta:Number(progress.toFixed(4)),distanceDelta:Number(distance.toFixed(4)),
+  futureOpportunityDelta:futureDelta,route,routeChanged:!!curve?.routeChanged,
+  necessity:Number(necessity.toFixed(3)),meaningfulScore:Number(meaningfulScore.toFixed(3)),
+  noiseScore:Number(noiseScore.toFixed(3)),confidence:Number(confidence.toFixed(3)),
+  requiredStateChanges,novelty:Number(sequenceNovelty.toFixed(3)),
+  evidence:{
+   clearPurpose:!!clearPurpose,clearStateChange:!!clearStateChange,
+   futureOpportunityChanged:Math.abs(futureDelta)>=.018,
+   actionTypes:actionTypes.slice(),purposeTop:purposeStrongest?.[0]||null,
+   requirementTop:strongest?.[0]||null
+  }
+ };
+}
 function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const src=(events||[]).filter(e=>e?.type==='action'&&e?.actor===actor&&e?.before&&e?.after&&e?.action);
- if(!src.length)return {schema:'strategic-observation-v0.2',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
-  meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null};
+ if(!src.length)return {schema:'strategic-observation-v0.4',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
+  meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null,
+  sequenceIntent:null,sequenceConfidence:0,sequenceObservations:[],requiredStateChanges:[],requirementVector:{}};
  const recent=src.slice(-Math.max(1,Math.min(64,Number(options.maxActions)||32)));
- const meaningful=[],noise=[],ambiguous=[],line=[],counts=new Map(),balance=new Map();
+ const meaningful=[],noise=[],ambiguous=[],sequenceObservations=[],line=[],counts=new Map(),balance=new Map();
+ let current=[];
+ const flush=()=>{
+  if(!current.length)return;
+  const seq=ahTelemetryStrategicObservationSequenceClassify(current,actor);
+  if(seq){
+   sequenceObservations.push(seq);
+   if(seq.classification==='meaningful')meaningful.push(seq);
+   else if(seq.classification==='noise')noise.push(seq);
+   else ambiguous.push(seq);
+   if(seq.classification!=='noise'){
+    line.push({actionType:seq.actionTypes[0]||null,actionTypes:seq.actionTypes.slice(),
+      route:seq.route,count:seq.actionCount,firstAction:seq.firstAction,lastAction:seq.lastAction,
+      progressDelta:seq.progressDelta,purposeDelta:Number((Object.values(seq.purposeTotals||{}).reduce((n,v)=>n+Number(v||0),0)).toFixed(4)),
+      futureOpportunityDelta:seq.futureOpportunityDelta,necessity:seq.necessity,
+      sequenceIntent:seq.sequenceIntent,confidence:seq.confidence,requiredStateChanges:seq.requiredStateChanges});
+   }
+  }
+  current=[];
+ };
+ let previousTurn=null;
  for(const e of recent){
-  const a=e.action,c=a?.candyId!=null?String(a.candyId):'',repeated=c?Number(counts.get(c)||0):0,inverse=c?Number(balance.get(c)||0):0;
+  const a=e.action;
+  const actorChanged=previousTurn!=null&&previousTurn!==e.actor;
+  const boundary=actorChanged||a?.type==='endTurn'||current.length>=4;
+  if(boundary)flush();
+  const c=a?.candyId!=null?String(a.candyId):'',repeated=c?Number(counts.get(c)||0):0,inverse=c?Number(balance.get(c)||0):0;
   const o=ahTelemetryStrategicObservationClassify(e.before,e.after,a,actor,{repeatedCount:repeated,inverseCount:inverse});
-  if(!o)continue;
+  const requirement=ahTelemetryActionRequirement(e.before,e.after,a,actor);
   if(c)counts.set(c,repeated+1);
   if(c&&(a.type==='attachAnt'||a.type==='detachAnt'))balance.set(c,a.type==='attachAnt'?inverse+1:Math.max(0,inverse-1));
-  if(o.classification==='noise')noise.push(o);else if(o.classification==='meaningful')meaningful.push(o);else ambiguous.push(o);
-  if(o.classification!=='noise'){
-   const last=line[line.length-1];
-   if(last&&last.actionType===o.actionType&&last.route===o.route&&o.actionType!=='endTurn'){
-    last.count++;last.lastAction=ahTelemetryClone(a);last.progressDelta=Number((last.progressDelta+o.progressDelta).toFixed(4));
-    last.purposeDelta=Number((last.purposeDelta+o.purposeDelta).toFixed(4));
-   }else line.push({actionType:o.actionType,route:o.route,count:1,firstAction:ahTelemetryClone(a),lastAction:ahTelemetryClone(a),
-    progressDelta:Number(o.progressDelta.toFixed(4)),purposeDelta:Number(o.purposeDelta.toFixed(4))});
-  }
+  current.push({...e,observation:o,requirement,context:{repeatedCount:repeated,inverseCount:inverse}});
+  previousTurn=e.actor;
+  if(a?.type==='endTurn')flush();
  }
- const totals={};for(const o of meaningful)for(const [k,v] of Object.entries(o.purpose?.delta||{}))if(k!=='total')totals[k]=Number(((totals[k]||0)+Number(v||0)).toFixed(4));
+ flush();
+ const totals={};const reqVector={};
+ for(const seq of meaningful){
+  for(const [k,v] of Object.entries(seq.purposeTotals||{}))if(k!=='total')totals[k]=Number(((totals[k]||0)+Number(v||0)).toFixed(4));
+  for(const [k,v] of Object.entries(seq.requirementVector||{}))if(k!=='score')reqVector[k]=Number(((reqVector[k]||0)+Number(v||0)).toFixed(4));
+ }
  const purpose=Object.entries(totals).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
- const meaningfulRatio=meaningful.length/recent.length,noiseRatio=noise.length/recent.length,last=meaningful[meaningful.length-1];
- const confidence=Math.max(0,Math.min(1,meaningfulRatio*.35+Math.min(1,Math.abs(Number(last?.progressDelta||0))/.18)*.22+
-  Math.min(1,Math.abs(Number(last?.purposeDelta||0))/.12)*.18+Number(last?.curveAfter?.stability||0)*.15+
-  (line.length?0.10:0)-noiseRatio*.18));
- return {schema:'strategic-observation-v0.2',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
-  ambiguousCount:ambiguous.length,meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
-  route:last?.route||null,purpose,purposeTotals:totals,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
-  lastMeaningful:ahTelemetryClone(last),noiseExamples:noise.slice(-5).map(x=>({action:x.action,actionType:x.actionType,noiseScore:x.noiseScore,
-   repeatedCount:x.repeatedCount,inverseCount:x.inverseCount,progressDelta:x.progressDelta,purposeDelta:x.purposeDelta}))};
+ const sequenceRank=sequenceObservations.filter(x=>x.sequenceIntent).sort((a,b)=>
+   (b.confidence*Math.max(.01,Math.abs(b.futureOpportunityDelta)+Math.abs(b.progressDelta)))-
+   (a.confidence*Math.max(.01,Math.abs(a.futureOpportunityDelta)+Math.abs(a.progressDelta))
+ );
+ const sequenceIntent=sequenceRank[0]?.sequenceIntent||null;
+ const sequenceConfidence=Number(Math.max(0,Math.min(1,
+   sequenceRank[0]?.confidence||0,
+   (meaningful.length?meaningful.reduce((n,x)=>n+x.confidence,0)/meaningful.length:0)
+ )).toFixed(3));
+ const meaningfulRatio=meaningful.length/Math.max(1,sequenceObservations.length);
+ const noiseRatio=noise.length/Math.max(1,sequenceObservations.length);
+ const confidence=Number(Math.max(0,Math.min(1,
+   sequenceConfidence*.58+
+   meaningfulRatio*.18+
+   Math.min(1,Math.abs(Number(sequenceRank[0]?.futureOpportunityDelta||0))/.05)*.12+
+   (purpose?0.08:0)-
+   noiseRatio*.12
+ )).toFixed(3));
+ const last=sequenceRank[0]||meaningful[meaningful.length-1]||null;
+ return {
+  schema:'strategic-observation-v0.4',actor,sampleSize:recent.length,
+  sequenceCount:sequenceObservations.length,meaningfulCount:meaningful.length,noiseCount:noise.length,ambiguousCount:ambiguous.length,
+  meaningfulActionCount:meaningful.reduce((n,x)=>n+x.meaningfulActions,0),
+  meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
+  route:last?.route||null,purpose,sequenceIntent,sequenceConfidence,
+  purposeTotals:totals,requirementVector:reqVector,reconstructedLine:line,
+  sequenceObservations:sequenceObservations.slice(-8),confidence,
+  requiredStateChanges:[...new Set(meaningful.flatMap(x=>x.requiredStateChanges||[]))],
+  lastMeaningful:ahTelemetryClone(last),
+  noiseExamples:noise.slice(-5).map(x=>({actionTypes:x.actionTypes,sequenceIntent:x.sequenceIntent,noiseScore:x.noiseScore,
+    meaningfulActions:x.meaningfulActions,futureOpportunityDelta:x.futureOpportunityDelta,progressDelta:x.progressDelta}))
+ };
 }
 
 function ahTelemetryActionRequirement(before,after,action,actor){
