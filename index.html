@@ -3369,6 +3369,20 @@ function ahTelemetryPurposeProfile(state,actor){
  out.total=Object.keys(out).filter(k=>k!=='total').reduce((n,k)=>n+Number(out[k]||0),0);
  return Object.fromEntries(Object.entries(out).map(([k,v])=>[k,Number(v.toFixed(4))]));
 }
+/* Action Signature v0.1: canonical identity for candidate/rollout/prediction actions. */
+function ahTelemetryActionSignature(action){
+ const a=action||{}; const type=String(a.type||'unknown');
+ if(type==='useCard'){const cardId=a.cardId??a.card??a.id??a.name??a.cardName??a.node??null;return cardId==null?type:type+':'+String(cardId);}
+ if(type==='moveAnt')return type+':'+String(a.from??'')+'>'+String(a.to??'');
+ if(type==='placeAnt')return type+':'+String(a.node??a.to??'');
+ if(type==='attachAnt'||type==='detachAnt')return type+':'+String(a.candyId??a.candy??a.id??'');
+ if(type==='carryCandy')return type+':'+String(a.candyId??a.candy??a.id??'');
+ if(type==='endTurn')return type;
+ const parts=['node','from','to','candyId','cardId','card','id','target'].map(k=>a[k]).filter(v=>v!=null&&v!=='').map(String);
+ return parts.length?type+':'+parts.join('|'):type;
+}
+function ahTelemetryActionMatches(a,b){return ahTelemetryActionSignature(a)===ahTelemetryActionSignature(b);}
+
 /* Strategic Vector Stack v0.1: Purpose / State / Strategic / Composite layers. */
 function ahTelemetryPurposeVector(state,actor,profile=null){
  const s=state||{},p=actor||s.currentPlayer||'B',op=opp(p),base=ahTelemetryPurposeProfile(s,p),scoreGap=Number(s.score?.[p]||0)-Number(s.score?.[op]||0);
@@ -5850,22 +5864,11 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     * alternatives, including Purpose / Strategic / State / Composite deltas.
     */
    const candidateTopK=quick.slice(0,5).map((item,rank)=>{
-    const selected=!!choice?.action&&
-      item.type===choice.action.type&&
-      (item.node||null)===(choice.action.node||null)&&
-      (item.from||null)===(choice.action.from||null)&&
-      (item.to||null)===(choice.action.to||null)&&
-      (item.candyId||null)===(choice.action.candyId||null);
+    const selected=!!choice?.action&&ahTelemetryActionMatches(item,choice.action);
     return {
      rank:rank+1,
      selected,
-     action:{
-      type:item.type||null,
-      node:item.node||null,
-      from:item.from||null,
-      to:item.to||null,
-      candyId:item.candyId||null
-     },
+     action:{signature:ahTelemetryActionSignature(item),type:item.type||null,node:item.node||null,from:item.from||null,to:item.to||null,candyId:item.candyId??null,cardId:item.cardId??item.card??item.id??null},
      quickScore:item.score??null,
      scoreMarginFromBest:Number(((quick[0]?.score||0)-(item.score||0)).toFixed(4)),
      purposeDelta:Number(item.purposeDelta||0),
@@ -5881,15 +5884,12 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     topK:candidateTopK,
     selectedRank:selectedCandidate?.rank??null,
     selectedScore:selectedCandidate?.quickScore??null,
-    selectedVsBestMargin:selectedCandidate?.scoreMarginFromBest??null
+    selectedVsBestMargin:selectedCandidate?.scoreMarginFromBest??null,
+    selectedSignature:selectedCandidate?.action?.signature??null
    };
 
    const chosenAudit=choice?.action?(()=>{
-    const chosenQuick=quick.find(x=>x.type===choice.action.type&&
-      (x.node||null)===(choice.action.node||null)&&
-      (x.from||null)===(choice.action.from||null)&&
-      (x.to||null)===(choice.action.to||null)&&
-      (x.candyId||null)===(choice.action.candyId||null));
+    const chosenQuick=quick.find(x=>ahTelemetryActionMatches(x,choice.action));
     const rollout=choice.rollout||ahTelemetryRollout(choice.action,p,searchDepth,state,{maxNodes:options.maxNodes??300});
     const actualImmediate=rollout?.immediate??(chosenQuick?.score??null);
     return {
