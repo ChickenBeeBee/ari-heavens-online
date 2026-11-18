@@ -2407,13 +2407,13 @@ function cpuGenericCardValue(key){
     value=Math.max(0,cpuWinProbability(Math.max(1,own),Math.max(1,enemy))-.5)*1.2;
     reason='戦力差からバトルの利益を評価。';
   }else if(ai.role==='defense'||ai.role==='disruption'){
-    value=Math.max(0,enemy-own)*.12+(lead<0?0.25:0);
+    value=Math.max(0,enemy-own)*.12+(lead<0?.25:0);
     reason='相手の優勢を崩せるか評価。';
   }else if(ai.role==='setup'){
     value=Math.min(1,S.hand.B*.12+S.actions*.08);
     reason='次の得点行動に必要な準備として評価。';
   }else if(ai.role==='economy'){
-    value=turns>=2?0.45:0;
+    value=turns>=2?.45:0;
     reason='残りターン数を見て再利用価値を評価。';
   }
   // Unrecognized rule/stat combinations stay conservative; never fire a new card
@@ -3617,7 +3617,7 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
  const reversalEvidence=Math.min(1,repeated/4)*.45+Math.min(1,inverse/2)*.35;
  const noProgress=curveEvidence<.12&&purposeEvidence<.12?1:0;
  const noiseScore=Math.max(0,Math.min(1,noProgress*.42+(stateChanged?0:.18)+reversalEvidence+
-   ((action.type==='attachAnt'||action.type==='detachAnt')&&repeated>=3?0.12:0)-purposeEvidence*.16));
+   ((action.type==='attachAnt'||action.type==='detachAnt')&&repeated>=3?.12:0)-purposeEvidence*.16));
  const meaningfulScore=Math.max(0,Math.min(1,curveEvidence*.48+purposeEvidence*.32+
    Math.max(0,progress)*.9+Math.max(0,distance)*.5+Math.max(0,curveScore)*.25-reversalEvidence*.18));
  const classification=noiseScore>=.62&&meaningfulScore<.38?'noise':meaningfulScore>=.42?'meaningful':'ambiguous';
@@ -3627,167 +3627,39 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
   purposeEvidence:Number(purposeEvidence.toFixed(3)),noiseScore:Number(noiseScore.toFixed(3)),
   meaningfulScore:Number(meaningfulScore.toFixed(3)),classification,curveBefore,curveAfter:t?.after||null,purpose};
 }
-function ahTelemetryStrategicObservationSequenceClassify(sequence,actor){
- const seq=Array.isArray(sequence)?sequence:[];
- if(!seq.length)return null;
- const first=seq[0],last=seq[seq.length-1],before=first?.before,after=last?.after;
- if(!before||!after)return null;
- const req={delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,battlePreparation:0,positioning:0,interaction:0,route:0,score:0};
- const purpose={delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,battlePreparation:0,positioning:0,interaction:0,route:0};
- let progress=0,distance=0,necessity=0,meaningfulActions=0,noiseActions=0,ambiguousActions=0;
- const actionTypes=[],requiredStateChanges=[];
- for(const e of seq){
-  const o=e.observation||ahTelemetryStrategicObservationClassify(e.before,e.after,e.action,actor,e.context||{});
-  const q=e.requirement||ahTelemetryActionRequirement(e.before,e.after,e.action,actor);
-  if(o?.classification==='meaningful')meaningfulActions++;
-  else if(o?.classification==='noise')noiseActions++;
-  else ambiguousActions++;
-  if(q?.requirement)for(const [k,v] of Object.entries(q.requirement))if(k in req)req[k]=Number((req[k]+Math.max(0,Number(v||0))).toFixed(4));
-  if(q?.activePurposes)q.activePurposes.forEach(k=>{if(!requiredStateChanges.includes(k))requiredStateChanges.push(k);});
-  progress+=Number(q?.progressDelta||o?.progressDelta||0);
-  distance+=Number(q?.distanceDelta||o?.distanceDelta||0);
-  necessity=Math.max(necessity,Number(q?.necessity||0));
-  if(e.action?.type)actionTypes.push(e.action.type);
- }
- const afterPurpose=ahTelemetryPurposeProgress(before,after,actor)?.delta||{};
- Object.keys(purpose).forEach(k=>purpose[k]=Number(afterPurpose[k]||0));
- const futureBefore=Number(ahTelemetryShadowFutureOpportunityValue(before,actor)||0);
- const futureAfter=Number(ahTelemetryShadowFutureOpportunityValue(after,actor)||0);
- const futureDelta=Number((futureAfter-futureBefore).toFixed(4));
- const curve=ahTelemetryStrategyCurveTransition(before,actor,last.action,ahTelemetryStrategyCurve(before,actor));
- const route=curve?.routeAfter||ahTelemetryStrategyCurve(before,actor)?.selectedRoute||null;
- const strongest=Object.entries(req).filter(([k])=>k!=='score').sort((a,b)=>b[1]-a[1])[0];
- const purposeStrongest=Object.entries(purpose).filter(([k])=>k!=='total').sort((a,b)=>b[1]-a[1])[0];
- const sequenceNovelty=Math.max(0,Math.min(1,
-   Math.abs(futureDelta)/.08*.55+
-   Math.max(0,progress)/.18*.25+
-   Math.max(0,distance)/.25*.20
- ));
- const clearPurpose=strongest&&strongest[1]>=.025;
- const clearStateChange=Math.abs(futureDelta)>=.018||Math.max(0,progress)>=.025||Math.max(0,distance)>=.04;
- const meaningfulScore=Math.max(0,Math.min(1,
-   meaningfulActions/Math.max(1,seq.length)*.34+
-   (clearPurpose?0.24:0)+
-   (clearStateChange?0.22:0)+
-   Math.min(1,necessity)*.10+
-   sequenceNovelty*.18
- ));
- const noiseScore=Math.max(0,Math.min(1,
-   noiseActions/Math.max(1,seq.length)*.45+
-   (clearPurpose||clearStateChange?0:.28)+
-   (Math.abs(futureDelta)<.006&&Math.abs(progress)<.01&&Math.abs(distance)<.02?0.20:0)
- ));
- const classification=meaningfulScore>=.48?'meaningful':noiseScore>=.60&&meaningfulScore<.40?'noise':'ambiguous';
- const intentCandidates=[];
- if(strongest&&strongest[1]>=.025)intentCandidates.push([strongest[0],strongest[1]]);
- if(purposeStrongest&&purposeStrongest[1]>=.02&&!intentCandidates.some(x=>x[0]===purposeStrongest[0]))intentCandidates.push([purposeStrongest[0],purposeStrongest[1]]);
- if(futureDelta>.018&&purpose.positioning>=0)intentCandidates.push(['positioning',Math.max(.025,futureDelta)]);
- const sequenceIntent=intentCandidates.sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
- const confidence=Math.max(0,Math.min(1,
-   meaningfulScore*.62+
-   Math.min(1,seq.length/3)*.10+
-   Math.min(1,Math.abs(futureDelta)/.05)*.14+
-   (sequenceIntent?0.08:0)+
-   Math.min(1,necessity)*.06
- ));
- return {
-  actor,classification,actionTypes,
-  firstAction:ahTelemetryClone(first.action),lastAction:ahTelemetryClone(last.action),
-  actionCount:seq.length,meaningfulActions,noiseActions,ambiguousActions,
-  requirementVector:req,purposeTotals:purpose,sequenceIntent,
-  progressDelta:Number(progress.toFixed(4)),distanceDelta:Number(distance.toFixed(4)),
-  futureOpportunityDelta:futureDelta,route,routeChanged:!!curve?.routeChanged,
-  necessity:Number(necessity.toFixed(3)),meaningfulScore:Number(meaningfulScore.toFixed(3)),
-  noiseScore:Number(noiseScore.toFixed(3)),confidence:Number(confidence.toFixed(3)),
-  requiredStateChanges,novelty:Number(sequenceNovelty.toFixed(3)),
-  evidence:{
-   clearPurpose:!!clearPurpose,clearStateChange:!!clearStateChange,
-   futureOpportunityChanged:Math.abs(futureDelta)>=.018,
-   actionTypes:actionTypes.slice(),purposeTop:purposeStrongest?.[0]||null,
-   requirementTop:strongest?.[0]||null
-  }
- };
-}
 function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const src=(events||[]).filter(e=>e?.type==='action'&&e?.actor===actor&&e?.before&&e?.after&&e?.action);
- if(!src.length)return {schema:'strategic-observation-v0.4',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
-  meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null,
-  sequenceIntent:null,sequenceConfidence:0,sequenceObservations:[],requiredStateChanges:[],requirementVector:{}};
+ if(!src.length)return {schema:'strategic-observation-v0.2',actor,sampleSize:0,meaningfulCount:0,noiseCount:0,ambiguousCount:0,
+  meaningfulRatio:0,noiseRatio:0,reconstructedLine:[],confidence:0,route:null,purpose:null};
  const recent=src.slice(-Math.max(1,Math.min(64,Number(options.maxActions)||32)));
- const meaningful=[],noise=[],ambiguous=[],sequenceObservations=[],line=[],counts=new Map(),balance=new Map();
- let current=[];
- const flush=()=>{
-  if(!current.length)return;
-  const seq=ahTelemetryStrategicObservationSequenceClassify(current,actor);
-  if(seq){
-   sequenceObservations.push(seq);
-   if(seq.classification==='meaningful')meaningful.push(seq);
-   else if(seq.classification==='noise')noise.push(seq);
-   else ambiguous.push(seq);
-   if(seq.classification!=='noise'){
-    line.push({actionType:seq.actionTypes[0]||null,actionTypes:seq.actionTypes.slice(),
-      route:seq.route,count:seq.actionCount,firstAction:seq.firstAction,lastAction:seq.lastAction,
-      progressDelta:seq.progressDelta,purposeDelta:Number((Object.values(seq.purposeTotals||{}).reduce((n,v)=>n+Number(v||0),0)).toFixed(4)),
-      futureOpportunityDelta:seq.futureOpportunityDelta,necessity:seq.necessity,
-      sequenceIntent:seq.sequenceIntent,confidence:seq.confidence,requiredStateChanges:seq.requiredStateChanges});
-   }
-  }
-  current=[];
- };
- let previousTurn=null;
+ const meaningful=[],noise=[],ambiguous=[],line=[],counts=new Map(),balance=new Map();
  for(const e of recent){
-  const a=e.action;
-  const actorChanged=previousTurn!=null&&previousTurn!==e.actor;
-  const boundary=actorChanged||a?.type==='endTurn'||current.length>=4;
-  if(boundary)flush();
-  const c=a?.candyId!=null?String(a.candyId):'',repeated=c?Number(counts.get(c)||0):0,inverse=c?Number(balance.get(c)||0):0;
+  const a=e.action,c=a?.candyId!=null?String(a.candyId):'',repeated=c?Number(counts.get(c)||0):0,inverse=c?Number(balance.get(c)||0):0;
   const o=ahTelemetryStrategicObservationClassify(e.before,e.after,a,actor,{repeatedCount:repeated,inverseCount:inverse});
-  const requirement=ahTelemetryActionRequirement(e.before,e.after,a,actor);
+  if(!o)continue;
   if(c)counts.set(c,repeated+1);
   if(c&&(a.type==='attachAnt'||a.type==='detachAnt'))balance.set(c,a.type==='attachAnt'?inverse+1:Math.max(0,inverse-1));
-  current.push({...e,observation:o,requirement,context:{repeatedCount:repeated,inverseCount:inverse}});
-  previousTurn=e.actor;
-  if(a?.type==='endTurn')flush();
+  if(o.classification==='noise')noise.push(o);else if(o.classification==='meaningful')meaningful.push(o);else ambiguous.push(o);
+  if(o.classification!=='noise'){
+   const last=line[line.length-1];
+   if(last&&last.actionType===o.actionType&&last.route===o.route&&o.actionType!=='endTurn'){
+    last.count++;last.lastAction=ahTelemetryClone(a);last.progressDelta=Number((last.progressDelta+o.progressDelta).toFixed(4));
+    last.purposeDelta=Number((last.purposeDelta+o.purposeDelta).toFixed(4));
+   }else line.push({actionType:o.actionType,route:o.route,count:1,firstAction:ahTelemetryClone(a),lastAction:ahTelemetryClone(a),
+    progressDelta:Number(o.progressDelta.toFixed(4)),purposeDelta:Number(o.purposeDelta.toFixed(4))});
+  }
  }
- flush();
- const totals={};const reqVector={};
- for(const seq of meaningful){
-  for(const [k,v] of Object.entries(seq.purposeTotals||{}))if(k!=='total')totals[k]=Number(((totals[k]||0)+Number(v||0)).toFixed(4));
-  for(const [k,v] of Object.entries(seq.requirementVector||{}))if(k!=='score')reqVector[k]=Number(((reqVector[k]||0)+Number(v||0)).toFixed(4));
- }
+ const totals={};for(const o of meaningful)for(const [k,v] of Object.entries(o.purpose?.delta||{}))if(k!=='total')totals[k]=Number(((totals[k]||0)+Number(v||0)).toFixed(4));
  const purpose=Object.entries(totals).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
- const sequenceRank=sequenceObservations.filter(x=>x.sequenceIntent).sort((a,b)=>
-   (b.confidence*Math.max(.01,Math.abs(b.futureOpportunityDelta)+Math.abs(b.progressDelta)))-
-   (a.confidence*Math.max(.01,Math.abs(a.futureOpportunityDelta)+Math.abs(a.progressDelta))
- );
- const sequenceIntent=sequenceRank[0]?.sequenceIntent||null;
- const sequenceConfidence=Number(Math.max(0,Math.min(1,
-   sequenceRank[0]?.confidence||0,
-   (meaningful.length?meaningful.reduce((n,x)=>n+x.confidence,0)/meaningful.length:0)
- )).toFixed(3));
- const meaningfulRatio=meaningful.length/Math.max(1,sequenceObservations.length);
- const noiseRatio=noise.length/Math.max(1,sequenceObservations.length);
- const confidence=Number(Math.max(0,Math.min(1,
-   sequenceConfidence*.58+
-   meaningfulRatio*.18+
-   Math.min(1,Math.abs(Number(sequenceRank[0]?.futureOpportunityDelta||0))/.05)*.12+
-   (purpose?0.08:0)-
-   noiseRatio*.12
- )).toFixed(3));
- const last=sequenceRank[0]||meaningful[meaningful.length-1]||null;
- return {
-  schema:'strategic-observation-v0.4',actor,sampleSize:recent.length,
-  sequenceCount:sequenceObservations.length,meaningfulCount:meaningful.length,noiseCount:noise.length,ambiguousCount:ambiguous.length,
-  meaningfulActionCount:meaningful.reduce((n,x)=>n+x.meaningfulActions,0),
-  meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
-  route:last?.route||null,purpose,sequenceIntent,sequenceConfidence,
-  purposeTotals:totals,requirementVector:reqVector,reconstructedLine:line,
-  sequenceObservations:sequenceObservations.slice(-8),confidence,
-  requiredStateChanges:[...new Set(meaningful.flatMap(x=>x.requiredStateChanges||[]))],
-  lastMeaningful:ahTelemetryClone(last),
-  noiseExamples:noise.slice(-5).map(x=>({actionTypes:x.actionTypes,sequenceIntent:x.sequenceIntent,noiseScore:x.noiseScore,
-    meaningfulActions:x.meaningfulActions,futureOpportunityDelta:x.futureOpportunityDelta,progressDelta:x.progressDelta}))
- };
+ const meaningfulRatio=meaningful.length/recent.length,noiseRatio=noise.length/recent.length,last=meaningful[meaningful.length-1];
+ const confidence=Math.max(0,Math.min(1,meaningfulRatio*.35+Math.min(1,Math.abs(Number(last?.progressDelta||0))/.18)*.22+
+  Math.min(1,Math.abs(Number(last?.purposeDelta||0))/.12)*.18+Number(last?.curveAfter?.stability||0)*.15+
+  (line.length?0.10:0)-noiseRatio*.18));
+ return {schema:'strategic-observation-v0.2',actor,sampleSize:recent.length,meaningfulCount:meaningful.length,noiseCount:noise.length,
+  ambiguousCount:ambiguous.length,meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),
+  route:last?.route||null,purpose,purposeTotals:totals,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
+  lastMeaningful:ahTelemetryClone(last),noiseExamples:noise.slice(-5).map(x=>({action:x.action,actionType:x.actionType,noiseScore:x.noiseScore,
+   repeatedCount:x.repeatedCount,inverseCount:x.inverseCount,progressDelta:x.progressDelta,purposeDelta:x.purposeDelta}))};
 }
 
 function ahTelemetryActionRequirement(before,after,action,actor){
@@ -3894,8 +3766,8 @@ function ahTelemetryActiveCardPressure(state,actor,profile=null){
  if(!!(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[q])){const exposure=Math.max(0,Math.min(1,.18+valuable*.32+contested*.05));add('typhoon','Typhoon',.35+exposure*.45,exposure,.20+exposure*.62,.12+Math.max(0,fieldOwn-fieldOpp)/20*.18,'active-typhoon-exposure');}
  const pher=s.strongPheromone||s.effects?.strongPheromone;if(pher&&Number(pher.remainingStarts||0)>0){const space=Math.max(0,(CAP[p+'1']||2)-Number(s.free?.[p+'1']?.[p]||0));add('strongPheromone','Strong Pheromone',.28+Math.min(1,space/2)*.25,Math.min(1,space/2*.45),.22+Math.min(1,space/2)*.45,Math.min(1,space/2*.20),'active-pheromone-entrance-pressure');}
  if(s.rainSelect&&s.rainSelect.player===q)add('rain','Rain Dance',.42,.50,.62,.05,'opponent-rain-targeting');
- const squalls=Array.isArray(s.squalls)?s.squalls:(s.effects?.squalls||[]);if(squalls.length)add('squall','Squall',.24+(fieldOwn>0?0.22:0),fieldOwn>0?0.55:.12,.18+(fieldOwn>0?0.32:0),.08,'active-squall-exposure');
- out.active.sort((a,b)=>(b.counterplayNeed+b.threat)-(a.counterplayNeed+a.threat));out.threat=Number(out.threat.toFixed(3));out.exposure=Number(out.exposure.toFixed(3));out.counterplayNeed=Number(out.counterplayNeed.toFixed(3));out.opportunity=Number(out.opportunity.toFixed(3));out.cardAvailability=Number(profile?.cardPressure||0);out.possibilityOnly=Number(Math.max(0,Math.min(1,(profile?.cardPressure||0)*(out.active.length?0.25:1))).toFixed(3));return out;
+ const squalls=Array.isArray(s.squalls)?s.squalls:(s.effects?.squalls||[]);if(squalls.length)add('squall','Squall',.24+(fieldOwn>0?.22:0),fieldOwn>0?.55:.12,.18+(fieldOwn>0?.32:0),.08,'active-squall-exposure');
+ out.active.sort((a,b)=>(b.counterplayNeed+b.threat)-(a.counterplayNeed+a.threat));out.threat=Number(out.threat.toFixed(3));out.exposure=Number(out.exposure.toFixed(3));out.counterplayNeed=Number(out.counterplayNeed.toFixed(3));out.opportunity=Number(out.opportunity.toFixed(3));out.cardAvailability=Number(profile?.cardPressure||0);out.possibilityOnly=Number(Math.max(0,Math.min(1,(profile?.cardPressure||0)*(out.active.length?.25:1))).toFixed(3));return out;
 }
 function ahTelemetryCardCounterplayProfile(state,actor,activePressure=null){
  const s=state||{},p=actor||s.currentPlayer||'B',a=activePressure||ahTelemetryActiveCardPressure(s,p),candies=s.candies||[];
@@ -3908,9 +3780,8 @@ function ahTelemetryStrategicIntent(state,actor,profile=null,observation=null){
  const s=state||{},p=actor||s.currentPlayer||'B',obs=observation||ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32})||{},comp=ahTelemetryStrategicCompression(s,p)||{},curve=ahTelemetryStrategyCurve(s,p)||{},purpose=obs?.purposeTotals||{},utility=ahTelemetryShadowUtilityBreakdown(s,p)||{};
  const scoreDiff=Number(utility.scoreDiff||0),winProbability=Number(utility.winProbability??ahTelemetryWinProbability(s,p)??.5),phase=Number(profile?.phase??comp.phase??0),cardPressure=Number(profile?.cardPressure??comp.cardPressure??0),interaction=Number(profile?.interaction??comp.interaction??0),battleThreat=Number(profile?.battleThreat??comp.battleThreat??0),activeCard=ahTelemetryActiveCardPressure(s,p,profile),counterplay=ahTelemetryCardCounterplayProfile(s,p,activeCard);
  const raw={delivery:Math.max(0,Number(purpose.delivery||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.45,denial:Math.max(0,Number(purpose.denial||0))+interaction*.28+battleThreat*.12,battle:Math.max(0,Number(purpose.battlePreparation||0))+battleThreat*.48,positioning:Math.max(0,Number(purpose.positioning||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.18,cardPressure:Math.max(0,cardPressure)*.18+interaction*.12+activeCard.threat*.34+activeCard.counterplayNeed*.30,survival:Math.max(0,-scoreDiff)*.08+Math.max(0,.5-winProbability)*.72+Math.max(0,1-phase)*.03,scoreRace:Math.max(0,Number(purpose.delivery||0))*.72+Math.max(0,scoreDiff)*.14+Math.max(0,phase-.25)*.08,protect:counterplay.protect*.26,secure:counterplay.secure*.22,ambush:counterplay.ambush*.20,rush:counterplay.rush*.18};
- if(obs?.sequenceIntent&&raw[obs.sequenceIntent]!=null)raw[obs.sequenceIntent]+=Math.min(.18,Math.max(.04,Number(obs.sequenceConfidence||0)*.18));
  const total=Object.values(raw).reduce((a,b)=>a+Math.max(0,Number(b)||0),0),dist={};for(const [k,v] of Object.entries(raw))dist[k]=Number((total?Math.max(0,v)/total:1/Object.keys(raw).length).toFixed(4));const ranked=Object.entries(dist).sort((a,b)=>b[1]-a[1]),primary=ranked[0]?.[0]||'positioning',secondary=ranked[1]?.[0]||primary,counterHypothesis=ranked[2]?.[0]||secondary,top=ranked[0]?.[1]||0,second=ranked[1]?.[1]||0,evidenceCount=Number(obs?.meaningfulCount||0)+activeCard.evidence.length,confidence=Number(Math.max(0,Math.min(1,top*.68+(top-second)*.48+Math.min(1,evidenceCount/4)*.14+(obs?.confidence||0)*.12+activeCard.counterplayNeed*.12)).toFixed(3));
- return {schema:'strategic-intent-v0.2',actor:p,primary,secondary,counterHypothesis,distribution:dist,confidence,cardCounterplay:counterplay,source:{observation:obs?.sampleSize>0?'strategic-observation':'state-derived',meaningfulCount:Number(obs?.meaningfulCount||0),noiseCount:Number(obs?.noiseCount||0),purposeTotals:ahTelemetryClone(purpose),route:obs?.route||curve.selectedRoute||null,routeSeparation:Number(curve.routeSeparation||0),strategicComplexity:Number(comp.strategicComplexity||0),cardAvailability:Number(cardPressure.toFixed(3)),activeCardPressure:activeCard,evidence:[...(obs?.meaningfulCount?['history-meaningful-actions']:[]),...(obs?.sequenceIntent?['sequence-intent:'+obs.sequenceIntent]:[]),...activeCard.reasonCodes]}};
+ return {schema:'strategic-intent-v0.2',actor:p,primary,secondary,counterHypothesis,distribution:dist,confidence,cardCounterplay:counterplay,source:{observation:obs?.sampleSize>0?'strategic-observation':'state-derived',meaningfulCount:Number(obs?.meaningfulCount||0),noiseCount:Number(obs?.noiseCount||0),purposeTotals:ahTelemetryClone(purpose),route:obs?.route||curve.selectedRoute||null,routeSeparation:Number(curve.routeSeparation||0),strategicComplexity:Number(comp.strategicComplexity||0),cardAvailability:Number(cardPressure.toFixed(3)),activeCardPressure:activeCard,evidence:[...(obs?.meaningfulCount?['history-meaningful-actions']:[]),...activeCard.reasonCodes]}};
 }
 function ahTelemetryStrategicIntentMatch(intent,actionRequirement,action,profile=null){
  if(!intent)return {score:0,breakdown:{}};const d=actionRequirement?.purpose?.delta||{},active=actionRequirement?.activePurposes||[],weights={delivery:{delivery:1,positioning:.28,transportEfficiency:.22},denial:{denial:1,battlePreparation:.30},battle:{battlePreparation:1,denial:.32},positioning:{positioning:1,transportEfficiency:.28,delivery:.16},cardPressure:{denial:.32,battlePreparation:.18,delivery:.14,positioning:.10},survival:{denial:.35,positioning:.25,battlePreparation:.18},scoreRace:{delivery:.72,positioning:.22,transportEfficiency:.16},protect:{typhoonProtection:1,delivery:.28,positioning:.12},secure:{typhoonProtection:.72,positioning:.55,delivery:.22},ambush:{positioning:.48,denial:.38,battlePreparation:.24},rush:{delivery:.62,positioning:.18},avoid:{typhoonProtection:.42,positioning:.28,delivery:.12},counter:{denial:.52,battlePreparation:.30,typhoonProtection:.20},ignore:{}};
@@ -4431,15 +4302,15 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
   if(c)b.setup=(pts/need)*.35;
  }else if(action.type==='detachAnt'){
   const c=getC(action.candyId);
-  if(c)b.survival=(c.att?.[p]||0)>0?0.15:0;
+  if(c)b.survival=(c.att?.[p]||0)>0?.15:0;
  }else if(action.type==='moveAnt'){
   const from=action.from,to=action.to;
   let nearest=99;
   for(const c of S.candies||[])nearest=Math.min(nearest,hdist(to,c.node,p));
   b.setup=nearest<99?Math.max(0,1-nearest/6)*.35:0;
-  b.deny=(S.free[to]?.[q]||0)>0?0.12:0;
+  b.deny=(S.free[to]?.[q]||0)>0?.12:0;
  }else if(action.type==='placeAnt'){
-  b.setup=action.node===p+'1'?0.25:action.node===p+'w'?0.18:0;
+  b.setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
  }else if(action.type==='useCard'){
   const ev=cpuEvaluateCard(action.card);
   if(ev){b.immediate=ev.value;b.setup=Math.max(0,ev.value*.15);const experience=ahTelemetryCardExperience(action.card,p);b.experience=experience.score;b.experienceConfidence=experience.confidence;b.experienceAdvice=experience.advice;b.immediate+=experience.score*.12;}
@@ -4502,8 +4373,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  /* Strategy Curve ambiguity: tiny route separation or repeated route switching
   * means a cheap convergence result is not yet strategically trustworthy. */
  const routeInstability=Number(Math.max(0,Math.min(1,
-  (routeSeparation<.015?0.58:routeSeparation<.035?0.24:0)+
-  (routeSwitches>=3?0.34:routeSwitches>=2?0.12:0)
+  (routeSeparation<.015?.58:routeSeparation<.035?.24:0)+
+  (routeSwitches>=3?.34:routeSwitches>=2?.12:0)
  )).toFixed(3));
  const routeUnstable=routeInstability>=.45;
 
@@ -4655,23 +4526,23 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
 
   const fp=strategicFingerprint();
   const strategicNovelty=Math.min(1,
-   (fp.route!==baseFingerprint.route?0.22:0)+
-   (fp.themes!==baseFingerprint.themes?0.12:0)+
-   (fp.themeCount!==baseFingerprint.themeCount?0.10:0)+
-   (Math.abs(fp.complexity-baseFingerprint.complexity)>=.08?0.12:0)+
-   (Math.abs(fp.interaction-baseFingerprint.interaction)>=.08?0.14:0)+
-   (Math.abs(fp.battleThreat-baseFingerprint.battleThreat)>=.08?0.16:0)+
-   (Math.abs(fp.routeSeparation-baseFingerprint.routeSeparation)>=.04?0.08:0)+
-   (fp.curveAction!==baseFingerprint.curveAction?0.06:0)
+   (fp.route!==baseFingerprint.route?.22:0)+
+   (fp.themes!==baseFingerprint.themes?.12:0)+
+   (fp.themeCount!==baseFingerprint.themeCount?.10:0)+
+   (Math.abs(fp.complexity-baseFingerprint.complexity)>=.08?.12:0)+
+   (Math.abs(fp.interaction-baseFingerprint.interaction)>=.08?.14:0)+
+   (Math.abs(fp.battleThreat-baseFingerprint.battleThreat)>=.08?.16:0)+
+   (Math.abs(fp.routeSeparation-baseFingerprint.routeSeparation)>=.04?.08:0)+
+   (fp.curveAction!==baseFingerprint.curveAction?.06:0)
   );
 
   const novelty=Number(Math.min(1,
    strategicNovelty+
-   (top1Changed?0.20:0)+
-   (topKChanged?0.14:0)+
-   (pvChanged?0.10:0)+
-   (opponentChanged?0.08:0)+
-   (top?.skepticFoundBetter?0.12:0)
+   (top1Changed?.20:0)+
+   (topKChanged?.14:0)+
+   (pvChanged?.10:0)+
+   (opponentChanged?.08:0)+
+   (top?.skepticFoundBetter?.12:0)
   ).toFixed(3));
 
   const decisionPressure=Math.max(0,Math.min(1,
@@ -4682,7 +4553,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    boardBusy*.10+
    routeSeparation*.08+
    strength*.06+
-   (themeCount>=3?0.06:0)
+   (themeCount>=3?.06:0)
   ));
   const requiredMargin=Number(Math.max(.018,.035+decisionPressure*.035).toFixed(4));
   const scoreTolerance=Number(Math.max(.012,.028-decisionPressure*.012).toFixed(4));
@@ -4721,10 +4592,10 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    marginRecovered||
    (marginNearSafe&&!marginPersistentlyDown);
   const marginReversalRisk=Math.max(0,Math.min(1,
-   (!marginNearSafe?0.20:0)+
-   (marginDirection==='down'?0.22:0)+
-   (marginPersistentlyDown?0.24:0)+
-   (!marginTrendStable?0.12:0)
+   (!marginNearSafe?.20:0)+
+   (marginDirection==='down'?.22:0)+
+   (marginPersistentlyDown?.24:0)+
+   (!marginTrendStable?.12:0)
   ));
   const marginDiagnosticReason=
    margin>=requiredMargin?'above_required':
@@ -4847,23 +4718,23 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  const lastStage=stages[stages.length-1];
  const uncertainty=Math.max(0,Math.min(1,
   .12+
-  (lastStage.routeUnstable?0.14:0)+
-  (lastStage.rankChanged?0.22:0)+
-  (lastStage.topKChanged?0.16:0)+
-  (lastStage.top1Changed?0.14:0)+
-  (lastStage.margin<lastStage.requiredMargin?0.18:0)+
-  (!lastStage.scoreStable?0.10:0)+
-  (lastStage.novelty>=.18?0.08:0)+
+  (lastStage.routeUnstable?.14:0)+
+  (lastStage.rankChanged?.22:0)+
+  (lastStage.topKChanged?.16:0)+
+  (lastStage.top1Changed?.14:0)+
+  (lastStage.margin<lastStage.requiredMargin?.18:0)+
+  (!lastStage.scoreStable?.10:0)+
+  (lastStage.novelty>=.18?.08:0)+
   (Number(lastStage.decisionPressure||0)*.14)+
-  (lastStage.counterexample?0.12:0)+
-  (lastStage.truncated&&stopReason==='max_budget_reached'?0.10:0)
+  (lastStage.counterexample?.12:0)+
+  (lastStage.truncated&&stopReason==='max_budget_reached'?.10:0)
  ));
  const stability=Math.max(0,Math.min(1,
   lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable&&lastStage.scoreStable?1:
-  lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable?0.88:
-  lastStage.rankStable&&lastStage.topKStable?0.76:
-  lastStage.rankStable?0.64:
-  lastStage.margin>=lastStage.requiredMargin?0.52:.20
+  lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable?.88:
+  lastStage.rankStable&&lastStage.topKStable?.76:
+  lastStage.rankStable?.64:
+  lastStage.margin>=lastStage.requiredMargin?.52:.20
  ));
 
  return {
@@ -5688,7 +5559,7 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
    const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
    setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
   }else if(action.type==='placeAnt'){
-   setup=action.node===player+'1'?0.25:action.node===player+'w'?0.18:0;
+   setup=action.node===player+'1'?.25:action.node===player+'w'?.18:0;
   }else if(action.type==='startBattle'){
    setup=Math.max(0,immediate)*.25;
   }else if(action.type==='useCard'){
@@ -5771,7 +5642,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
     setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
    }else if(action.type==='placeAnt'){
-    setup=action.node===p+'1'?0.25:action.node===p+'w'?0.18:0;
+    setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
    }
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
    return {
@@ -6674,7 +6545,7 @@ function prior_physicsDiceFace(state,player,throwX,throwY,duration){
       angularVelocity+=impactNoise;bounces++;
       if(verticalVelocity<.22)verticalVelocity=0;
     }
-    angularVelocity*=height>0?0.995:.94;
+    angularVelocity*=height>0?.995:.94;
   }
   // Final wobble is larger for weak/poorly timed throws. A clean, well-aimed
   // throw can reliably land on a chosen sector, while sloppy throws drift.
@@ -7095,7 +6966,7 @@ function battleResultHtml(fx){
   const equation=(p,isAttack)=>{
     const die=isAttack?last.ra:last.rd, ants=isAttack?(last.attackAnts??fx.attackCount):(last.defendAnts??fx.defendCount), total=isAttack?last.va:last.vd;
     const jaw=isAttack&&bonus?` ＋ アゴ強化 ${bonus}`:'';
-    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?0.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
+    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
   };
   const loser=last.va<last.vd?fx.attacker:fx.defender, diff=Math.abs(last.va-last.vd), available=loser===fx.attacker?fx.attackCount:fx.defendCount, kill=Math.min(diff,available);
   return `<div class="rl">${fx.candyEmo||'🍬'} ${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[fx.candyName]||fx.candyName||'Candy'):(fx.candyName||'対象')} ${EN()?'Battle':'で対決'}</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?(EN()?'⚖ Tie — roll again':'⚖ 同点・振り直し'):`🏁 ${NAMES[loser]}: ${kill}${EN()?' ants eliminated':'匹退場'} (${EN()?'difference':'差'} ${diff})`}</div>`;
@@ -8420,7 +8291,7 @@ function prior_veryHardStep(){
   return cpuStep();
 }
 
-function cpuDelay(base){const scale=cpuSpeed==='slow'?1.65:cpuSpeed==='fast'?0.55:1;return Math.max(120,Math.round(base*scale));}
+function cpuDelay(base){const scale=cpuSpeed==='slow'?1.65:cpuSpeed==='fast'?.55:1;return Math.max(120,Math.round(base*scale));}
 function maybeCpu(){
   if(mode!=='cpu'||!S||S.over||cur()!==CPU||cpuRunning)return;
   cpuRunning=true;S.cpuTarget=null;S.cpuSteps=0;S.hm={att:{},reserve:{}};
@@ -9104,11 +8975,11 @@ function cpuChooseCombatPlan(allowCards=true){
  const m=c.att.B+k;if(!m)continue;const variants=[null];if(inspire)variants.push('inspire');if(jawReady)variants.push('jaw');
  for(const card of variants){const jaw=card==='jaw'||S.jaw===CPU?3:0,win=cpuWinProbability(m,d,jaw),ev=battleEV(m,d,jaw);
  const reward=(card==='inspire'||S.inspire&&S.inspire.player===CPU)?win*1.25:0;
- const value=ev*.7+reward+win*stake*(imminent?0.75:.12)+(distance<=S.actions&&m>=c.type.need?win*stake*.2:0)-k*.065-(card==='jaw'?0.5:card==='inspire'?0.28:0);
+ const value=ev*.7+reward+win*stake*(imminent?.75:.12)+(distance<=S.actions&&m>=c.type.need?win*stake*.2:0)-k*.065-(card==='jaw'?.5:card==='inspire'?.28:0);
  if(!best||value>best.value)best={id:c.id,force:m,card,win,value,turn:S.turnCount,node:c.node};
  }}
  }
- const threshold=level==='easy'?0.8:level==='normal'?0.32:.12;return best&&best.value>=threshold?best:null;
+ const threshold=level==='easy'?.8:level==='normal'?.32:.12;return best&&best.value>=threshold?best:null;
 }
 function cpuExecuteCombatPlan(plan){
  const c=plan&&getC(plan.id);if(!c||plan.turn!==S.turnCount||c.node!==plan.node||c.att.A<=0)return false;
@@ -9154,7 +9025,7 @@ function cpuEvaluateCard(key){
  }else if(key==='block'){value=!S.shortcutBlock.A&&S.free.Aw.A>0?1.15:0;reason='待機所からの援軍を止める。';
  }else if(key==='showdown'){const m=fieldAnts(CPU),d=fieldAnts(HUMAN);value=battleEV(m,d,0)*.55+cpuWinProbability(m,d)*.3;reason='予想退場数を比較して決戦。';
  }else if(key==='antlion'){const h=S.free.C.A+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.A,0),own=S.free.C.B+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.B,0);value=turns>=2&&!S.antlions.length?(h-own)*.3:0;reason='自軍リスクと比較しアリジゴクを設置。';
- }else if(key==='gale'){for(const c of S.candies){if(c.att.A+c.att.B||c.node==='C')continue;const i=CHAIN.indexOf(c.node);value+=(c.type.bomb?-1:1)*(i<=2?0.8:i>=4?-.8:0);}reason='相手側の無人のお菓子を中央へ戻す。';
+ }else if(key==='gale'){for(const c of S.candies){if(c.att.A+c.att.B||c.node==='C')continue;const i=CHAIN.indexOf(c.node);value+=(c.type.bomb?-1:1)*(i<=2?.8:i>=4?-.8:0);}reason='相手側の無人のお菓子を中央へ戻す。';
  }else if(key==='powder'){for(const c of S.candies){if(c.type.bomb){value+=c.att.A>=c.type.need&&CHAIN.indexOf(c.node)>=4?3:0;value-=c.att.B>=c.type.need&&CHAIN.indexOf(c.node)<=2?2:0;continue;}const delta=c.type.pts-2;if(c.att.A>=c.type.need&&!c.att.B)value+=delta*.55;if(c.att.B>=c.type.need&&!c.att.A)value-=delta*.7;}reason='相手の高得点運搬を弱める。';
  }else if(key==='gold'){value=turns>=4&&S.hand.B>=3&&S.free.C.B+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.B,0)>=S.free.C.A+2?1.2:0;reason='中央の確保を見込んでゴールド追加。';
  }else if(key==='sugar'){let local=0;for(const n of ['A2','A3','B2','B3'])local+=S.free[n].B-S.free[n].A;value=turns>=3&&local>0&&S.candies.length<7?.55+local*.08:0;reason='回収できる配置でお菓子追加。';
