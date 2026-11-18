@@ -3639,7 +3639,7 @@ function ahTelemetryActionRequirement(before,after,action,actor){
  req.route=Number(Math.max(0,Math.min(1,
    Math.max(0,Number(curve?.progressDelta||0))*2+
    Math.max(0,Number(curve?.distanceDelta||0))*1.5+
-   (curve?.routeChanged?.35:0)
+   (curve?.routeChanged?0.35:0)
  )).toFixed(4));
  const actionType=a.type||'unknown';
  const target={
@@ -3654,7 +3654,7 @@ function ahTelemetryActionRequirement(before,after,action,actor){
    Math.min(1,Math.max(0,Number(req.route||0)))*.16+
    Math.min(1,Math.max(0,Number(req.interaction||0)))*.12+
    Math.min(1,Math.abs(Number(req.score||0))/.15)*.10+
-   (active.length?.08:0)
+   (active.length?0.08:0)
  )).toFixed(3));
  return {actionType,targetPurposes:target,activePurposes:active,requirement:req,purposeDelta:Number(pd.total||0),necessity,
   progressDelta:Number(curve?.progressDelta||0),distanceDelta:Number(curve?.distanceDelta||0),routeAfter:curve?.routeAfter||null,routeChanged:!!curve?.routeChanged};
@@ -3708,7 +3708,7 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
   const pd=ahTelemetryPurposeProgress(before,after,p)?.delta||{};
   for(const [k,v] of Object.entries(pd))if(k!=='total')sum[k]=Number(((sum[k]||0)+Math.max(0,Number(v||0))).toFixed(4));
   const active=Object.entries(sum).filter(([k,v])=>k!=='score'&&Number(v||0)>.025).sort((a,b)=>Number(b[1])-Number(a[1])).map(([k])=>k);
-  const necessity=Math.max(0,Math.min(1,Math.min(1,active.reduce((n,k)=>n+Math.max(0,Number(sum[k]||0)),0)/.18)*.48+Math.min(1,Math.abs(Number(pd.total||0))/.12)*.18+(active.length?.12:0)));
+  const necessity=Math.max(0,Math.min(1,Math.min(1,active.reduce((n,k)=>n+Math.max(0,Number(sum[k]||0)),0)/.18)*.48+Math.min(1,Math.abs(Number(pd.total||0))/.12)*.18+(active.length?0.12:0)));
   const curve=ahTelemetryStrategyCurveTransition(before,p,group.events[group.events.length-1].action,ahTelemetryStrategyCurve(before,p));
   return {requirement:sum,activePurposes:active,purposeDelta:Number(pd.total||0),purposeDeltaBreakdown:pd,necessity,curve};
  };
@@ -3738,8 +3738,8 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
   const individualNoise=individual.filter(x=>x.classification==='noise').length;
   const intent=sequenceIntent(group.events,req.purposeDeltaBreakdown,opportunityDelta);
   const clearPurpose=Math.max(...Object.values(req.purposeDeltaBreakdown||{}).map(v=>Math.max(0,Number(v||0))),0);
-  const meaningfulEvidence=Math.min(1,Math.max(0,Number(req.necessity||0)))+Math.min(1,Math.max(0,opportunityDelta)/.08)*.34+Math.min(1,clearPurpose/.10)*.32+(changes.length?.18:0)+(individualMeaningful?.10:0);
-  const noiseEvidence=(changes.length===0?.34:0)+(individualNoise===group.events.length?.22:0)+(group.events.length===1&&group.events[0].action?.type==='endTurn'?.52:0)+(req.necessity<.08&&opportunityDelta<.02&&clearPurpose<.015?.28:0);
+  const meaningfulEvidence=Math.min(1,Math.max(0,Number(req.necessity||0)))+Math.min(1,Math.max(0,opportunityDelta)/.08)*.34+Math.min(1,clearPurpose/.10)*.32+(changes.length?0.18:0)+(individualMeaningful?0.10:0);
+  const noiseEvidence=(changes.length===0?0.34:0)+(individualNoise===group.events.length?0.22:0)+(group.events.length===1&&group.events[0].action?.type==='endTurn'?0.52:0)+(req.necessity<.08&&opportunityDelta<.02&&clearPurpose<.015?0.28:0);
   let classification='ambiguous';
   if(group.events.length===1&&group.events[0].action?.type==='endTurn'&&meaningfulEvidence<.45)classification='noise';
   else if(meaningfulEvidence>=.48&&meaningfulEvidence>noiseEvidence+.10)classification='meaningful';
@@ -3773,37 +3773,43 @@ function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
  const purpose=purposeCandidates[0]?.[0]||meaningful[0]?.intent||null;
  const requiredStateChanges=Object.entries(vector).filter(([k,v])=>k!=='score'&&Number(v||0)>.025).sort((a,b)=>Number(b[1])-Number(a[1])).map(([k])=>k);
  const meaningfulRatio=meaningful.length/Math.max(1,sequences.length),noiseRatio=noise.length/Math.max(1,sequences.length),strongest=meaningful.slice().sort((a,b)=>b.meaningfulScore-a.meaningfulScore)[0]||null;
- const confidence=Math.max(0,Math.min(1,meaningfulRatio*.30+Math.min(1,Math.abs(Number(strongest?.purposeDelta||0))/.12)*.18+Math.min(1,Math.abs(Number(strongest?.opportunityDelta||0))/.08)*.16+Math.min(1,requiredStateChanges.length/3)*.12+Math.min(1,sequences.length/4)*.10+(line.length?.08:0)-noiseRatio*.12));
+ const confidence=Math.max(0,Math.min(1,meaningfulRatio*.30+Math.min(1,Math.abs(Number(strongest?.purposeDelta||0))/.12)*.18+Math.min(1,Math.abs(Number(strongest?.opportunityDelta||0))/.08)*.16+Math.min(1,requiredStateChanges.length/3)*.12+Math.min(1,sequences.length/4)*.10+(line.length?0.08:0)-noiseRatio*.12));
  return {schema:'strategic-observation-v0.4',actor,sampleSize:recent.length,sequenceCount:sequences.length,meaningfulCount:meaningful.length,noiseCount:noise.length,ambiguousCount:ambiguous.length,
   meaningfulRatio:Number(meaningfulRatio.toFixed(3)),noiseRatio:Number(noiseRatio.toFixed(3)),route:strongest?.routeAfter||null,purpose,purposeTotals:totals,requirementVector:vector,requiredStateChanges,reconstructedLine:line,confidence:Number(confidence.toFixed(3)),
   intent:strongest?.intent||purpose||null,sequences:sequences.map(s=>({actor:s.actor,actionTypes:s.actionTypes,intent:s.intent,classification:s.classification,meaningfulScore:s.meaningfulScore,noiseScore:s.noiseScore,purposeDelta:s.purposeDelta,purposeDeltas:s.purposeDeltas,requiredStateChanges:s.requiredStateChanges,opportunityDelta:s.opportunityDelta,routeAfter:s.routeAfter,routeChanged:s.routeChanged,endedTurn:s.endedTurn})),
   lastMeaningful:strongest?ahTelemetryClone(strongest):null,noiseExamples:noise.slice(-5).map(s=>({actionTypes:s.actionTypes,intent:s.intent,noiseScore:s.noiseScore,requiredStateChanges:s.requiredStateChanges,opportunityDelta:s.opportunityDelta}))};
 }
-/* Strategic Intent v0.2 */
-function ahTelemetryActiveCardPressure(state,actor,profile=null){
- const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p),out={active:[],exposure:0,counterplayNeed:0,opportunity:0,threat:0,evidence:[],reasonCodes:[]};
- const add=(key,label,threat,exposure,need,opportunity,reason)=>{const item={key,label,threat:Number(Math.max(0,Math.min(1,threat)).toFixed(3)),exposure:Number(Math.max(0,Math.min(1,exposure)).toFixed(3)),counterplayNeed:Number(Math.max(0,Math.min(1,need)).toFixed(3)),opportunity:Number(Math.max(0,Math.min(1,opportunity)).toFixed(3)),reason};out.active.push(item);out.threat=Math.max(out.threat,item.threat);out.exposure=Math.max(out.exposure,item.exposure);out.counterplayNeed=Math.max(out.counterplayNeed,item.counterplayNeed);out.opportunity=Math.max(out.opportunity,item.opportunity);out.evidence.push(item);if(reason)out.reasonCodes.push(reason);};
- const candies=s.candies||[],valuable=candies.reduce((n,c)=>{const pts=Math.max(0,Number(c.points||c.type?.pts||0)),need=Math.max(1,Number(c.need||c.type?.need||1)),own=Number(c.attached?.[p]||c.att?.[p]||0),enemy=Number(c.attached?.[q]||c.att?.[q]||0),d=ahTelemetryShadowRouteDistance(c.node,p+'1'),near=d<99?Math.max(0,(4-d)/4):0;return n+Math.min(1,pts/6)*(.45*Math.min(1,own/need)+.35*near+.20*(enemy>0?1:0));},0);
- const contested=candies.filter(c=>(c.attached?.[p]||c.att?.[p]||0)>0&&(c.attached?.[q]||c.att?.[q]||0)>0).length,fieldOwn=Object.values(s.free||{}).reduce((n,v)=>n+(v?.[p]||0),0),fieldOpp=Object.values(s.free||{}).reduce((n,v)=>n+(v?.[q]||0),0);
- if(!!(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[q])){const exposure=Math.max(0,Math.min(1,.18+valuable*.32+contested*.05));add('typhoon','Typhoon',.35+exposure*.45,exposure,.20+exposure*.62,.12+Math.max(0,fieldOwn-fieldOpp)/20*.18,'active-typhoon-exposure');}
- const pher=s.strongPheromone||s.effects?.strongPheromone;if(pher&&Number(pher.remainingStarts||0)>0){const space=Math.max(0,(CAP[p+'1']||2)-Number(s.free?.[p+'1']?.[p]||0));add('strongPheromone','Strong Pheromone',.28+Math.min(1,space/2)*.25,Math.min(1,space/2*.45),.22+Math.min(1,space/2)*.45,Math.min(1,space/2*.20),'active-pheromone-entrance-pressure');}
- if(s.rainSelect&&s.rainSelect.player===q)add('rain','Rain Dance',.42,.50,.62,.05,'opponent-rain-targeting');
- const squalls=Array.isArray(s.squalls)?s.squalls:(s.effects?.squalls||[]);if(squalls.length)add('squall','Squall',.24+(fieldOwn>0?0.22:0),fieldOwn>0?0.55:.12,.18+(fieldOwn>0?0.32:0),.08,'active-squall-exposure');
- out.active.sort((a,b)=>(b.counterplayNeed+b.threat)-(a.counterplayNeed+a.threat));out.threat=Number(out.threat.toFixed(3));out.exposure=Number(out.exposure.toFixed(3));out.counterplayNeed=Number(out.counterplayNeed.toFixed(3));out.opportunity=Number(out.opportunity.toFixed(3));out.cardAvailability=Number(profile?.cardPressure||0);out.possibilityOnly=Number(Math.max(0,Math.min(1,(profile?.cardPressure||0)*(out.active.length?0.25:1))).toFixed(3));return out;
-}
-function ahTelemetryCardCounterplayProfile(state,actor,activePressure=null){
- const s=state||{},p=actor||s.currentPlayer||'B',a=activePressure||ahTelemetryActiveCardPressure(s,p),candies=s.candies||[];
- const readyOwn=candies.filter(c=>(c.attached?.[p]||c.att?.[p]||0)>=(c.need||c.type?.need||1)).reduce((n,c)=>n+Math.max(0,Number(c.points||c.type?.pts||0)),0),valuableOwn=candies.filter(c=>(c.attached?.[p]||c.att?.[p]||0)>0).reduce((n,c)=>n+Math.max(0,Number(c.points||c.type?.pts||0)),0);
- const nearNest=candies.filter(c=>{if(!(c.attached?.[p]||c.att?.[p]||0))return false;const d=ahTelemetryShadowRouteDistance(c.node,p+'1');return d<99&&d<=2;}).length,ty=a.active.some(x=>x.key==='typhoon');
- const protect=Number(Math.max(0,Math.min(1,ty?(valuableOwn/Math.max(1,readyOwn+valuableOwn)*.48+nearNest*.12):0)).toFixed(3)),secure=Number(Math.max(0,Math.min(1,ty?(readyOwn/6*.18+nearNest*.20):0)).toFixed(3)),ambush=Number(Math.max(0,Math.min(1,ty?Math.max(0,1-nearNest/3)*a.opportunity*.38:0)).toFixed(3)),rush=Number(Math.max(0,Math.min(1,a.active.length?readyOwn/6*.30:0)).toFixed(3)),avoid=Number(Math.max(0,Math.min(1,a.exposure*.46)).toFixed(3)),counter=Number(Math.max(0,Math.min(1,a.counterplayNeed*.62)).toFixed(3)),ignore=Number(Math.max(0,Math.min(1,Math.max(0,1-a.counterplayNeed)*.72)).toFixed(3));
- const options={protect,secure,ambush,rush,avoid,counter,ignore};return {...options,primary:Object.entries(options).sort((x,y)=>y[1]-x[1])[0]?.[0]||'ignore',evidence:{activeCards:a.active,readyOwn:Number(readyOwn.toFixed(3)),valuableOwn:Number(valuableOwn.toFixed(3)),nearNest,typhoonProtection:protect,typhoonSecure:secure,typhoonAmbush:ambush,typhoonRush:rush}};
+/* Strategic Intent v0.3 — separate observed intent from state-derived threats. */
+function ahTelemetryIntentEvidenceFromObservation(observation){
+ const obs=observation||{},seqs=Array.isArray(obs.sequences)?obs.sequences:[];
+ const meaningful=seqs.filter(s=>s?.classification==='meaningful'&&s?.intent);
+ const aliases={cardEnabledDelivery:'delivery',cardEnabledBattle:'battle',cardEnabledPositioning:'positioning',setup:'positioning',repositioning:'positioning',futureOpportunity:'positioning'};
+ const weights={},reasons=[];
+ for(const s of meaningful){
+  const key=aliases[s.intent]||s.intent;if(!key)continue;
+  const evidence=Math.max(0.15,Math.min(1,Number(s.meaningfulScore||0)*.55+Math.min(1,Math.abs(Number(s.purposeDelta||0))/.12)*.25+Math.min(1,Math.max(0,Number(s.opportunityDelta||0))/.08)*.20));
+  weights[key]=(weights[key]||0)+evidence;
+  reasons.push({intent:key,actionTypes:s.actionTypes||[],evidence:Number(evidence.toFixed(3)),purposeDelta:Number(s.purposeDelta||0),opportunityDelta:Number(s.opportunityDelta||0),requiredStateChanges:s.requiredStateChanges||[]});
+ }
+ const total=Object.values(weights).reduce((n,v)=>n+v,0),distribution={};
+ if(total>0)for(const [k,v] of Object.entries(weights))distribution[k]=Number((v/total).toFixed(4));
+ const ranked=Object.entries(distribution).sort((a,b)=>b[1]-a[1]),top=ranked[0]?.[1]||0,second=ranked[1]?.[1]||0;
+ const confidence=Number(Math.max(0,Math.min(1,top*.58+Math.max(0,top-second)*.32+Math.min(1,meaningful.length/3)*.10)).toFixed(3));
+ return {schema:'strategic-intent-evidence-v0.3',meaningfulCount:meaningful.length,distribution,primary:ranked[0]?.[0]||null,confidence,reasons:reasons.slice(-6)};
 }
 function ahTelemetryStrategicIntent(state,actor,profile=null,observation=null){
- const s=state||{},p=actor||s.currentPlayer||'B',obs=observation||ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32})||{},comp=ahTelemetryStrategicCompression(s,p)||{},curve=ahTelemetryStrategyCurve(s,p)||{},purpose=obs?.purposeTotals||{},utility=ahTelemetryShadowUtilityBreakdown(s,p)||{};
- const scoreDiff=Number(utility.scoreDiff||0),winProbability=Number(utility.winProbability??ahTelemetryWinProbability(s,p)??.5),phase=Number(profile?.phase??comp.phase??0),cardPressure=Number(profile?.cardPressure??comp.cardPressure??0),interaction=Number(profile?.interaction??comp.interaction??0),battleThreat=Number(profile?.battleThreat??comp.battleThreat??0),activeCard=ahTelemetryActiveCardPressure(s,p,profile),counterplay=ahTelemetryCardCounterplayProfile(s,p,activeCard);
- const raw={delivery:Math.max(0,Number(purpose.delivery||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.45,denial:Math.max(0,Number(purpose.denial||0))+interaction*.28+battleThreat*.12,battle:Math.max(0,Number(purpose.battlePreparation||0))+battleThreat*.48,positioning:Math.max(0,Number(purpose.positioning||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.18,cardPressure:Math.max(0,cardPressure)*.18+interaction*.12+activeCard.threat*.34+activeCard.counterplayNeed*.30,survival:Math.max(0,-scoreDiff)*.08+Math.max(0,.5-winProbability)*.72+Math.max(0,1-phase)*.03,scoreRace:Math.max(0,Number(purpose.delivery||0))*.72+Math.max(0,scoreDiff)*.14+Math.max(0,phase-.25)*.08,protect:counterplay.protect*.26,secure:counterplay.secure*.22,ambush:counterplay.ambush*.20,rush:counterplay.rush*.18};
- const total=Object.values(raw).reduce((a,b)=>a+Math.max(0,Number(b)||0),0),dist={};for(const [k,v] of Object.entries(raw))dist[k]=Number((total?Math.max(0,v)/total:1/Object.keys(raw).length).toFixed(4));const ranked=Object.entries(dist).sort((a,b)=>b[1]-a[1]),primary=ranked[0]?.[0]||'positioning',secondary=ranked[1]?.[0]||primary,counterHypothesis=ranked[2]?.[0]||secondary,top=ranked[0]?.[1]||0,second=ranked[1]?.[1]||0,evidenceCount=Number(obs?.meaningfulCount||0)+activeCard.evidence.length,confidence=Number(Math.max(0,Math.min(1,top*.68+(top-second)*.48+Math.min(1,evidenceCount/4)*.14+(obs?.confidence||0)*.12+activeCard.counterplayNeed*.12)).toFixed(3));
- return {schema:'strategic-intent-v0.2',actor:p,primary,secondary,counterHypothesis,distribution:dist,confidence,cardCounterplay:counterplay,source:{observation:obs?.sampleSize>0?'strategic-observation':'state-derived',meaningfulCount:Number(obs?.meaningfulCount||0),noiseCount:Number(obs?.noiseCount||0),purposeTotals:ahTelemetryClone(purpose),route:obs?.route||curve.selectedRoute||null,routeSeparation:Number(curve.routeSeparation||0),strategicComplexity:Number(comp.strategicComplexity||0),cardAvailability:Number(cardPressure.toFixed(3)),activeCardPressure:activeCard,evidence:[...(obs?.meaningfulCount?['history-meaningful-actions']:[]),...activeCard.reasonCodes]}};
+ const s=state||{},p=actor||s.currentPlayer||'B',obs=observation||ahTelemetryStrategicObservationReconstruct(AH_AI_TELEMETRY?.events||[],p,{maxActions:32})||{};
+ const comp=ahTelemetryStrategicCompression(s,p)||{},curve=ahTelemetryStrategyCurve(s,p)||{},purpose=obs?.purposeTotals||{},utility=ahTelemetryShadowUtilityBreakdown(s,p)||{};
+ const scoreDiff=Number(utility.scoreDiff||0),winProbability=Number(utility.winProbability??ahTelemetryWinProbability(s,p)??.5),phase=Number(profile?.phase??comp.phase??0),cardPressure=Number(profile?.cardPressure??comp.cardPressure??0),interaction=Number(profile?.interaction??comp.interaction??0),battleThreat=Number(profile?.battleThreat??comp.battleThreat??0);
+ const activeCard=ahTelemetryActiveCardPressure(s,p,profile),counterplay=ahTelemetryCardCounterplayProfile(s,p,activeCard),history=ahTelemetryIntentEvidenceFromObservation(obs);
+ const stateRaw={delivery:Math.max(0,Number(purpose.delivery||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.45,denial:Math.max(0,Number(purpose.denial||0))+interaction*.28+battleThreat*.12,battle:Math.max(0,Number(purpose.battlePreparation||0))+battleThreat*.48,positioning:Math.max(0,Number(purpose.positioning||0))+Math.max(0,Number(purpose.transportEfficiency||0))*.18,cardPressure:interaction*.12+activeCard.threat*.34+activeCard.counterplayNeed*.30,survival:Math.max(0,-scoreDiff)*.08+Math.max(0,.5-winProbability)*.72+Math.max(0,1-phase)*.03,scoreRace:Math.max(0,Number(purpose.delivery||0))*.72+Math.max(0,scoreDiff)*.14+Math.max(0,phase-.25)*.08,protect:counterplay.protect*.26,secure:counterplay.secure*.22,ambush:counterplay.ambush*.20,rush:counterplay.rush*.18};
+ const historyWeight=Math.max(0,Math.min(.62,.18+Math.min(.44,Number(history.confidence||0)*.52))),raw={...stateRaw},allKeys=new Set([...Object.keys(stateRaw),...Object.keys(history.distribution||{})]);
+ for(const k of allKeys){const h=Number(history.distribution?.[k]||0),stateValue=Math.max(0,Number(stateRaw[k]||0));raw[k]=stateValue*(1-historyWeight)+h*historyWeight;}
+ const total=Object.values(raw).reduce((a,b)=>a+Math.max(0,Number(b)||0),0),dist={};
+ for(const [k,v] of Object.entries(raw))dist[k]=Number((total?Math.max(0,v)/total:1/Object.keys(raw).length).toFixed(4));
+ const ranked=Object.entries(dist).sort((a,b)=>b[1]-a[1]),primary=ranked[0]?.[0]||'positioning',secondary=ranked[1]?.[0]||primary,counterHypothesis=ranked[2]?.[0]||secondary,top=ranked[0]?.[1]||0,second=ranked[1]?.[1]||0,evidenceCount=Number(obs?.meaningfulCount||0)+activeCard.evidence.length;
+ const confidence=Number(Math.max(0,Math.min(1,top*.52+(top-second)*.36+Math.min(1,evidenceCount/4)*.08+(obs?.confidence||0)*.08+history.confidence*.16)).toFixed(3));
+ return {schema:'strategic-intent-v0.3',actor:p,primary,secondary,counterHypothesis,distribution:dist,confidence,historyEvidence:history,historyWeight:Number(historyWeight.toFixed(3)),cardCounterplay:counterplay,source:{observation:obs?.sampleSize>0?'strategic-observation':'state-derived',meaningfulCount:Number(obs?.meaningfulCount||0),noiseCount:Number(obs?.noiseCount||0),purposeTotals:ahTelemetryClone(purpose),route:obs?.route||curve.selectedRoute||null,routeSeparation:Number(curve.routeSeparation||0),strategicComplexity:Number(comp.strategicComplexity||0),cardAvailability:Number(cardPressure.toFixed(3)),activeCardPressure:activeCard,evidence:[...(obs?.meaningfulCount?['history-meaningful-actions']:[]),...(history.primary?['history-intent:'+history.primary]:[]),...activeCard.reasonCodes]}};
 }
 function ahTelemetryStrategicIntentMatch(intent,actionRequirement,action,profile=null){
  if(!intent)return {score:0,breakdown:{}};const d=actionRequirement?.purpose?.delta||{},active=actionRequirement?.activePurposes||[],weights={delivery:{delivery:1,positioning:.28,transportEfficiency:.22},denial:{denial:1,battlePreparation:.30},battle:{battlePreparation:1,denial:.32},positioning:{positioning:1,transportEfficiency:.28,delivery:.16},cardPressure:{denial:.32,battlePreparation:.18,delivery:.14,positioning:.10},survival:{denial:.35,positioning:.25,battlePreparation:.18},scoreRace:{delivery:.72,positioning:.22,transportEfficiency:.16},protect:{typhoonProtection:1,delivery:.28,positioning:.12},secure:{typhoonProtection:.72,positioning:.55,delivery:.22},ambush:{positioning:.48,denial:.38,battlePreparation:.24},rush:{delivery:.62,positioning:.18},avoid:{typhoonProtection:.42,positioning:.28,delivery:.12},counter:{denial:.52,battlePreparation:.30,typhoonProtection:.20},ignore:{}};
@@ -5949,7 +5955,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v14',
+  schema:'selfplay-audit-summary-v15',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
