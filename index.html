@@ -3811,6 +3811,18 @@ function ahTelemetryStrategicIntentMatch(intent,actionRequirement,action,profile
  const bd={};for(const name of Object.keys(intent.distribution||{}))bd[name]=Number(fitFor(name).toFixed(4));const ranked=Object.entries(intent.distribution||{}).sort((a,b)=>b[1]-a[1]),weighted=ranked.slice(0,3).reduce((n,[name,w])=>n+(bd[name]||0)*w,0),primary=Number(bd[intent.primary]||0);return {score:Number(Math.max(0,Math.min(1,weighted+.10*primary)).toFixed(4)),breakdown:bd};
 }
 
+function ahTelemetryPurposeVectorMatch(a,b){
+ const av=a?.requirement||a?.purposeTotals||{},bv=b?.requirement||b?.purposeTotals||{};
+ const keys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning','interaction','route'];
+ let dot=0,an=0,bn=0;
+ for(const k of keys){
+  const x=Math.max(0,Number(av[k]||0)),y=Math.max(0,Number(bv[k]||0));
+  dot+=x*y;an+=x*x;bn+=y*y;
+ }
+ if(an<=1e-9||bn<=1e-9)return 0;
+ return Number(Math.max(0,Math.min(1,dot/Math.sqrt(an*bn))).toFixed(4));
+}
+
 function ahTelemetryOpponentActionModel(state,opponent,profile,eventsOverride=null){
  const p=opponent,q=opp(p),counts={},recent=[];
  const sourceEvents=Array.isArray(eventsOverride)?eventsOverride:(AH_AI_TELEMETRY?.events||[]);
