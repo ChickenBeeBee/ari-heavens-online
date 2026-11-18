@@ -3406,7 +3406,7 @@ function ahTelemetryCompositeStrategicVector(purposeVector,strategicVector,state
  const out={scoreRace:clamp(Number(pv.scoreRace||0)*.42+Number(gv.tempo||0)*.16+Number(sv.scoreLead||0)*.22+Number(pv.delivery||0)*.12),deliveryPush:clamp(Number(pv.delivery||0)*.50+Number(gv.tempo||0)*.16+Number(sv.deliveryReadiness||0)*.22+Number(gv.futureSetup||0)*.10),pressure:clamp(Number(gv.pressure||0)*.44+Number(gv.threat||0)*.20+Number(pv.denial||0)*.20+Number(sv.battleThreat||0)*.10),counterplay:clamp(Number(gv.counterplay||0)*.46+Number(pv.denial||0)*.24+Number(sv.activeCardThreat||0)*.18+Number(sv.battleThreat||0)*.08),futureControl:clamp(Number(gv.futureSetup||0)*.46+Number(pv.futureOpportunity||0)*.30+Number(gv.initiative||0)*.14),stability:clamp(Number(gv.safety||0)*.42+Number(sv.boardControl||0)*.28+Number(gv.flexibility||0)*.16),tacticalRisk:clamp(Number(gv.risk||0)*.58+Number(sv.battleThreat||0)*.18),strategicValue:0};
  out.strategicValue=clamp(out.scoreRace*.18+out.deliveryPush*.16+out.pressure*.13+out.counterplay*.12+out.futureControl*.16+out.stability*.12+(1-out.tacticalRisk)*.13);
  const ranked=Object.entries(out).filter(([k])=>k!=='strategicValue').sort((a,b)=>b[1]-a[1]),confidence=clamp(Number(context.observationConfidence||0)*.35+Number(context.stateConfidence??1)*.35+Math.min(1,ranked[0]?.[1]||0)*.30);
- return {schema:'strategic-vector-stack-v0.1',purpose:{...pv},strategic:{...gv},state:{...sv},composite:out,dominantComposite:ranked[0]?.[0]||null,dominantPurpose:Object.entries(pv).filter(([k])=>k!=='total').sort((a,b)=>b[1]-a[1])[0]?.[0]||null,dominantStrategic:Object.entries(gv).sort((a,b)=>b[1]-a[1])[0]?.[0]||null,confidence:Number(confidence.toFixed(3))};
+ return {schema:'strategic-vector-stack-v0.2',purpose:{...pv},strategic:{...gv},state:{...sv},composite:out,dominantComposite:ranked[0]?.[0]||null,dominantPurpose:Object.entries(pv).filter(([k])=>k!=='total').sort((a,b)=>b[1]-a[1])[0]?.[0]||null,dominantStrategic:Object.entries(gv).sort((a,b)=>b[1]-a[1])[0]?.[0]||null,confidence:Number(confidence.toFixed(3))};
 }
 function ahTelemetryStrategicVectorProgress(before,after,actor){
  const bP=ahTelemetryPurposeVector(before,actor),aP=ahTelemetryPurposeVector(after,actor),bS=ahTelemetryStateVector(before,actor),aS=ahTelemetryStateVector(after,actor),bG=ahTelemetryStrategicVector(before,actor,bP,bS),aG=ahTelemetryStrategicVector(after,actor,aP,aS),bC=ahTelemetryCompositeStrategicVector(bP,bG,bS),aC=ahTelemetryCompositeStrategicVector(aP,aG,aS),delta={};
@@ -4065,18 +4065,24 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const baseOpp=baseState?ahTelemetryShadowFutureOpportunityValue(baseState,turnActor):opp;
   const baseWin=baseState?ahTelemetryWinProbability(baseState,p):win;
   const intent=baseState?ahTelemetryPurposeProgress(baseState,state,turnActor):null;
+  const vectorProgress=baseState?ahTelemetryStrategicVectorProgress(baseState,state,turnActor):null;
   /*
-   * Purpose progress is intentionally a secondary term. It explains why a
-   * low-level action is useful without turning "attach" itself into a goal.
-   * A sequence that attaches and immediately detaches therefore gives almost
-   * no net purpose progress.
+   * Purpose progress explains why a low-level action is useful without
+   * turning attach/detach itself into a goal.
+   *
+   * The strategic-vector delta is a small temporal term: a move may be
+   * slightly weak now but leave a materially better strategic state for the
+   * next few turns.  It is deliberately small so immediate score/utility
+   * still dominates when the future evidence is weak.
    */
   const intentDelta=Number(intent?.delta?.total||0);
+  const futureStrategicDelta=Number(vectorProgress?.delta?.strategicValue||0);
   return Number((
     (ahTelemetryShadowUtility(state,p)||0)+
     (opp-baseOpp)*.55+
     (win-baseWin)*.18+
-    intentDelta*.32
+    intentDelta*.32+
+    futureStrategicDelta*.12
   ).toFixed(5));
  };
  const actionKey=a=>{
@@ -5834,6 +5840,18 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
        ahTelemetryShadowApply(state,choice.action),
        p
       )?.delta?.total||0
+     ),
+     strategicVectorProgress:ahTelemetryStrategicVectorProgress(
+      state,
+      ahTelemetryShadowApply(state,choice.action),
+      p
+     ),
+     futureStrategicValueDelta:Number(
+      ahTelemetryStrategicVectorProgress(
+       state,
+       ahTelemetryShadowApply(state,choice.action),
+       p
+      )?.delta?.strategicValue||0
      ),
      rolloutValue:rollout?.value??null,
      combinedScore:choice.score??null,
