@@ -2392,48 +2392,6 @@ function ahTelemetryCardProbabilityModel(key){
  }
  return d;
 }
-/* Card Impact Profile v0.1 — audit-only. Derives generic card impact from shadow simulation. */
-function ahTelemetryCardImpactMetrics(state,actor){
- const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p),score=s.score||{},hand=s.hand||{};
- const ants=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0)+(hand[pl]||0)+(s.candies||[]).reduce((n,c)=>n+(c.attached?.[pl]||0),0);
- const field=pl=>Object.values(s.free||{}).reduce((n,v)=>n+(v?.[pl]||0),0);
- const attached=pl=>(s.candies||[]).reduce((n,c)=>n+(c.attached?.[pl]||0),0);
- const candyValue=pl=>(s.candies||[]).reduce((n,c)=>n+(c.points||0)*(c.attached?.[pl]||0)/Math.max(1,c.need||1),0);
- const ready=pl=>(s.candies||[]).reduce((n,c)=>n+((c.attached?.[pl]||0)>=(c.need||1)?(c.points||0):0),0);
- const reachable=pl=>{let n=0;for(const [node,v] of Object.entries(s.free||{})){const a=v?.[pl]||0;if(!a)continue;for(const c of s.candies||[]){const d=ahTelemetryShadowRouteDistance(node,c.node);if(d<99&&d<=3)n+=a*Math.max(0,c.points||0)/Math.max(1,c.need||1)*(4-d)/4;}}return n;};
- const contested=(s.candies||[]).filter(c=>(c.attached?.[p]||0)>0&&(c.attached?.[q]||0)>0).length;
- return {score:{self:Number(score[p]||0),opponent:Number(score[q]||0)},ants:{self:ants(p),opponent:ants(q)},fieldAnts:{self:field(p),opponent:field(q)},attachedAnts:{self:attached(p),opponent:attached(q)},candyValue:{self:candyValue(p),opponent:candyValue(q)},readyCandyValue:{self:ready(p),opponent:ready(q)},reachableOpportunity:{self:reachable(p),opponent:reachable(q)},candyCount:(s.candies||[]).length,contestedCandyCount:contested,handAnts:{self:Number(hand[p]||0),opponent:Number(hand[q]||0)},actions:Number(s.actions||0),shortcutBlock:{self:Number(s.shortcutBlock?.[p]||0),opponent:Number(s.shortcutBlock?.[q]||0)},dead:{self:Number(s.dead?.[p]||0),opponent:Number(s.dead?.[q]||0)}};
-}
-function ahTelemetryCardImpactDelta(before,after,actor){
- const b=ahTelemetryCardImpactMetrics(before,actor),a=ahTelemetryCardImpactMetrics(after,actor),out={};
- const keys=['score','ants','fieldAnts','attachedAnts','candyValue','readyCandyValue','reachableOpportunity','handAnts','shortcutBlock','dead'];
- for(const k of keys)for(const side of ['self','opponent'])out[k]??={}; 
- for(const k of keys)out[k]={self:Number(((a[k]?.self||0)-(b[k]?.self||0)).toFixed(3)),opponent:Number(((a[k]?.opponent||0)-(b[k]?.opponent||0)).toFixed(3))};
- out.candyCount=Number((a.candyCount-b.candyCount).toFixed(3));out.contestedCandyCount=Number((a.contestedCandyCount-b.contestedCandyCount).toFixed(3));out.actions=Number((a.actions-b.actions).toFixed(3));return out;
-}
-function ahTelemetryCardDurationSpec(key,before,after){
- const meta=CARD_META?.[key]||{},prob=ahTelemetryCardProbabilityModel(key)||{},eb=before?.effects||{},ea=after?.effects||{},changed=[];
- for(const k of new Set([...Object.keys(eb),...Object.keys(ea)]))if(JSON.stringify(eb[k])!==JSON.stringify(ea[k]))changed.push(k);
- const vals=[];const scan=(v,path)=>{if(v==null)return;if(typeof v==='number'&&Number.isFinite(v))vals.push({path,value:v});else if(typeof v==='object')for(const [k,x] of Object.entries(v))scan(x,path?path+'.'+k:k);};scan(ea,'effects');
- const remaining=vals.filter(x=>/(remaining|turns|starts)/i.test(x.path)&&x.value>0).sort((a,b)=>b.value-a.value)[0]||null;
- let type='instant',timing='immediate',remainingTurns=0;
- if(remaining){type='temporary';timing='ongoing';remainingTurns=remaining.value;}
- else if(['jaw','inspire','heaven'].includes(key)){type='current-turn';timing='current-turn';remainingTurns=1;}
- else if(key==='block'){type='temporary';timing='next-turn';remainingTurns=Math.max(0,Number(after?.shortcutBlock?.[opp(before?.currentPlayer||'B')]||0));}
- else if(key==='typhoon'){type='until-battle-end';timing='immediate';remainingTurns=null;}
- else if(key==='antlion'){type='delayed-single-event';timing='delayed';remainingTurns=3;}
- let probability=null;for(const c of prob.components||[])if(c.kind==='trigger'){probability=c.probability;break;}
- return {type,remainingTurns, timing, probability, changedEffects:changed, observedRemainingField:remaining?.path||null, ruleSignals:meta.rules||[],notes:prob.notes||null};
-}
-function ahTelemetryCardImpactProfile(key,actor,state=null){
- const s=state||ahTelemetryState();if(!s||!key)return null;const p=actor||s.currentPlayer||'B',before=ahTelemetryClone(s),after=ahTelemetryShadowApply(before,{type:'useCard',player:p,card:key}),delta=after?ahTelemetryCardImpactDelta(before,after,p):null,meta=ahTelemetryClone(CARD_META?.[key]||null),ai=ahTelemetryClone(CPU_CARD_AI?.[key]||null),prob=ahTelemetryCardProbabilityModel(key),duration=after?ahTelemetryCardDurationSpec(key,before,after):null;
- const increases=[],decreases=[];if(delta)for(const [metric,v] of Object.entries(delta)){if(metric==='candyCount'||metric==='contestedCandyCount'||metric==='actions'){if(Number(v)>0)increases.push({metric,delta:Number(v)});else if(Number(v)<0)decreases.push({metric,delta:Number(v)});continue;}for(const side of ['self','opponent']){const d=Number(v?.[side]||0);if(d>0)increases.push({metric,side,delta:d});else if(d<0)decreases.push({metric,side,delta:d});}}
- const opportunityShift=delta?Number(((delta.reachableOpportunity?.self||0)-(delta.reachableOpportunity?.opponent||0)).toFixed(3)):0,reversalShift=delta?Number(((delta.readyCandyValue?.self||0)-(delta.readyCandyValue?.opponent||0)).toFixed(3)):0;
- const impactMagnitude=delta?Number(Math.min(1,Math.abs(delta.score?.self||0)*.18+Math.abs(delta.candyValue?.self||0)*.10+Math.abs(delta.candyValue?.opponent||0)*.10+Math.abs(opportunityShift)*.16+Math.abs(reversalShift)*.16+(Math.abs(delta.fieldAnts?.self||0)+Math.abs(delta.fieldAnts?.opponent||0))*.025+Math.abs(delta.shortcutBlock?.self||0)*.05+Math.abs(delta.shortcutBlock?.opponent||0)*.05+Math.abs(delta.candyCount||0)*.04)).toFixed(3)):0;
- return {schema:'card-impact-profile-v0.1',card:key,name:CARDS?.[key]?.name||key,actor:p,meta,ai,probabilityModel:prob,duration,stateDelta:delta,increases,decreases,strategicSignals:{scoreShift:delta?.score?.self||0,opportunityShift,reversalPotentialShift:reversalShift,boardDisruption:Number(((Math.abs(delta?.fieldAnts?.self||0)+Math.abs(delta?.fieldAnts?.opponent||0)+Math.abs(delta?.candyCount||0)+Math.abs(delta?.contestedCandyCount||0))*.05).toFixed(3)),uncertainty:Number((prob?.stochastic?Math.min(1,(prob.components||[]).length*.16):0).toFixed(3))},impactMagnitude};
-}
-function ahTelemetryCardImpactProfiles(actor,state=null){const s=state||ahTelemetryState();return s?CARD_KEYS.map(k=>ahTelemetryCardImpactProfile(k,actor||s.currentPlayer||'B',s)):null;}
-function ahTelemetryCardImpactDiagnostics(actor,state=null){const profiles=ahTelemetryCardImpactProfiles(actor,state)||[];return {schema:'card-impact-diagnostics-v0.1',sampleSize:profiles.length,generatedAt:new Date().toISOString(),cards:profiles.map(x=>({card:x.card,name:x.name,impactMagnitude:x.impactMagnitude,duration:x.duration,increases:x.increases,decreases:x.decreases,strategicSignals:x.strategicSignals}))};}
 function cpuGenericCardValue(key){
   const meta=CARD_META[key],ai=CPU_CARD_AI[key];
   if(!meta||!ai)return {value:0,reason:'AI評価情報が未登録のため温存。'};
@@ -6151,9 +6109,6 @@ window.AH_AI_TELEMETRY.selfPlay=ahTelemetrySelfPlay;
 window.AH_AI_TELEMETRY.selfPlayAudit=ahTelemetrySelfPlayAudit;
 window.AH_AI_TELEMETRY.selfPlayAuditSummary=ahTelemetrySelfPlayAuditSummary;
 window.AH_AI_TELEMETRY.selfPlayHistory=ahTelemetrySelfPlayHistory;
-window.AH_AI_TELEMETRY.cardImpactProfile=(key,actor,state)=>ahTelemetryCardImpactProfile(key,actor,state);
-window.AH_AI_TELEMETRY.cardImpactProfiles=(actor,state)=>ahTelemetryCardImpactProfiles(actor,state);
-window.AH_AI_TELEMETRY.cardImpactDiagnostics=(actor,state)=>ahTelemetryCardImpactDiagnostics(actor,state);
 
 /* ---------- end AI telemetry ---------- */
 
