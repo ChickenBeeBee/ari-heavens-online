@@ -6079,7 +6079,27 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     futureStrategicValueDelta:x.chosenAudit?.futureStrategicValueDelta??null,
     before:x.chosenAudit?.strategicVectorProgress?.before??null,
     after:x.chosenAudit?.strategicVectorProgress?.after??null,
-    delta:x.chosenAudit?.strategicVectorProgress?.delta??null
+    delta:x.chosenAudit?.strategicVectorProgress?.delta??null,
+    breakdown:(()=>{
+      const v=x.chosenAudit?.strategicVectorProgress||{},b=v.before||{},a=v.after||{};
+      const pd={},gd={},sd={};
+      const pkeys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning','futureOpportunity','scoreRace'];
+      const gkeys=['tempo','initiative','pressure','counterplay','threat','flexibility','risk','safety','resourceEfficiency','futureSetup'];
+      const skeys=['scoreGap','scoreLead','boardControl','cardAvailability','activeCardThreat','battleThreat','deliveryReadiness','boardBusy','interaction','routeSeparation','phase','remainingTurns'];
+      pkeys.forEach(k=>pd[k]=Number(((a.purpose?.[k]||0)-(b.purpose?.[k]||0)).toFixed(4)));
+      gkeys.forEach(k=>gd[k]=Number(((a.strategic?.[k]||0)-(b.strategic?.[k]||0)).toFixed(4)));
+      skeys.forEach(k=>sd[k]=Number(((a.state?.[k]||0)-(b.state?.[k]||0)).toFixed(4)));
+      return {
+        dominantPurpose:a.purpose?.dominantPurpose??null,
+        dominantStrategic:a.strategic?.dominantStrategic??null,
+        dominantComposite:a.composite?.dominantComposite??null,
+        confidence:a.composite?.confidence??null,
+        purposeDelta:pd,
+        strategicDelta:gd,
+        stateDelta:sd,
+        compositeDelta:v.delta??null
+      };
+    })()
    },
    actualCurveTransition:x.chosenAudit?.actualCurveTransition??null,
    predictionError:x.chosenAudit?.predictionError??null,
