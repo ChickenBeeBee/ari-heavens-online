@@ -2407,13 +2407,13 @@ function cpuGenericCardValue(key){
     value=Math.max(0,cpuWinProbability(Math.max(1,own),Math.max(1,enemy))-.5)*1.2;
     reason='戦力差からバトルの利益を評価。';
   }else if(ai.role==='defense'||ai.role==='disruption'){
-    value=Math.max(0,enemy-own)*.12+(lead<0?.25:0);
+    value=Math.max(0,enemy-own)*.12+(lead<0?0.25:0);
     reason='相手の優勢を崩せるか評価。';
   }else if(ai.role==='setup'){
     value=Math.min(1,S.hand.B*.12+S.actions*.08);
     reason='次の得点行動に必要な準備として評価。';
   }else if(ai.role==='economy'){
-    value=turns>=2?.45:0;
+    value=turns>=2?0.45:0;
     reason='残りターン数を見て再利用価値を評価。';
   }
   // Unrecognized rule/stat combinations stay conservative; never fire a new card
@@ -3617,7 +3617,7 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
  const reversalEvidence=Math.min(1,repeated/4)*.45+Math.min(1,inverse/2)*.35;
  const noProgress=curveEvidence<.12&&purposeEvidence<.12?1:0;
  const noiseScore=Math.max(0,Math.min(1,noProgress*.42+(stateChanged?0:.18)+reversalEvidence+
-   ((action.type==='attachAnt'||action.type==='detachAnt')&&repeated>=3?.12:0)-purposeEvidence*.16));
+   ((action.type==='attachAnt'||action.type==='detachAnt')&&repeated>=3?0.12:0)-purposeEvidence*.16));
  const meaningfulScore=Math.max(0,Math.min(1,curveEvidence*.48+purposeEvidence*.32+
    Math.max(0,progress)*.9+Math.max(0,distance)*.5+Math.max(0,curveScore)*.25-reversalEvidence*.18));
  const classification=noiseScore>=.62&&meaningfulScore<.38?'noise':meaningfulScore>=.42?'meaningful':'ambiguous';
@@ -3766,8 +3766,8 @@ function ahTelemetryActiveCardPressure(state,actor,profile=null){
  if(!!(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[q])){const exposure=Math.max(0,Math.min(1,.18+valuable*.32+contested*.05));add('typhoon','Typhoon',.35+exposure*.45,exposure,.20+exposure*.62,.12+Math.max(0,fieldOwn-fieldOpp)/20*.18,'active-typhoon-exposure');}
  const pher=s.strongPheromone||s.effects?.strongPheromone;if(pher&&Number(pher.remainingStarts||0)>0){const space=Math.max(0,(CAP[p+'1']||2)-Number(s.free?.[p+'1']?.[p]||0));add('strongPheromone','Strong Pheromone',.28+Math.min(1,space/2)*.25,Math.min(1,space/2*.45),.22+Math.min(1,space/2)*.45,Math.min(1,space/2*.20),'active-pheromone-entrance-pressure');}
  if(s.rainSelect&&s.rainSelect.player===q)add('rain','Rain Dance',.42,.50,.62,.05,'opponent-rain-targeting');
- const squalls=Array.isArray(s.squalls)?s.squalls:(s.effects?.squalls||[]);if(squalls.length)add('squall','Squall',.24+(fieldOwn>0?.22:0),fieldOwn>0?.55:.12,.18+(fieldOwn>0?.32:0),.08,'active-squall-exposure');
- out.active.sort((a,b)=>(b.counterplayNeed+b.threat)-(a.counterplayNeed+a.threat));out.threat=Number(out.threat.toFixed(3));out.exposure=Number(out.exposure.toFixed(3));out.counterplayNeed=Number(out.counterplayNeed.toFixed(3));out.opportunity=Number(out.opportunity.toFixed(3));out.cardAvailability=Number(profile?.cardPressure||0);out.possibilityOnly=Number(Math.max(0,Math.min(1,(profile?.cardPressure||0)*(out.active.length?.25:1))).toFixed(3));return out;
+ const squalls=Array.isArray(s.squalls)?s.squalls:(s.effects?.squalls||[]);if(squalls.length)add('squall','Squall',.24+(fieldOwn>0?0.22:0),fieldOwn>0?0.55:.12,.18+(fieldOwn>0?0.32:0),.08,'active-squall-exposure');
+ out.active.sort((a,b)=>(b.counterplayNeed+b.threat)-(a.counterplayNeed+a.threat));out.threat=Number(out.threat.toFixed(3));out.exposure=Number(out.exposure.toFixed(3));out.counterplayNeed=Number(out.counterplayNeed.toFixed(3));out.opportunity=Number(out.opportunity.toFixed(3));out.cardAvailability=Number(profile?.cardPressure||0);out.possibilityOnly=Number(Math.max(0,Math.min(1,(profile?.cardPressure||0)*(out.active.length?0.25:1))).toFixed(3));return out;
 }
 function ahTelemetryCardCounterplayProfile(state,actor,activePressure=null){
  const s=state||{},p=actor||s.currentPlayer||'B',a=activePressure||ahTelemetryActiveCardPressure(s,p),candies=s.candies||[];
@@ -4302,15 +4302,15 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
   if(c)b.setup=(pts/need)*.35;
  }else if(action.type==='detachAnt'){
   const c=getC(action.candyId);
-  if(c)b.survival=(c.att?.[p]||0)>0?.15:0;
+  if(c)b.survival=(c.att?.[p]||0)>0?0.15:0;
  }else if(action.type==='moveAnt'){
   const from=action.from,to=action.to;
   let nearest=99;
   for(const c of S.candies||[])nearest=Math.min(nearest,hdist(to,c.node,p));
   b.setup=nearest<99?Math.max(0,1-nearest/6)*.35:0;
-  b.deny=(S.free[to]?.[q]||0)>0?.12:0;
+  b.deny=(S.free[to]?.[q]||0)>0?0.12:0;
  }else if(action.type==='placeAnt'){
-  b.setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
+  b.setup=action.node===p+'1'?0.25:action.node===p+'w'?0.18:0;
  }else if(action.type==='useCard'){
   const ev=cpuEvaluateCard(action.card);
   if(ev){b.immediate=ev.value;b.setup=Math.max(0,ev.value*.15);const experience=ahTelemetryCardExperience(action.card,p);b.experience=experience.score;b.experienceConfidence=experience.confidence;b.experienceAdvice=experience.advice;b.immediate+=experience.score*.12;}
@@ -4373,8 +4373,8 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  /* Strategy Curve ambiguity: tiny route separation or repeated route switching
   * means a cheap convergence result is not yet strategically trustworthy. */
  const routeInstability=Number(Math.max(0,Math.min(1,
-  (routeSeparation<.015?.58:routeSeparation<.035?.24:0)+
-  (routeSwitches>=3?.34:routeSwitches>=2?.12:0)
+  (routeSeparation<.015?0.58:routeSeparation<.035?0.24:0)+
+  (routeSwitches>=3?0.34:routeSwitches>=2?0.12:0)
  )).toFixed(3));
  const routeUnstable=routeInstability>=.45;
 
@@ -4526,23 +4526,23 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
 
   const fp=strategicFingerprint();
   const strategicNovelty=Math.min(1,
-   (fp.route!==baseFingerprint.route?.22:0)+
-   (fp.themes!==baseFingerprint.themes?.12:0)+
-   (fp.themeCount!==baseFingerprint.themeCount?.10:0)+
-   (Math.abs(fp.complexity-baseFingerprint.complexity)>=.08?.12:0)+
-   (Math.abs(fp.interaction-baseFingerprint.interaction)>=.08?.14:0)+
-   (Math.abs(fp.battleThreat-baseFingerprint.battleThreat)>=.08?.16:0)+
-   (Math.abs(fp.routeSeparation-baseFingerprint.routeSeparation)>=.04?.08:0)+
-   (fp.curveAction!==baseFingerprint.curveAction?.06:0)
+   (fp.route!==baseFingerprint.route?0.22:0)+
+   (fp.themes!==baseFingerprint.themes?0.12:0)+
+   (fp.themeCount!==baseFingerprint.themeCount?0.10:0)+
+   (Math.abs(fp.complexity-baseFingerprint.complexity)>=.08?0.12:0)+
+   (Math.abs(fp.interaction-baseFingerprint.interaction)>=.08?0.14:0)+
+   (Math.abs(fp.battleThreat-baseFingerprint.battleThreat)>=.08?0.16:0)+
+   (Math.abs(fp.routeSeparation-baseFingerprint.routeSeparation)>=.04?0.08:0)+
+   (fp.curveAction!==baseFingerprint.curveAction?0.06:0)
   );
 
   const novelty=Number(Math.min(1,
    strategicNovelty+
-   (top1Changed?.20:0)+
-   (topKChanged?.14:0)+
-   (pvChanged?.10:0)+
-   (opponentChanged?.08:0)+
-   (top?.skepticFoundBetter?.12:0)
+   (top1Changed?0.20:0)+
+   (topKChanged?0.14:0)+
+   (pvChanged?0.10:0)+
+   (opponentChanged?0.08:0)+
+   (top?.skepticFoundBetter?0.12:0)
   ).toFixed(3));
 
   const decisionPressure=Math.max(0,Math.min(1,
@@ -4553,7 +4553,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    boardBusy*.10+
    routeSeparation*.08+
    strength*.06+
-   (themeCount>=3?.06:0)
+   (themeCount>=3?0.06:0)
   ));
   const requiredMargin=Number(Math.max(.018,.035+decisionPressure*.035).toFixed(4));
   const scoreTolerance=Number(Math.max(.012,.028-decisionPressure*.012).toFixed(4));
@@ -4592,10 +4592,10 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    marginRecovered||
    (marginNearSafe&&!marginPersistentlyDown);
   const marginReversalRisk=Math.max(0,Math.min(1,
-   (!marginNearSafe?.20:0)+
-   (marginDirection==='down'?.22:0)+
-   (marginPersistentlyDown?.24:0)+
-   (!marginTrendStable?.12:0)
+   (!marginNearSafe?0.20:0)+
+   (marginDirection==='down'?0.22:0)+
+   (marginPersistentlyDown?0.24:0)+
+   (!marginTrendStable?0.12:0)
   ));
   const marginDiagnosticReason=
    margin>=requiredMargin?'above_required':
@@ -4718,23 +4718,23 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
  const lastStage=stages[stages.length-1];
  const uncertainty=Math.max(0,Math.min(1,
   .12+
-  (lastStage.routeUnstable?.14:0)+
-  (lastStage.rankChanged?.22:0)+
-  (lastStage.topKChanged?.16:0)+
-  (lastStage.top1Changed?.14:0)+
-  (lastStage.margin<lastStage.requiredMargin?.18:0)+
-  (!lastStage.scoreStable?.10:0)+
-  (lastStage.novelty>=.18?.08:0)+
+  (lastStage.routeUnstable?0.14:0)+
+  (lastStage.rankChanged?0.22:0)+
+  (lastStage.topKChanged?0.16:0)+
+  (lastStage.top1Changed?0.14:0)+
+  (lastStage.margin<lastStage.requiredMargin?0.18:0)+
+  (!lastStage.scoreStable?0.10:0)+
+  (lastStage.novelty>=.18?0.08:0)+
   (Number(lastStage.decisionPressure||0)*.14)+
-  (lastStage.counterexample?.12:0)+
-  (lastStage.truncated&&stopReason==='max_budget_reached'?.10:0)
+  (lastStage.counterexample?0.12:0)+
+  (lastStage.truncated&&stopReason==='max_budget_reached'?0.10:0)
  ));
  const stability=Math.max(0,Math.min(1,
   lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable&&lastStage.scoreStable?1:
-  lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable?.88:
-  lastStage.rankStable&&lastStage.topKStable?.76:
-  lastStage.rankStable?.64:
-  lastStage.margin>=lastStage.requiredMargin?.52:.20
+  lastStage.rankStable&&lastStage.topKStable&&lastStage.marginStable?0.88:
+  lastStage.rankStable&&lastStage.topKStable?0.76:
+  lastStage.rankStable?0.64:
+  lastStage.margin>=lastStage.requiredMargin?0.52:.20
  ));
 
  return {
@@ -5559,7 +5559,7 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
    const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
    setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
   }else if(action.type==='placeAnt'){
-   setup=action.node===player+'1'?.25:action.node===player+'w'?.18:0;
+   setup=action.node===player+'1'?0.25:action.node===player+'w'?0.18:0;
   }else if(action.type==='startBattle'){
    setup=Math.max(0,immediate)*.25;
   }else if(action.type==='useCard'){
@@ -5642,7 +5642,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
     setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
    }else if(action.type==='placeAnt'){
-    setup=action.node===p+'1'?.25:action.node===p+'w'?.18:0;
+    setup=action.node===p+'1'?0.25:action.node===p+'w'?0.18:0;
    }
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
    return {
@@ -6545,7 +6545,7 @@ function prior_physicsDiceFace(state,player,throwX,throwY,duration){
       angularVelocity+=impactNoise;bounces++;
       if(verticalVelocity<.22)verticalVelocity=0;
     }
-    angularVelocity*=height>0?.995:.94;
+    angularVelocity*=height>0?0.995:.94;
   }
   // Final wobble is larger for weak/poorly timed throws. A clean, well-aimed
   // throw can reliably land on a chosen sector, while sloppy throws drift.
@@ -6966,7 +6966,7 @@ function battleResultHtml(fx){
   const equation=(p,isAttack)=>{
     const die=isAttack?last.ra:last.rd, ants=isAttack?(last.attackAnts??fx.attackCount):(last.defendAnts??fx.defendCount), total=isAttack?last.va:last.vd;
     const jaw=isAttack&&bonus?` ＋ アゴ強化 ${bonus}`:'';
-    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
+    return `<div class="battle-result-card player-${p}" style="animation-delay:${(fx.rolls.length*.48)+.25+(p==='B'?0.35:0)}s"><div class="battle-result-name">${p==='A'?'🟠':'🔵'} ${NAMES[p]}${EN()?(p===fx.attacker?' (Attacker)':' (Defender)'):(p===fx.attacker?'（攻撃側）':'（防御側）')}</div><div class="battle-result-equation">${EN()?'Die':'サイコロ'} <b>${die}</b> + ${EN()?'Ants':'アリ'} <b>${ants}${EN()?' ants':'匹'}</b>${jaw}<br>${EN()?'Total':'合計'} <span class="battle-result-total">${total}</span></div></div>`;
   };
   const loser=last.va<last.vd?fx.attacker:fx.defender, diff=Math.abs(last.va-last.vd), available=loser===fx.attacker?fx.attackCount:fx.defendCount, kill=Math.min(diff,available);
   return `<div class="rl">${fx.candyEmo||'🍬'} ${EN()?({金平糖:'Konpeito',クッキー:'Cookie',チョコ:'Chocolate',アリボム:'Ant Bomb'}[fx.candyName]||fx.candyName||'Candy'):(fx.candyName||'対象')} ${EN()?'Battle':'で対決'}</div>${rounds}${equation('A',fx.attacker==='A')}${equation('B',fx.attacker==='B')}<div class="battle-result-outcome">${last.va===last.vd?(EN()?'⚖ Tie — roll again':'⚖ 同点・振り直し'):`🏁 ${NAMES[loser]}: ${kill}${EN()?' ants eliminated':'匹退場'} (${EN()?'difference':'差'} ${diff})`}</div>`;
@@ -8291,7 +8291,7 @@ function prior_veryHardStep(){
   return cpuStep();
 }
 
-function cpuDelay(base){const scale=cpuSpeed==='slow'?1.65:cpuSpeed==='fast'?.55:1;return Math.max(120,Math.round(base*scale));}
+function cpuDelay(base){const scale=cpuSpeed==='slow'?1.65:cpuSpeed==='fast'?0.55:1;return Math.max(120,Math.round(base*scale));}
 function maybeCpu(){
   if(mode!=='cpu'||!S||S.over||cur()!==CPU||cpuRunning)return;
   cpuRunning=true;S.cpuTarget=null;S.cpuSteps=0;S.hm={att:{},reserve:{}};
@@ -8975,11 +8975,11 @@ function cpuChooseCombatPlan(allowCards=true){
  const m=c.att.B+k;if(!m)continue;const variants=[null];if(inspire)variants.push('inspire');if(jawReady)variants.push('jaw');
  for(const card of variants){const jaw=card==='jaw'||S.jaw===CPU?3:0,win=cpuWinProbability(m,d,jaw),ev=battleEV(m,d,jaw);
  const reward=(card==='inspire'||S.inspire&&S.inspire.player===CPU)?win*1.25:0;
- const value=ev*.7+reward+win*stake*(imminent?.75:.12)+(distance<=S.actions&&m>=c.type.need?win*stake*.2:0)-k*.065-(card==='jaw'?.5:card==='inspire'?.28:0);
+ const value=ev*.7+reward+win*stake*(imminent?0.75:.12)+(distance<=S.actions&&m>=c.type.need?win*stake*.2:0)-k*.065-(card==='jaw'?0.5:card==='inspire'?0.28:0);
  if(!best||value>best.value)best={id:c.id,force:m,card,win,value,turn:S.turnCount,node:c.node};
  }}
  }
- const threshold=level==='easy'?.8:level==='normal'?.32:.12;return best&&best.value>=threshold?best:null;
+ const threshold=level==='easy'?0.8:level==='normal'?0.32:.12;return best&&best.value>=threshold?best:null;
 }
 function cpuExecuteCombatPlan(plan){
  const c=plan&&getC(plan.id);if(!c||plan.turn!==S.turnCount||c.node!==plan.node||c.att.A<=0)return false;
@@ -9025,7 +9025,7 @@ function cpuEvaluateCard(key){
  }else if(key==='block'){value=!S.shortcutBlock.A&&S.free.Aw.A>0?1.15:0;reason='待機所からの援軍を止める。';
  }else if(key==='showdown'){const m=fieldAnts(CPU),d=fieldAnts(HUMAN);value=battleEV(m,d,0)*.55+cpuWinProbability(m,d)*.3;reason='予想退場数を比較して決戦。';
  }else if(key==='antlion'){const h=S.free.C.A+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.A,0),own=S.free.C.B+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.B,0);value=turns>=2&&!S.antlions.length?(h-own)*.3:0;reason='自軍リスクと比較しアリジゴクを設置。';
- }else if(key==='gale'){for(const c of S.candies){if(c.att.A+c.att.B||c.node==='C')continue;const i=CHAIN.indexOf(c.node);value+=(c.type.bomb?-1:1)*(i<=2?.8:i>=4?-.8:0);}reason='相手側の無人のお菓子を中央へ戻す。';
+ }else if(key==='gale'){for(const c of S.candies){if(c.att.A+c.att.B||c.node==='C')continue;const i=CHAIN.indexOf(c.node);value+=(c.type.bomb?-1:1)*(i<=2?0.8:i>=4?-.8:0);}reason='相手側の無人のお菓子を中央へ戻す。';
  }else if(key==='powder'){for(const c of S.candies){if(c.type.bomb){value+=c.att.A>=c.type.need&&CHAIN.indexOf(c.node)>=4?3:0;value-=c.att.B>=c.type.need&&CHAIN.indexOf(c.node)<=2?2:0;continue;}const delta=c.type.pts-2;if(c.att.A>=c.type.need&&!c.att.B)value+=delta*.55;if(c.att.B>=c.type.need&&!c.att.A)value-=delta*.7;}reason='相手の高得点運搬を弱める。';
  }else if(key==='gold'){value=turns>=4&&S.hand.B>=3&&S.free.C.B+S.candies.filter(c=>c.node==='C').reduce((v,c)=>v+c.att.B,0)>=S.free.C.A+2?1.2:0;reason='中央の確保を見込んでゴールド追加。';
  }else if(key==='sugar'){let local=0;for(const n of ['A2','A3','B2','B3'])local+=S.free[n].B-S.free[n].A;value=turns>=3&&local>0&&S.candies.length<7?.55+local*.08:0;reason='回収できる配置でお菓子追加。';
