@@ -3249,37 +3249,88 @@ function ahTelemetryShadowUtility(state,actor){
 }
 function ahTelemetryShadowFutureOpportunityValue(state,actor){
  const s=state||{},p=actor||s.currentPlayer,q=opp(p);
- const nodes=Object.keys(s.free||{});
  const candies=(s.candies||[]).filter(c=>CHAIN.includes(c.node));
- const valueFor=pl=>{
-  let mobility=0,battle=0,ready=0;
-  for(const node of nodes){
-   const ants=s.free?.[node]?.[pl]||0;
+
+ /*
+  * Future Opportunity v0.2
+  *
+  * Estimate a few concrete opportunities that can become score, delivery,
+  * denial, battle, or a real future-event pickup. Do not count raw legal
+  * actions or all ants as generic "future control".
+  */
+ const profileFor=pl=>{
+  const qpl=opp(pl),items=[];
+  const push=(kind,value,detail)=>{
+   const v=Math.max(0,Number(value)||0);
+   if(v>0)items.push({kind,value:v,detail});
+  };
+
+  for(const [node,counts] of Object.entries(s.free||{})){
+   const ants=Math.max(0,Number(counts?.[pl]||0));
    if(!ants)continue;
-   let useful=0;
    for(const c of candies){
     const d=ahTelemetryShadowRouteDistance(node,c.node);
-    if(d>=99)continue;
-    const pts=c.points||0,need=Math.max(1,c.need||1);
-    const fraction=pts/need;
-    if(d<=2)useful+=fraction*(3-d);
-    if(d===0&&(c.attached?.[pl]||0)<need)ready+=fraction*.35;
+    if(d>=99||d>3)continue;
+    const pts=Math.max(0,Number(c.points||0));
+    const need=Math.max(1,Number(c.need||1));
+    const perAnt=pts/need;
+    const routeFactor=d===0?0.72:d===1?0.56:d===2?0.38:0.22;
+    const contestFactor=Number(c.attached?.[qpl]||0)>0?1.18:1;
+    const readyNeed=Math.max(0,need-Number(c.attached?.[pl]||0));
+    const scarcity=readyNeed<=1?1.12:readyNeed<=2?1.05:0.92;
+    push('delivery',perAnt*routeFactor*contestFactor*scarcity*Math.min(2,ants)*0.55,{node,candyId:c.id,d,ants});
    }
-   mobility+=ants*Math.min(2.5,useful*.18);
   }
+
   for(const c of candies){
-   const own=c.attached?.[pl]||0,enemy=c.attached?.[opp(pl)]||0,need=Math.max(1,c.need||1),pts=c.points||0;
-   if(own>0&&enemy>0){
-    const ev=battleEV(own,enemy,s.effects?.jaw===pl?3:0);
-    battle+=(ev/need)*Math.max(1,pts*.25);
+   const own=Math.max(0,Number(c.attached?.[pl]||0));
+   const enemy=Math.max(0,Number(c.attached?.[qpl]||0));
+   const need=Math.max(1,Number(c.need||1));
+   const pts=Math.max(0,Number(c.points||0));
+   if(own>0){
+    const nest=pl+'1';
+    const d=ahTelemetryShadowRouteDistance(c.node,nest);
+    const routeFactor=d<99?Math.max(0.18,0.82-d*0.11):0.18;
+    const completion=Math.min(1,own/need);
+    push('delivery',pts*completion*routeFactor*0.32,{candyId:c.id,d,own,need});
    }
-   if(own>=need)ready+=pts*.45;
+   if(own>0&&enemy>0){
+    const ev=Math.max(0,battleEV(own,enemy,s.effects?.jaw===pl?3:0));
+    const battleValue=ev/need*Math.max(0.5,pts*0.35);
+    push('battle',battleValue*0.28,{candyId:c.id,own,enemy,need,pts});
+   }
+   if(enemy>0&&own===0){
+    const completion=Math.min(1,enemy/need);
+    push('denial',pts*completion*0.16,{candyId:c.id,enemy,need,pts});
+   }
   }
-  return mobility+battle+ready;
+
+  if(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[pl]){
+   for(const [node,counts] of Object.entries(s.free||{})){
+    const ants=Math.max(0,Number(counts?.[pl]||0));
+    if(!ants)continue;
+    let landingValue=0,landingCount=0;
+    for(const c of candies){
+     const d=ahTelemetryShadowRouteDistance(node,c.node);
+     if(d<=2){
+      landingValue+=Math.max(0,Number(c.points||0))/Math.max(1,Number(c.need||1))*(d===0?0.50:d===1?0.32:0.18);
+      landingCount++;
+     }
+    }
+    if(landingCount)push('typhoonEvent',landingValue*Math.min(2,ants)*0.38,{node,landingCount});
+   }
+  }
+
+  items.sort((a,b)=>b.value-a.value);
+  const top=items.slice(0,4);
+  let total=0;
+  top.forEach((x,i)=>{total+=x.value*Math.pow(0.62,i);});
+  return {value:Math.max(0,Math.min(1.5,total)),top};
  };
- return valueFor(p)-valueFor(q);
-}
-/*
+
+ const own=profileFor(p),enemy=profileFor(q);
+ return Number(Math.max(-1.5,Math.min(1.5,Number(own.value||0)-Number(enemy.value||0))).toFixed(4));
+}/*
  * Intent / Purpose v0.1
  *
  * Low-level actions such as attachAnt are means, not strategies.
