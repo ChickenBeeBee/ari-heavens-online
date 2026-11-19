@@ -5622,6 +5622,7 @@ function ahTelemetryStrategyCurveTransition(state,player,action,baseCurve=null){
   routeAfter,
   routeChanged,
   actionType: action?.type||null,
+  actionSignature: ahTelemetryActionSignature(action),
   progressDelta:Number(((after.bestTurnProgress||0)-(before.bestTurnProgress||0)).toFixed(4)),
   distanceDelta:Number(((before.directToVictoryDistance||0)-(after.directToVictoryDistance||0)).toFixed(4)),
   curvatureDelta:Number(((after.curvature||0)-(before.curvature||0)).toFixed(4)),
@@ -5662,7 +5663,7 @@ function ahTelemetryStrategyCurveActionTransitions(state,player,baseCurve=null,l
  */
 function ahTelemetryStrategyCurvePredictionAuditStats(){
  return {
-  pairs:0,actionMatches:0,routeMatches:0,errorSum:0,
+  pairs:0,actionPairs:0,actionMatches:0,routePairs:0,routeMatches:0,errorSum:0,
   progressAbsError:0,distanceAbsError:0,curvatureAbsError:0,stabilityAbsError:0,
   byPhase:{},byStrength:{},byCardPressure:{},byBoardBusy:{},byInteraction:{},byRoute:{}
  };
@@ -5682,8 +5683,16 @@ function ahTelemetryStrategyCurvePredictionAuditRecord(stats,predicted,actual,er
  const interaction=ahTelemetryPredictionAuditBucket(context?.interaction,[.34,.67],['low','mid','high']);
  const route=predicted.routeAfter||predicted.routeBefore||'unknown';
  stats.pairs++;
- if(predicted.actionType&&actual.actionType&&predicted.actionType===actual.actionType)stats.actionMatches++;
- if(predicted.routeAfter===actual.routeAfter)stats.routeMatches++;
+ const predictedSig=predicted.actionSignature||predicted.actionType||null;
+ const actualSig=actual.actionSignature||actual.actionType||null;
+ if(predictedSig&&actualSig){
+  stats.actionPairs++;
+  if(predictedSig===actualSig)stats.actionMatches++;
+ }
+ if(predicted.routeAfter!=null&&actual.routeAfter!=null){
+  stats.routePairs++;
+  if(predicted.routeAfter===actual.routeAfter)stats.routeMatches++;
+ }
  stats.errorSum+=Number(error||0);
  stats.progressAbsError+=Math.abs(Number(predicted.progressDelta||0)-Number(actual.progressDelta||0));
  stats.distanceAbsError+=Math.abs(Number(predicted.distanceDelta||0)-Number(actual.distanceDelta||0));
@@ -5693,8 +5702,8 @@ function ahTelemetryStrategyCurvePredictionAuditRecord(stats,predicted,actual,er
   const k=String(key??'unknown');
   if(!obj[k])obj[k]={pairs:0,actionMatches:0,routeMatches:0,errorSum:0};
   obj[k].pairs++;
-  if(predicted.actionType&&actual.actionType&&predicted.actionType===actual.actionType)obj[k].actionMatches++;
-  if(predicted.routeAfter===actual.routeAfter)obj[k].routeMatches++;
+  if(predictedSig&&actualSig)obj[k].actionMatches++;
+  if(predicted.routeAfter!=null&&actual.routeAfter!=null)obj[k].routeMatches++;
   obj[k].errorSum+=Number(error||0);
  };
  bump(stats.byPhase,phase);bump(stats.byStrength,strength);
@@ -5704,13 +5713,13 @@ function ahTelemetryStrategyCurvePredictionAuditRecord(stats,predicted,actual,er
 function ahTelemetryStrategyCurvePredictionAuditFinalize(stats){
  const p=Math.max(1,Number(stats?.pairs||0));
  const finishGroup=obj=>Object.fromEntries(Object.entries(obj||{}).map(([k,v])=>[k,{
-  pairs:v.pairs,actionAccuracy:Number((v.actionMatches/Math.max(1,v.pairs)).toFixed(3)),
-  routeAccuracy:Number((v.routeMatches/Math.max(1,v.pairs)).toFixed(3)),
+  pairs:v.pairs,actionPairs:v.actionPairs??v.pairs,actionAccuracy:Number((v.actionMatches/Math.max(1,v.actionPairs??v.pairs)).toFixed(3)),
+  routePairs:v.routePairs??v.pairs,routeAccuracy:Number((v.routeMatches/Math.max(1,v.routePairs??v.pairs)).toFixed(3)),
   meanError:Number((v.errorSum/Math.max(1,v.pairs)).toFixed(4))
  }]));
  return {
-  pairs:Number(stats?.pairs||0),actionAccuracy:Number(((stats?.actionMatches||0)/p).toFixed(3)),
-  routeAccuracy:Number(((stats?.routeMatches||0)/p).toFixed(3)),
+  pairs:Number(stats?.pairs||0),actionPairs:Number(stats?.actionPairs??stats?.pairs??0),actionAccuracy:Number(((stats?.actionMatches||0)/Math.max(1,stats?.actionPairs??stats?.pairs??0)).toFixed(3)),
+  routePairs:Number(stats?.routePairs??stats?.pairs??0),routeAccuracy:Number(((stats?.routeMatches||0)/Math.max(1,stats?.routePairs??stats?.pairs??0)).toFixed(3)),
   meanPredictionError:Number(((stats?.errorSum||0)/p).toFixed(4)),
   meanProgressAbsError:Number(((stats?.progressAbsError||0)/p).toFixed(4)),
   meanDistanceAbsError:Number(((stats?.distanceAbsError||0)/p).toFixed(4)),
@@ -10130,15 +10139,95 @@ renderWeatherCountdown=function(){
 </script>
 <script>
 (()=>{
+'use strict';
 function esc(v){const d=document.createElement('div');d.textContent=String(v==null?'':v);return d.innerHTML;}
-function ensure(){let o=document.getElementById('ahAuditOverlay');if(o)return o;o=document.createElement('div');o.id='ahAuditOverlay';o.className='ah-audit-overlay';o.innerHTML='<div class="ah-audit-panel"><div class="ah-audit-head"><div><h2>🔎 AI Audit</h2><div class="ah-audit-sub">怪しい判断だけを抽出します</div></div><button id="ahAuditClose">閉じる</button></div><div class="ah-audit-run">対局数 <input id="ahAuditGames" type="number" min="1" max="200" value="50"><button id="ahAuditRun">監査を実行</button><button id="ahAuditStored">保存済みを分析</button></div><div id="ahAuditProgress" class="ah-audit-progress"><div id="ahAuditProgressTitle" class="ah-audit-progress-title"></div><div id="ahAuditProgressLine" class="ah-audit-progress-line"></div><div class="ah-audit-progress-bar"><div id="ahAuditProgressFill" class="ah-audit-progress-fill"></div></div></div><div id="ahAuditSummary"></div><div id="ahAuditFindings" class="ah-audit-findings"></div></div>';document.body.appendChild(o);o.querySelector('#ahAuditClose').onclick=()=>o.classList.remove('open');o.querySelector('#ahAuditRun').onclick=()=>run(Number(o.querySelector('#ahAuditGames').value)||50);o.querySelector('#ahAuditStored').onclick=()=>render(ahTelemetryAuditAnalyzeStored(),null);return o;}
+function fmt(v,d=3){if(v==null||v==='')return '—';const n=Number(v);return Number.isFinite(n)?n.toFixed(d):String(v);}
+function pct(v){const n=Number(v);return Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';}
+function actionLabel(a){
+ const t=typeof a==='string'?a:(a?.type||'unknown');
+ return ({attachAnt:'アリをつける',detachAnt:'アリを外す',moveAnt:'アリを移動',placeAnt:'アリを出す',carryCandy:'お菓子を運ぶ',useCard:'カードを使う',endTurn:'ターン終了'})[t]||t;
+}
+function purposeLabel(type){
+ return ({attachAnt:'運搬・輸送効率・バトル準備・妨害',detachAnt:'運搬・輸送効率・妨害',moveAnt:'位置取り・運搬・妨害',carryCandy:'得点運搬',placeAnt:'位置取り',useCard:'干渉・妨害・運搬・バトル準備',endTurn:'—'})[type]||'—';
+}
+function sig(a){return a?.signature||ahTelemetryActionSignature(a||{});}
+function ensure(){
+ let o=document.getElementById('ahAuditOverlay');if(o)return o;
+ o=document.createElement('div');o.id='ahAuditOverlay';o.className='ah-audit-overlay';
+ o.innerHTML='<div class="ah-audit-panel"><div class="ah-audit-head"><div><h2>🔎 AI Audit</h2><div class="ah-audit-sub">怪しい判断だけを抽出します。AI本体は変更しません。</div></div><button id="ahAuditClose">閉じる</button></div><div class="ah-audit-run">対局数 <input id="ahAuditGames" type="number" min="1" max="200" value="50"><button id="ahAuditRun">監査を実行</button><button id="ahAuditStored">保存済みを分析</button></div><div id="ahAuditProgress" class="ah-audit-progress"><div id="ahAuditProgressTitle" class="ah-audit-progress-title"></div><div id="ahAuditProgressLine" class="ah-audit-progress-line"></div><div class="ah-audit-progress-bar"><div id="ahAuditProgressFill" class="ah-audit-progress-fill"></div></div></div><div id="ahAuditSummary"></div><div id="ahAuditFindings" class="ah-audit-findings"></div></div>';
+ document.body.appendChild(o);
+ o.querySelector('#ahAuditClose').onclick=()=>o.classList.remove('open');
+ o.querySelector('#ahAuditRun').onclick=()=>run(Number(o.querySelector('#ahAuditGames').value)||50);
+ o.querySelector('#ahAuditStored').onclick=()=>{const runs=[];for(const batch of ahTelemetrySelfPlayAuditHistory())for(const run of batch?.runs||[])runs.push(run);render(ahTelemetryAuditAggregate(runs),runs);};
+ return o;
+}
 function open(){const o=ensure();o.classList.add('open');return o;}
 function progress(done,total,line){const o=ensure(),p=o.querySelector('#ahAuditProgress');p.classList.add('open');o.querySelector('#ahAuditProgressFill').style.width=(done/Math.max(1,total)*100)+'%';o.querySelector('#ahAuditProgressTitle').textContent='AI監査を実行中…';o.querySelector('#ahAuditProgressLine').textContent=line;}
-function score(s){let v=0,r=[],rank=Number(s.candidateComparison&&s.candidateComparison.selectedRank),m=Number(s.candidateComparison&&s.candidateComparison.selectedVsBestMargin||0),fv=Number(s.futureStrategicValueDelta||0),p=Number(s.purpose&&s.purpose.reachable||0);if(Number.isFinite(rank)&&rank>=4){v+=.34;r.push('候補4位以下');}else if(Number.isFinite(rank)&&rank>=3){v+=.16;r.push('候補3位');}if(m>.055){v+=.12;r.push('候補1位との差が大きい');}if(fv>.08){v+=.20;r.push('将来戦略価値が高い');}if(p>.75){v+=.16;r.push('Reachable Purposeが高い');}if(s.chosen==='attachAnt'&&fv>.05){v+=.12;r.push('attachAntの将来価値が高い');}if(s.chosen==='useCard'&&fv<-.02){v+=.12;r.push('カード使用後の価値が低下');}if(s.rolloutTruncated&&v>.18){v+=.05;r.push('探索打ち切り');}return{score:Math.min(1,v),reasons:r};}
-function findings(runs){const a=[];for(const run of runs||[])for(const s of run.steps||[]){const q=score(s);if(q.score<.24)continue;a.push({severity:q.score>=.55?'high':q.score>=.34?'medium':'low',score:q.score,matchId:run.matchId,turn:s.turn,player:s.player,action:s.chosen,rank:s.candidateComparison&&s.candidateComparison.selectedRank,margin:s.candidateComparison&&s.candidateComparison.selectedVsBestMargin,future:s.futureStrategicValueDelta,purpose:s.purpose&&s.purpose.reachable,reasons:q.reasons,step:s});}return a.sort((a,b)=>b.score-a.score);}
-function render(analysis,runs){const o=open(),a=findings(runs||[]),r=analysis||{};o.querySelector('#ahAuditSummary').innerHTML='<div class="ah-audit-grid"><div class="ah-audit-stat"><b>'+esc(r.runs||0)+'</b><span>対局</span></div><div class="ah-audit-stat"><b>'+esc(r.steps||0)+'</b><span>判断</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='high').length)+'</b><span>🔴 要調査</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='medium').length)+'</b><span>🟠 注意</span></div></div><div class="ah-audit-section"><h3>全体傾向</h3><table class="ah-audit-table"><tr><th>項目</th><th>値</th></tr><tr><td>平均選択順位</td><td>'+esc(r.ranks&&r.ranks.avgSelectedRank)+'</td></tr><tr><td>平均候補差</td><td>'+esc(r.ranks&&r.ranks.avgMargin)+'</td></tr><tr><td>平均Future Strategic Value</td><td>'+esc(r.future&&r.future.avg)+'</td></tr><tr><td>相手行動予測</td><td>'+esc(r.prediction&&r.prediction.actionAccuracy)+'</td></tr><tr><td>Route予測</td><td>'+esc(r.prediction&&r.prediction.routeAccuracy)+'</td></tr><tr><td>Rollout打ち切り率</td><td>'+esc(r.search&&r.search.truncatedRate)+'</td></tr></table></div>';o.querySelector('#ahAuditFindings').innerHTML=a.slice(0,60).map(x=>{const d=['対局: '+x.matchId,'ターン: '+x.turn+' / '+x.player,'選択: '+x.action,'候補順位: '+x.rank,'候補差: '+x.margin,'Future Strategic: '+x.future,'Reachable Purpose: '+x.purpose,'理由: '+x.reasons.join(' / ')].join('\n');return '<div class="ah-audit-finding '+x.severity+'"><div class="ah-audit-finding-head"><span>'+({high:'🔴',medium:'🟠',low:'🟡'}[x.severity]||'🟡')+' '+esc(x.action||'調査項目')+'</span><small>'+esc(x.score.toFixed(3))+'</small></div><small>'+esc(x.reasons.join(' / '))+'</small><div class="ah-audit-details">'+esc(d)+'</div></div>';}).join('')||'<div class="ah-audit-finding">怪しい局面はありません。</div>';o.querySelectorAll('.ah-audit-finding').forEach(e=>{e.onclick=()=>e.classList.toggle('open');});}
-async function run(games){const o=open(),n=Math.max(1,Math.min(200,Number(games)||50)),runs=[],start=performance.now(),btn=o.querySelector('#ahAuditRun');btn.disabled=true;try{for(let i=0;i<n;i++){progress(i,n,'対局 '+(i+1)+' / '+n+'：self-playを計算中');const run=ahTelemetrySelfPlayAuditSummary('audit-'+Date.now()+'-'+i,{maxSteps:12,depth:2});runs.push(run);const sec=(performance.now()-start)/1000,rate=(i+1)/Math.max(.001,sec),remain=(n-i-1)/Math.max(.001,rate);progress(i+1,n,'対局 '+(i+1)+' / '+n+' 完了　｜　経過 '+sec.toFixed(1)+'秒　｜　残り約 '+remain.toFixed(1)+'秒');await new Promise(r=>setTimeout(r,0));}const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';}finally{btn.disabled=false;}}
-window.AH_AI_TELEMETRY.auditViewerVersion='1.0';window.AH_AI_TELEMETRY.openAuditViewer=open;window.AH_AI_TELEMETRY.runAudit=run;
+function predictionDiag(r){
+ const p=r?.prediction||{},pairs=Number(p.pairs||0),ap=Number(p.actionPairs??pairs),rp=Number(p.routePairs??pairs);
+ return '<div class="ah-audit-diag"><b>Prediction診断</b><div>比較件数：'+fmt(pairs,0)+' / Action比較可能：'+fmt(ap,0)+' / Route比較可能：'+fmt(rp,0)+'</div><div>具体手一致率：'+pct(p.actionAccuracy)+'　Route一致率：'+pct(p.routeAccuracy)+'　平均誤差：'+fmt(p.meanError,4)+'</div><div class="ah-audit-note">'+(pairs&&(!ap||!rp)?'比較データの一部が欠落しています。':'一致率0%だけではAI不良とは断定しません。')+'</div></div>';
+}
+function score(s){
+ let v=0,r=[],rank=Number(s.candidateComparison?.selectedRank),m=Number(s.candidateComparison?.selectedVsBestMargin||0),fv=Number(s.futureStrategicValueDelta||0),p=Number(s.purpose?.reachable||0);
+ if(Number.isFinite(rank)&&rank>=4){v+=.34;r.push('候補4位以下');}else if(Number.isFinite(rank)&&rank>=3){v+=.16;r.push('候補3位');}
+ if(m>.055){v+=.12;r.push('候補1位との差が大きい');}
+ if(fv>.08){v+=.20;r.push('将来戦略価値が高い');}
+ if(p>.75){v+=.16;r.push('Reachable Purposeが高い');}
+ if(s.chosen==='attachAnt'&&fv>.05){v+=.12;r.push('attachAntの将来価値が高い');}
+ if(s.chosen==='detachAnt'&&fv<-.05){v+=.12;r.push('detachAntの評価が大きくマイナス');}
+ if(s.search?.skepticFoundBetter){v+=.18;r.push('Skepticがより良い候補を発見');}
+ if(s.rolloutTruncated&&v>.18){v+=.05;r.push('探索打ち切り');}
+ return{score:Math.min(1,v),reasons:r};
+}
+function findingDetail(x){
+ const s=x.step||{},ca=s.candidateComparison||{},v=s.strategicVector||{},b=v.breakdown||{},pred=s.strategyCurveTransition?.predictedOpponent||null,act=s.strategyCurveTransition?.actualOpponent||null;
+ const top=(ca.topK||[]).map(c=>'<tr class="'+(c.selected?'selected':'')+'"><td>'+c.rank+(c.selected?' ★':'')+'</td><td>'+esc(actionLabel(c.action))+'</td><td>'+esc(c.action?.signature||sig(c.action))+'</td><td>'+fmt(c.quickScore)+'</td><td>'+fmt(c.scoreMarginFromBest)+'</td><td>'+fmt(c.futureStrategicValueDelta)+'</td></tr>').join('');
+ const purpose=b.purposeDelta||{};
+ const strategic=b.strategicDelta||{};
+ const state=b.stateDelta||{};
+ const comp=b.compositeDelta||{};
+ const rows=(obj)=>Object.entries(obj||{}).filter(([,z])=>Math.abs(Number(z||0))>.0001).sort((a,c)=>Math.abs(c[1])-Math.abs(a[1])).slice(0,10).map(([k,z])=>'<div class="ah-audit-kv"><span>'+esc(k)+'</span><b>'+((Number(z)>=0?'+':'')+fmt(z,4))+'</b></div>').join('')||'<span class="ah-audit-muted">変化なし</span>';
+ const predBlock=(pred||act)?'<div class="ah-audit-subgrid"><div><b>予測</b><div>行動：'+esc(pred?.actionType||'—')+' / '+esc(pred?.actionSignature||'—')+'<br>Route：'+esc(pred?.routeAfter||'—')+'</div></div><div><b>実際</b><div>行動：'+esc(act?.actionType||'—')+' / '+esc(act?.actionSignature||'—')+'<br>Route：'+esc(act?.routeAfter||'—')+'</div></div></div>':'<div class="ah-audit-note">この判断ではまだ相手手番の実測がありません。</div>';
+ return '<div class="ah-audit-deep">'+
+  '<div class="ah-audit-meta"><b>対局 '+esc(x.matchId)+'</b>　Turn '+esc(x.turn)+'　Player '+esc(x.player)+'　選択：<b>'+esc(actionLabel(s.chosen))+'</b><br>目的候補：'+esc(purposeLabel(s.chosen))+'</div>'+
+  '<div class="ah-audit-subgrid"><div><b>選択順位</b><div>'+esc(ca.selectedRank??'—')+'位 / 1位との差 '+fmt(ca.selectedVsBestMargin)+'</div></div><div><b>探索</b><div>nodes '+esc(s.search?.rolloutNodes??'—')+' / budget '+esc(s.search?.pilotBudget??'—')+' / truncated '+(s.search?.truncated?'YES':'NO')+'</div></div></div>'+
+  '<h4>候補Top 5</h4><table class="ah-audit-table"><tr><th>#</th><th>行動</th><th>signature</th><th>score</th><th>差</th><th>Future</th></tr>'+top+'</table>'+
+  '<h4>Purpose Δ</h4><div class="ah-audit-kvs">'+rows(purpose)+'</div>'+
+  '<h4>Strategic Δ</h4><div class="ah-audit-kvs">'+rows(strategic)+'</div>'+
+  '<h4>State Δ</h4><div class="ah-audit-kvs">'+rows(state)+'</div>'+
+  '<h4>Composite Δ</h4><div class="ah-audit-kvs">'+rows(comp)+'</div>'+
+  '<h4>Prediction / Skeptic</h4>'+predBlock+
+  '<div class="ah-audit-subgrid"><div><b>Skeptic</b><div>'+ (s.search?.skepticFoundBetter?'より良い候補あり':'なし') +'</div></div><div><b>Expansion</b><div>'+esc((s.search?.reasons||[]).join(' / ')||'—')+'</div></div></div>'+
+  '<h4>Strategic Curve</h4><div>route '+esc(s.strategyCurve?.selectedRoute||'—')+' / separation '+fmt(s.strategyCurve?.routeSeparation)+' / switches '+esc(s.strategyCurve?.routeSwitches??'—')+' / curvature '+fmt(s.strategyCurve?.curvature)+'</div>'+
+  '<h4>判定理由</h4><div>'+esc(x.reasons.join(' / '))+'</div>'+
+  '</div>';
+}
+function findings(runs){
+ const a=[];
+ for(const run of runs||[])for(const s of run.steps||[]){
+  const q=score(s);if(q.score<.24)continue;
+  a.push({severity:q.score>=.55?'high':q.score>=.34?'medium':'low',score:q.score,matchId:run.matchId,turn:s.turn,player:s.player,action:s.chosen,rank:s.candidateComparison?.selectedRank,margin:s.candidateComparison?.selectedVsBestMargin,future:s.futureStrategicValueDelta,purpose:s.purpose?.reachable,reasons:q.reasons,step:s});
+ }
+ return a.sort((a,b)=>b.score-a.score);
+}
+function render(analysis,runs){
+ const o=open(),a=findings(runs||[]),r=analysis||{};
+ o.querySelector('#ahAuditSummary').innerHTML='<div class="ah-audit-grid"><div class="ah-audit-stat"><b>'+esc(r.runs||0)+'</b><span>対局</span></div><div class="ah-audit-stat"><b>'+esc(r.steps||0)+'</b><span>判断</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='high').length)+'</b><span>🔴 要調査</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='medium').length)+'</b><span>🟠 注意</span></div></div>'+
+  '<div class="ah-audit-section"><h3>全体傾向</h3><table class="ah-audit-table"><tr><th>項目</th><th>値</th></tr><tr><td>平均選択順位</td><td>'+esc(fmt(r.ranks?.avgSelectedRank))+'</td></tr><tr><td>平均候補差</td><td>'+esc(fmt(r.ranks?.avgMargin))+'</td></tr><tr><td>平均Future Strategic Value</td><td>'+esc(fmt(r.future?.avg))+'</td></tr><tr><td>相手行動予測</td><td>'+pct(r.prediction?.actionAccuracy)+'（'+esc(r.prediction?.actionPairs??r.prediction?.pairs??0)+'比較可能）</td></tr><tr><td>Route予測</td><td>'+pct(r.prediction?.routeAccuracy)+'（'+esc(r.prediction?.routePairs??r.prediction?.pairs??0)+'比較可能）</td></tr><tr><td>Rollout打ち切り率</td><td>'+pct(r.search?.truncatedRate)+'</td></tr></table></div>'+
+  predictionDiag(r)+
+  '<div class="ah-audit-section"><h3>怪しい判断 '+a.length+'件</h3></div>';
+ o.querySelector('#ahAuditFindings').innerHTML=a.slice(0,60).map(x=>'<div class="ah-audit-finding '+x.severity+'"><div class="ah-audit-finding-head"><span>'+({high:'🔴',medium:'🟠',low:'🟡'}[x.severity]||'🟡')+' '+esc(actionLabel(x.action))+'　Turn '+esc(x.turn)+'</span><small>'+fmt(x.score)+'</small></div><small>'+esc(x.reasons.join(' / '))+'</small><div class="ah-audit-details">'+findingDetail(x)+'</div></div>').join('')||'<div class="ah-audit-finding">怪しい局面はありません。</div>';
+ o.querySelectorAll('.ah-audit-finding').forEach(e=>e.onclick=()=>e.classList.toggle('open'));
+}
+async function run(games){
+ const o=open(),n=Math.max(1,Math.min(200,Number(games)||50)),runs=[],start=performance.now(),btn=o.querySelector('#ahAuditRun');btn.disabled=true;
+ try{for(let i=0;i<n;i++){progress(i,n,'対局 '+(i+1)+' / '+n+'：self-playを計算中');const run=ahTelemetrySelfPlayAuditSummary('audit-'+Date.now()+'-'+i,{maxSteps:12,depth:2});runs.push(run);const sec=(performance.now()-start)/1000,rate=(i+1)/Math.max(.001,sec),remain=(n-i-1)/Math.max(.001,rate);progress(i+1,n,'対局 '+(i+1)+' / '+n+' 完了　｜　経過 '+sec.toFixed(1)+'秒　｜　残り約 '+remain.toFixed(1)+'秒');await new Promise(r=>setTimeout(r,0));}
+  const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
+ }finally{btn.disabled=false;}
+}
+window.AH_AI_TELEMETRY.auditViewerVersion='1.1';
+window.AH_AI_TELEMETRY.openAuditViewer=open;
+window.AH_AI_TELEMETRY.runAudit=run;
 })();
 </script>
 <script>
