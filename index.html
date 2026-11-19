@@ -5830,7 +5830,22 @@ function ahTelemetryAuditCompactStep(row){
   futureStrategicValueDelta:ca.futureStrategicValueDelta??null,
   vectorBreakdown:ca.strategicVectorProgress?.delta??null,
   strategy:{route:ca.strategyCurve?.selectedRoute??null,score:ca.strategyCurveScore??null,routeSeparation:ca.strategyCurve?.routeSeparation??null,routeSwitches:ca.strategyCurve?.routeSwitches??null},
-  prediction:{strength:ca.predictionStrength??null,phase:ca.predictionPhase??null,cardPressure:ca.predictionCardPressure??null,boardBusy:ca.predictionBoardBusy??null,interaction:ca.predictionInteraction??null,reply:ca.opponentReply?.type??null,error:ca.predictionError??null},
+  strategicVector:{
+   progress:ca.strategicVectorProgress??null,
+   before:ca.strategicVectorProgress?.before??null,
+   after:ca.strategicVectorProgress?.after??null,
+   delta:ca.strategicVectorProgress?.delta??null,
+   futureStrategicValueDelta:ca.futureStrategicValueDelta??null
+  },
+  prediction:{
+   strength:ca.predictionStrength??null,phase:ca.predictionPhase??null,cardPressure:ca.predictionCardPressure??null,
+   boardBusy:ca.predictionBoardBusy??null,interaction:ca.predictionInteraction??null,
+   reply:ca.opponentReply?.type??null,replySignature:ca.opponentReply?.signature??null,
+   predictedAction:ca.opponentPredictionEvidence?.predictedAction??ca.opponentReply??null,
+   actualAction:ca.actualOpponentAction??null,
+   error:ca.predictionError??null,
+   actionSignature:ca.predictionAuditContext?.actionSignature??null
+  },
   search:{rolloutNodes:ca.rolloutNodes??null,truncated:!!ca.rolloutTruncated,pilotBudget:ca.pilotRolloutBudget??null,skepticFoundBetter:!!ca.skepticFoundBetter},
   candidateTopK:(ca.candidateComparison?.topK||[]).map(x=>({
    rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
@@ -5845,7 +5860,7 @@ function ahTelemetryAuditCompactStep(row){
 function ahTelemetryAuditAggregate(runs){
  const out={
   schema:'ai-audit-analysis-v1',runs:runs.length,steps:0,
-  actions:{},cards:{},routes:{},prediction:{pairs:0,actionMatches:0,routeMatches:0,errorSum:0},
+  actions:{},cards:{},routes:{},prediction:{pairs:0,actionPairs:0,actionMatches:0,routePairs:0,routeMatches:0,errorSum:0},
   ranks:{selectedSamples:0,rankSum:0,marginSum:0},
   future:{samples:0,sum:0,positive:0,negative:0},
   purpose:{immediateSamples:0,immediateSum:0,reachableSamples:0,reachableSum:0},
@@ -5856,7 +5871,9 @@ function ahTelemetryAuditAggregate(runs){
  for(const run of runs){
   const audit=run?.strategyCurvePredictionAudit||{};
   out.prediction.pairs+=Number(audit.pairs||0);
+  out.prediction.actionPairs+=Number(audit.actionPairs??audit.pairs??0);
   out.prediction.actionMatches+=Number(audit.actionMatches||0);
+  out.prediction.routePairs+=Number(audit.routePairs??audit.pairs??0);
   out.prediction.routeMatches+=Number(audit.routeMatches||0);
   out.prediction.errorSum+=Number(audit.meanPredictionError||0)*Number(audit.pairs||0);
   for(const s of run?.steps||[]){
@@ -5906,8 +5923,8 @@ function ahTelemetryAuditAggregate(runs){
   v.avgReachablePurpose=avg(v.reachablePurposeSum,v.samples);
   delete v.rankSum;delete v.marginSum;delete v.futureSum;delete v.purposeSum;delete v.reachablePurposeSum;
  }
- out.prediction.actionAccuracy=out.prediction.pairs?Number((out.prediction.actionMatches/out.prediction.pairs).toFixed(3)):null;
- out.prediction.routeAccuracy=out.prediction.pairs?Number((out.prediction.routeMatches/out.prediction.pairs).toFixed(3)):null;
+ out.prediction.actionAccuracy=out.prediction.actionPairs?Number((out.prediction.actionMatches/out.prediction.actionPairs).toFixed(3)):null;
+ out.prediction.routeAccuracy=out.prediction.routePairs?Number((out.prediction.routeMatches/out.prediction.routePairs).toFixed(3)):null;
  out.prediction.meanError=out.prediction.pairs?Number((out.prediction.errorSum/out.prediction.pairs).toFixed(4)):null;
  out.ranks.avgSelectedRank=avg(out.ranks.rankSum,out.ranks.selectedSamples);
  out.ranks.avgMargin=avg(out.ranks.marginSum,out.ranks.selectedSamples);
@@ -10165,7 +10182,8 @@ function open(){const o=ensure();o.classList.add('open');return o;}
 function progress(done,total,line){const o=ensure(),p=o.querySelector('#ahAuditProgress');p.classList.add('open');o.querySelector('#ahAuditProgressFill').style.width=(done/Math.max(1,total)*100)+'%';o.querySelector('#ahAuditProgressTitle').textContent='AI監査を実行中…';o.querySelector('#ahAuditProgressLine').textContent=line;}
 function predictionDiag(r){
  const p=r?.prediction||{},pairs=Number(p.pairs||0),ap=Number(p.actionPairs??pairs),rp=Number(p.routePairs??pairs);
- return '<div class="ah-audit-diag"><b>Prediction診断</b><div>比較件数：'+fmt(pairs,0)+' / Action比較可能：'+fmt(ap,0)+' / Route比較可能：'+fmt(rp,0)+'</div><div>具体手一致率：'+pct(p.actionAccuracy)+'　Route一致率：'+pct(p.routeAccuracy)+'　平均誤差：'+fmt(p.meanError,4)+'</div><div class="ah-audit-note">'+(pairs&&(!ap||!rp)?'比較データの一部が欠落しています。':'一致率0%だけではAI不良とは断定しません。')+'</div></div>';
+ const suspicious=(pairs>0&&ap===0)||(pairs>0&&rp===0);
+ return '<div class="ah-audit-diag"><b>Prediction診断</b><div>比較件数：'+fmt(pairs,0)+' / Action比較可能：'+fmt(ap,0)+' / Route比較可能：'+fmt(rp,0)+'</div><div>具体手一致率：'+pct(p.actionAccuracy)+'　Route一致率：'+pct(p.routeAccuracy)+'　平均誤差：'+fmt(p.meanError,4)+'</div><div class="ah-audit-note">'+(suspicious?'比較可能件数が0です。AI精度ではなく監査データの欠落を先に確認します。':pairs&&p.actionAccuracy===0?'比較可能な予測はありますが完全一致はありません。低レベル予測の課題として要調査です。':'一致率と平均誤差を併せて評価します。')+'</div></div>';
 }
 function score(s){
  let v=0,r=[],rank=Number(s.candidateComparison?.selectedRank),m=Number(s.candidateComparison?.selectedVsBestMargin||0),fv=Number(s.futureStrategicValueDelta||0),p=Number(s.purpose?.reachable||0);
