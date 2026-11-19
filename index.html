@@ -5428,7 +5428,7 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   const nextProgress=best?best.progress:currentProgress;
   const routeDistance=1-nextProgress;
   const affinity=routeAffinity(route);
-  const selectionScore=Number((nextProgress*.62+affinity*.26+feasibility*.12).toFixed(4));
+  const selectionScore=Number((nextProgress*.62+affinity*.26+Number(route.feasibility||0)*.12).toFixed(4));
   return {...route,requirement,currentRequirementGap:ahTelemetryStrategyCurveDistance(current,requirement),
    bestAction:best?.action?ahTelemetryClone(best.action):null,
    bestProgress:Number((best?.delta||0).toFixed(4)),
