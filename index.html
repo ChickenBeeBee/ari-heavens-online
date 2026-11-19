@@ -5780,7 +5780,11 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    }
    const score=immediate+setup+(action.type==='endTurn'?0:-.08)+(wp-.5)*.45;
    return {
-    type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId||null,
+    type:action.type,node:action.node||null,from:action.from||null,to:action.to||null,candyId:action.candyId??null,
+    cardId:action.cardId??action.card??action.id??action.name??null,
+    card:action.card??null,
+    target:action.target??null,
+    dir:action.dir??null,
     score:Number(score.toFixed(4)),delta,
     purposeDelta,
     reachablePurposeDelta,
