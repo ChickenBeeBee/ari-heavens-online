@@ -5400,6 +5400,17 @@ function ahTelemetryStrategyCurve(state,player,options={}){
  const p=player||state?.currentPlayer||'B',current=ahTelemetryStrategyCurveVector(state,p);
  const routes=ahTelemetryStrategyVictoryRoutes(state,p);
  const legal=ahTelemetryShadowLegalActions(state,p)||[];
+ const vectorStack=ahTelemetryCompositeStrategicVector(
+  ahTelemetryPurposeVector(state,p),
+  ahTelemetryStrategicVector(state,p),
+  ahTelemetryStateVector(state,p)
+ );
+ const routeAffinity=route=>{
+  if(route.id==='score-race')return Number(vectorStack?.composite?.scoreRace||0);
+  if(route.id==='pressure')return Math.max(Number(vectorStack?.composite?.pressure||0),Number(vectorStack?.composite?.counterplay||0)*.92);
+  if(route.id==='survival-race')return Number(vectorStack?.composite?.stability||0);
+  return 0;
+ };
  const routePlans=routes.map(route=>{
   const currentProgress=route.progress;
   const requirement=ahTelemetryStrategyRouteTargetVector(route);
@@ -5416,13 +5427,17 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   const best=candidates[0]||null;
   const nextProgress=best?best.progress:currentProgress;
   const routeDistance=1-nextProgress;
+  const affinity=routeAffinity(route);
+  const selectionScore=Number((nextProgress*.62+affinity*.26+feasibility*.12).toFixed(4));
   return {...route,requirement,currentRequirementGap:ahTelemetryStrategyCurveDistance(current,requirement),
    bestAction:best?.action?ahTelemetryClone(best.action):null,
    bestProgress:Number((best?.delta||0).toFixed(4)),
    bestRequirementGap:Number((best?.gapAfter??ahTelemetryStrategyCurveDistance(current,requirement)).toFixed(4)),
-   progressAfter:Number(nextProgress.toFixed(4)),routeDistance:Number(routeDistance.toFixed(4))};
+   progressAfter:Number(nextProgress.toFixed(4)),routeDistance:Number(routeDistance.toFixed(4)),
+   routeAffinity:Number(affinity.toFixed(4)),selectionScore};
  });
  routePlans.sort((a,b)=>{
+  if(Math.abs(b.selectionScore-a.selectionScore)>0.0001)return b.selectionScore-a.selectionScore;
   if(Math.abs(b.progressAfter-a.progressAfter)>0.0001)return b.progressAfter-a.progressAfter;
   return a.bestRequirementGap-b.bestRequirementGap;
  });
@@ -5451,7 +5466,7 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   turnHypothesis,
   victoryHypothesis:victory,
   requirementGap:bestRoute?ahTelemetryStrategyCurveRequirementGap(state,p,bestRoute):null,
-  victoryRoutes:routePlans.map(r=>({id:r.id,kind:r.kind,horizon:r.horizon,progress:r.progress,progressAfter:r.progressAfter,distance:r.routeDistance,feasibility:r.feasibility,bestAction:r.bestAction,currentRequirementGap:r.currentRequirementGap,bestRequirementGap:r.bestRequirementGap})),
+  victoryRoutes:routePlans.map(r=>({id:r.id,kind:r.kind,horizon:r.horizon,progress:r.progress,progressAfter:r.progressAfter,distance:r.routeDistance,feasibility:r.feasibility,routeAffinity:r.routeAffinity,selectionScore:r.selectionScore,bestAction:r.bestAction,currentRequirementGap:r.currentRequirementGap,bestRequirementGap:r.bestRequirementGap})),
   selectedRoute:bestRoute?.id||null,
   routeSeparation:Number(routeSeparation.toFixed(4)),
   routeSwitches,
@@ -5731,6 +5746,25 @@ function ahTelemetryStrategyCurvePredictionAuditFinalize(stats){
  };
 }
 
+function ahTelemetryAttachPurposeScore(state,action,actor){
+ const s=state||{},p=actor||s.currentPlayer||'B',c=(s.candies||[]).find(x=>String(x.id)===String(action?.candyId));
+ if(action?.type!=='attachAnt'||!c)return {score:0,reason:'not-attach',redundant:false,immediate:0,reachable:0};
+ const need=Math.max(1,Number(c.need||1)),own=Math.max(0,Number(c.attached?.[p]||0)),enemy=Math.max(0,Number(c.attached?.[opp(p)]||0));
+ const missing=Math.max(0,need-own),reasons=[];let concrete=0;
+ if(missing>0){concrete+=Math.min(1,missing/need)*.48;reasons.push('delivery');}
+ if(enemy>0){concrete+=Math.min(1,enemy/need)*.22;reasons.push('denial');}
+ if(enemy>0&&own>0){concrete+=Math.min(1,(own+1)/need)*.16;reasons.push('battlePreparation');}
+ if(need>1&&own<need){concrete+=Math.min(1,(need-own)/need)*.14;reasons.push('transportEfficiency');}
+ if(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[p]){concrete+=.16;reasons.push('typhoonProtection');}
+ const next=ahTelemetryShadowApply(s,action);
+ const purpose=next?ahTelemetryPurposeProgress(s,next,p):null;
+ const reach=next?ahTelemetryPurposeReachability(s,action,p,{maxDepth:2,beamWidth:3}):null;
+ const immediate=Math.max(0,Number(purpose?.delta?.total||0)),reachable=Math.max(0,Number(reach?.reachableDelta||0));
+ const redundant=missing<=0&&enemy<=0&&!s.typhoon&&!s.effects?.typhoon&&!s.typhoonLocked?.[p];
+ const score=Math.max(-.12,Math.min(.42,concrete*.24+Math.min(.42,reachable*.42)+Math.min(.18,immediate*.18)-(redundant?0.10:0)));
+ return {score:Number(score.toFixed(4)),reason:reasons.join('+')||'none',reasons,redundant,missing,need,own,enemy,immediate:Number(immediate.toFixed(4)),reachable:Number(reachable.toFixed(4))};
+}
+
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
@@ -5748,8 +5782,8 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
    const pts=c?.bomb?4:(c?.points||0);
    setup=action.target===player+'1'&&!c?.bomb?pts:pts*.18;
   }else if(action.type==='attachAnt'){
-   const c=state.candies?.find(x=>String(x.id)===String(action.candyId));
-   setup=c?.points?c.points/Math.max(1,c.need)*.35:0;
+   /* Attach is a means, not a goal. Candy points alone never reward attachment. */
+   setup=ahTelemetryAttachPurposeScore(state,action,player).score;
   }else if(action.type==='placeAnt'){
    setup=action.node===player+'1'?0.25:action.node===player+'w'?0.18:0;
   }else if(action.type==='startBattle'){
@@ -5851,7 +5885,8 @@ function ahTelemetryAuditCompactStep(row){
    rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
    score:x.quickScore??null,margin:x.scoreMarginFromBest??null,
    purpose:x.purposeDelta??null,reachablePurpose:x.reachablePurposeDelta??null,
-   futureStrategic:x.futureStrategicValueDelta??null
+   futureStrategic:x.futureStrategicValueDelta??null,
+   attachPurpose:x.attachPurpose??null
   })),
   cardAudit:ca.cardAudit??null
  };
@@ -6052,6 +6087,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     purposeReachability,
     strategicVectorProgress,
     futureStrategicValueDelta:Number(strategicVectorProgress?.delta?.strategicValue||0),
+    attachPurpose:action.type==='attachAnt'?ahTelemetryAttachPurposeScore(state,action,p):null,
     vectorBreakdown:(()=>{
       const v=strategicVectorProgress||{},b=v.before||{},a=v.after||{},pd={},gd={},sd={};
       const pkeys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning','futureOpportunity','scoreRace'];
@@ -6146,12 +6182,13 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      reachablePurposeDelta:Number(item.reachablePurposeDelta||0),
      futureStrategicValueDelta:Number(item.futureStrategicValueDelta||0),
      vectorBreakdown:item.vectorBreakdown||null,
-     purposeReachability:item.purposeReachability||null
+     purposeReachability:item.purposeReachability||null,
+     attachPurpose:item.attachPurpose||null
     };
    });
    const selectedCandidate=candidateTopK.find(x=>x.selected)||null;
    const candidateComparison={
-    schema:'candidate-comparison-v0.1',
+    schema:'candidate-comparison-v0.2-attach-route',
     topK:candidateTopK,
     selectedRank:selectedCandidate?.rank??null,
     selectedScore:selectedCandidate?.quickScore??null,
