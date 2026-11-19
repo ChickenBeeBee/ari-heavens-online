@@ -5208,7 +5208,7 @@ function ahTelemetryPredictionCalibration(){
 
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryUpdateFuture(true);ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
-window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);localStorage.removeItem(AH_AI_AUDIT_STORAGE);localStorage.removeItem(AH_AI_SELFPLAY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
 /*
  * CPU self-play lab.
  * This is deliberately shadow-state based: it never touches the visible board,
@@ -5775,6 +5775,188 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
 function ahTelemetrySelfPlayChoose(state,player,depth=3){
  return ahTelemetryVeryHardShadowChoose(state,player,depth);
 }
+/*
+ * AI Audit Logger v1
+ *
+ * Audit-only evidence layer.  It keeps the existing chooser/search untouched
+ * and records compact causal evidence for large-scale analysis:
+ * action -> state/effect change -> future opportunity/vector -> candidate rank.
+ * Full raw states are deliberately not persisted here; the normal shadow
+ * state remains available to the diagnostic functions.
+ */
+const AH_AI_AUDIT_SCHEMA='ai-audit-log-v1';
+const AH_AI_AUDIT_STORAGE='ah_ai_audit_runs_v1';
+const AH_AI_AUDIT_MAX_RUNS=120;
+
+function ahTelemetryAuditCardSnapshot(state,player,cardId){
+ const s=state||{},p=player||s.currentPlayer||'B',cands=(s.candies||[]).map(c=>({
+  id:c.id,node:c.node,points:Number(c.points||0),need:Number(c.need||1),
+  bomb:!!c.bomb,attached:{A:Number(c.attached?.A||0),B:Number(c.attached?.B||0)}
+ }));
+ const activeEffects={};
+ for(const k of ['jaw','inspire','heaven','rainSelect','shortcutBlock','antlions','squalls','typhoon','strongPheromone','weatherEvents']){
+  if(s.effects&&s.effects[k]!=null)activeEffects[k]=ahTelemetryClone(s.effects[k]);
+ }
+ return {
+  player:p,card:cardId||null,turn:Number(s.turn||0),
+  score:ahTelemetryClone(s.score||{}),hand:ahTelemetryClone(s.hand||{}),
+  free:ahTelemetryClone(s.free||{}),dead:ahTelemetryClone(s.dead||{}),
+  cardUsed:ahTelemetryClone(s.cards?.[p]||{}),
+  typhoonLocked:ahTelemetryClone(s.typhoonLocked||{}),
+  effects:activeEffects,candies:cands
+ };
+}
+
+function ahTelemetryAuditCompactStep(row){
+ if(!row)return null;
+ const ca=row.chosenAudit||{};
+ return {
+  turn:Number(row.turn||0),player:row.player||null,actions:Number(row.actions||0),
+  chosen:row.chosen?ahTelemetryClone(row.chosen):null,
+  chosenScore:ca.quickScore??null,combinedScore:ca.combinedScore??null,
+  selectedRank:ca.candidateComparison?.selectedRank??null,
+  selectedVsBestMargin:ca.candidateComparison?.selectedVsBestMargin??null,
+  purpose:{immediate:ca.purposeDelta??null,reachable:ca.reachablePurposeDelta??null,rollout:ca.rolloutPurposeDelta??null},
+  futureStrategicValueDelta:ca.futureStrategicValueDelta??null,
+  vectorBreakdown:ca.strategicVectorProgress?.delta??null,
+  strategy:{route:ca.strategyCurve?.selectedRoute??null,score:ca.strategyCurveScore??null,routeSeparation:ca.strategyCurve?.routeSeparation??null,routeSwitches:ca.strategyCurve?.routeSwitches??null},
+  prediction:{strength:ca.predictionStrength??null,phase:ca.predictionPhase??null,cardPressure:ca.predictionCardPressure??null,boardBusy:ca.predictionBoardBusy??null,interaction:ca.predictionInteraction??null,reply:ca.opponentReply?.type??null,error:ca.predictionError??null},
+  search:{rolloutNodes:ca.rolloutNodes??null,truncated:!!ca.rolloutTruncated,pilotBudget:ca.pilotRolloutBudget??null,skepticFoundBetter:!!ca.skepticFoundBetter},
+  candidateTopK:(ca.candidateComparison?.topK||[]).map(x=>({
+   rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
+   score:x.quickScore??null,margin:x.scoreMarginFromBest??null,
+   purpose:x.purposeDelta??null,reachablePurpose:x.reachablePurposeDelta??null,
+   futureStrategic:x.futureStrategicValueDelta??null
+  })),
+  cardAudit:ca.cardAudit??null
+ };
+}
+
+function ahTelemetryAuditAggregate(runs){
+ const out={
+  schema:'ai-audit-analysis-v1',runs:runs.length,steps:0,
+  actions:{},cards:{},routes:{},prediction:{pairs:0,actionMatches:0,routeMatches:0,errorSum:0},
+  ranks:{selectedSamples:0,rankSum:0,marginSum:0},
+  future:{samples:0,sum:0,positive:0,negative:0},
+  purpose:{immediateSamples:0,immediateSum:0,reachableSamples:0,reachableSum:0},
+  search:{samples:0,truncated:0,skepticBetter:0},
+  findings:[]
+ };
+ const ensure=(obj,key,base)=>obj[key]||(obj[key]={...base});
+ for(const run of runs){
+  const audit=run?.strategyCurvePredictionAudit||{};
+  out.prediction.pairs+=Number(audit.pairs||0);
+  out.prediction.actionMatches+=Number(audit.actionMatches||0);
+  out.prediction.routeMatches+=Number(audit.routeMatches||0);
+  out.prediction.errorSum+=Number(audit.meanPredictionError||0)*Number(audit.pairs||0);
+  for(const s of run?.steps||[]){
+   out.steps++;
+   const type=s.chosen||'unknown';
+   const a=ensure(out.actions,type,{samples:0,scoreSum:0,rankSamples:0,rankSum:0,marginSum:0,purposeSum:0,reachablePurposeSum:0,futureSum:0,positiveFuture:0,negativeFuture:0});
+   a.samples++;
+   const score=Number(s.candidateComparison?.selectedScore||0);a.scoreSum+=score;
+   const rank=s.candidateComparison?.selectedRank;
+   if(Number.isFinite(Number(rank))){a.rankSamples++;a.rankSum+=Number(rank);}
+   a.marginSum+=Number(s.candidateComparison?.selectedVsBestMargin||0);
+   a.purposeSum+=Number(s.purpose?.immediate||0);
+   a.reachablePurposeSum+=Number(s.purpose?.reachable||0);
+   const fv=Number(s.strategicVector?.futureStrategicValueDelta||0);
+   a.futureSum+=fv;if(fv>0)a.positiveFuture++;else if(fv<0)a.negativeFuture++;
+   out.future.samples++;out.future.sum+=fv;if(fv>0)out.future.positive++;else if(fv<0)out.future.negative++;
+   if(Number.isFinite(Number(rank))){out.ranks.selectedSamples++;out.ranks.rankSum+=Number(rank);}
+   out.ranks.marginSum+=Number(s.candidateComparison?.selectedVsBestMargin||0);
+   const pi=Number(s.purpose?.immediate||0),pr=Number(s.purpose?.reachable||0);
+   if(Number.isFinite(pi)){out.purpose.immediateSamples++;out.purpose.immediateSum+=pi;}
+   if(Number.isFinite(pr)){out.purpose.reachableSamples++;out.purpose.reachableSum+=pr;}
+   const rt=s.strategyCurve?.selectedRoute||'unknown';
+   out.routes[rt]=(out.routes[rt]||0)+1;
+   out.search.samples++;
+   if(s.rolloutTruncated)out.search.truncated++;
+   if(s.searchExpansion?.skepticFoundBetter)out.search.skepticBetter++;
+   const card=s.chosen?.type==='useCard'?(s.chosen?.card||s.candidateComparison?.selectedSignature||'unknown'):null;
+   if(card){
+    const ca=ensure(out.cards,card,{samples:0,rankSamples:0,rankSum:0,marginSum:0,futureSum:0,purposeSum:0,reachablePurposeSum:0});
+    ca.samples++;
+    if(Number.isFinite(Number(rank))){ca.rankSamples++;ca.rankSum+=Number(rank);}
+    ca.marginSum+=Number(s.candidateComparison?.selectedVsBestMargin||0);
+    ca.futureSum+=fv;ca.purposeSum+=pi;ca.reachablePurposeSum+=pr;
+   }
+  }
+ }
+ const avg=(sum,n)=>n?Number((sum/n).toFixed(4)):null;
+ for(const v of Object.values(out.actions)){
+  v.avgScore=avg(v.scoreSum,v.samples);v.avgSelectedRank=avg(v.rankSum,v.rankSamples);
+  v.avgMargin=avg(v.marginSum,v.samples);v.avgPurpose=avg(v.purposeSum,v.samples);
+  v.avgReachablePurpose=avg(v.reachablePurposeSum,v.samples);v.avgFutureStrategic=avg(v.futureSum,v.samples);
+  delete v.scoreSum;delete v.rankSum;delete v.marginSum;delete v.purposeSum;delete v.reachablePurposeSum;delete v.futureSum;
+ }
+ for(const v of Object.values(out.cards)){
+  v.avgSelectedRank=avg(v.rankSum,v.rankSamples);v.avgMargin=avg(v.marginSum,v.samples);
+  v.avgFutureStrategic=avg(v.futureSum,v.samples);v.avgPurpose=avg(v.purposeSum,v.samples);
+  v.avgReachablePurpose=avg(v.reachablePurposeSum,v.samples);
+  delete v.rankSum;delete v.marginSum;delete v.futureSum;delete v.purposeSum;delete v.reachablePurposeSum;
+ }
+ out.prediction.actionAccuracy=out.prediction.pairs?Number((out.prediction.actionMatches/out.prediction.pairs).toFixed(3)):null;
+ out.prediction.routeAccuracy=out.prediction.pairs?Number((out.prediction.routeMatches/out.prediction.pairs).toFixed(3)):null;
+ out.prediction.meanError=out.prediction.pairs?Number((out.prediction.errorSum/out.prediction.pairs).toFixed(4)):null;
+ out.ranks.avgSelectedRank=avg(out.ranks.rankSum,out.ranks.selectedSamples);
+ out.ranks.avgMargin=avg(out.ranks.marginSum,out.ranks.selectedSamples);
+ out.future.avg=avg(out.future.sum,out.future.samples);
+ out.purpose.avgImmediate=avg(out.purpose.immediateSum,out.purpose.immediateSamples);
+ out.purpose.avgReachable=avg(out.purpose.reachableSum,out.purpose.reachableSamples);
+ out.search.truncatedRate=out.search.samples?Number((out.search.truncated/out.search.samples).toFixed(3)):null;
+ out.search.skepticBetterRate=out.search.samples?Number((out.search.skepticBetter/out.search.samples).toFixed(3)):null;
+
+ const attach=out.actions.attachAnt;
+ if(attach&&out.steps>=12&&attach.samples/out.steps>.28)out.findings.push({severity:'high',type:'attach-bias',message:'attachAnt is selected unusually often; inspect whether future opportunity is over-rewarding attachment.'});
+ if(out.prediction.actionAccuracy!==null&&out.prediction.actionAccuracy<.45)out.findings.push({severity:'high',type:'opponent-action-prediction',message:'Low exact opponent-action accuracy; strategic direction may be stronger than low-level prediction.'});
+ if(out.ranks.avgSelectedRank!==null&&out.ranks.avgSelectedRank>2.2)out.findings.push({severity:'medium',type:'candidate-ranking',message:'Chosen actions often fall outside the top-2 quick candidates; inspect rollout/search disagreement.'});
+ if(out.search.truncatedRate!==null&&out.search.truncatedRate>.7)out.findings.push({severity:'medium',type:'rollout-truncation',message:'Most audited rollouts are truncated; do not increase budget blindly, but inspect whether useful branches are being cut.'});
+ if(out.future.avg!==null&&Math.abs(out.future.avg)<.01)out.findings.push({severity:'medium',type:'future-opportunity-signal',message:'Future Strategic Value is nearly neutral overall; inspect whether future opportunities are too weak or too noisy.'});
+ return out;
+}
+
+function ahTelemetrySelfPlayAuditHistory(){
+ try{return JSON.parse(localStorage.getItem(AH_AI_AUDIT_STORAGE)||'[]');}catch(_){return [];}
+}
+
+async function ahTelemetrySelfPlayAuditBatch(games=50,options={}){
+ const n=Math.max(1,Math.min(200,Number(games)||50));
+ const seedBase=String(options.seed||'audit-'+Date.now());
+ const started=performance.now(),runs=[];
+ for(let i=0;i<n;i++){
+  const seed=seedBase+'-'+i;
+  const out=ahTelemetrySelfPlayAuditSummary(seed,{
+   ...options,
+   maxSteps:options.maxSteps??12,
+   depth:options.depth??2
+  });
+  runs.push(out);
+  if(i%2===1)await new Promise(r=>setTimeout(r,0));
+ }
+ const analysis=ahTelemetryAuditAggregate(runs);
+ const batch={
+  schema:AH_AI_AUDIT_SCHEMA,runId:seedBase,generatedAt:new Date().toISOString(),
+  games:runs.length,elapsedMs:Math.round(performance.now()-started),
+  analysis,runs
+ };
+ try{
+  const old=ahTelemetrySelfPlayAuditHistory();
+  old.push(batch);
+  while(old.length>AH_AI_AUDIT_MAX_RUNS)old.shift();
+  localStorage.setItem(AH_AI_AUDIT_STORAGE,JSON.stringify(old));
+ }catch(_){}
+ return batch;
+}
+
+function ahTelemetrySelfPlayAuditAnalyzeStored(){
+ const runs=[];
+ for(const batch of ahTelemetrySelfPlayAuditHistory()){
+  for(const run of batch?.runs||[])runs.push(run);
+ }
+ return ahTelemetryAuditAggregate(runs);
+}
+
 function ahTelemetrySelfPlayAudit(seed='audit',options={}){
  /*
   * Diagnostic only.  This does not change self-play or live CPU behavior.
@@ -6059,6 +6241,15 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
   const stateBeforeChosen=ahTelemetryClone(state);
   const stateAfterChosen=ahTelemetryShadowApply(state,choice.action);
   if(stateBeforeChosen&&stateAfterChosen){
+   if(chosenAudit&&choice.action.type==='useCard'){
+    chosenAudit.cardAudit={
+     schema:'card-impact-audit-v1',
+     action:ahTelemetryClone(choice.action),
+     cardName:choice.action.card?CARDS?.[choice.action.card]?.name||choice.action.card:choice.action.card||null,
+     before:ahTelemetryAuditCardSnapshot(stateBeforeChosen,p,choice.action.card||null),
+     after:ahTelemetryAuditCardSnapshot(stateAfterChosen,p,choice.action.card||null)
+    };
+   }
    shadowActionEvents.push({type:'action',actor:p,action:ahTelemetryClone(choice.action),before:stateBeforeChosen,after:ahTelemetryClone(stateAfterChosen)});
    if(shadowActionEvents.length>64)shadowActionEvents.shift();
   }
@@ -6166,7 +6357,7 @@ function ahTelemetryPilotDiagnosticSummary(pilot){
 function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
  const out=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12,depth:options.depth??2});
  return {
-  schema:'selfplay-audit-summary-v16',
+  schema:'selfplay-audit-summary-v17',
   seed:out.seed,
   firstPlayer:out.firstPlayer,
   result:out.result,
@@ -6387,6 +6578,9 @@ function ahTelemetrySelfPlayHistory(){
 window.AH_AI_TELEMETRY.selfPlay=ahTelemetrySelfPlay;
 window.AH_AI_TELEMETRY.selfPlayAudit=ahTelemetrySelfPlayAudit;
 window.AH_AI_TELEMETRY.selfPlayAuditSummary=ahTelemetrySelfPlayAuditSummary;
+window.AH_AI_TELEMETRY.selfPlayAuditBatch=ahTelemetrySelfPlayAuditBatch;
+window.AH_AI_TELEMETRY.selfPlayAuditHistory=ahTelemetrySelfPlayAuditHistory;
+window.AH_AI_TELEMETRY.selfPlayAuditAnalyzeStored=ahTelemetrySelfPlayAuditAnalyzeStored;
 window.AH_AI_TELEMETRY.selfPlayHistory=ahTelemetrySelfPlayHistory;
 
 /* ---------- end AI telemetry ---------- */
