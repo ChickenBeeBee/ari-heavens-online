@@ -4048,7 +4048,9 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    * stage budget, but a real skeptic quota is reserved instead of deriving
    * it only from a fixed 1-2 branch rule.
    */
-  const predictionBudgetShare=.62+.24*strength;
+  /* Prediction is a prior, not a commitment.  Audit evidence has shown
+   * the skeptic frequently finds a better branch, so keep exploration substantial. */
+  const predictionBudgetShare=.48+.12*strength;
   const skepticBudgetShare=1-predictionBudgetShare;
   const remainingBudget=Math.max(1,Number(remaining)||1);
   const basePredictionWidth=Math.max(2,Math.min(beforeCount,3+depth+Math.floor(Math.max(0,remainingBudget)/40)));
@@ -4056,7 +4058,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    Number(opponentModel?.priors?.[JSON.stringify(b)]||0)-
    Number(opponentModel?.priors?.[JSON.stringify(a)]||0)
   );
-  const dynamicSkepticQuota=Math.max(1,Math.min(4,Math.ceil(1+(remainingBudget/48)*skepticBudgetShare)));
+  const dynamicSkepticQuota=Math.max(2,Math.min(5,Math.ceil(2+(remainingBudget/42)*skepticBudgetShare)));
   const predictionWidth=Math.min(beforeCount,basePredictionWidth);
   const predicted=ranked.slice(0,predictionWidth),selected=[],classes=[];
   const predictedKeys=new Set(predicted.map(a=>JSON.stringify(a)));
@@ -4344,8 +4346,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   skepticFoundBetter,
   predictionBest:Number(isFinite(predictionBest)?predictionBest.toFixed(3):0),
   skepticBest:Number(isFinite(skepticBest)?skepticBest.toFixed(3):0),
-  predictionBudgetShare:Number((.62+.24*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0))).toFixed(3)),
-  skepticBudgetShare:Number((1-(.62+.24*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0)))).toFixed(3)),
+  predictionBudgetShare:Number((.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0))).toFixed(3)),
+  skepticBudgetShare:Number((1-(.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0)))).toFixed(3)),
   searchExpansionReason:ahTelemetryClone(opponentSearchReason),
   opponentActionModel:ahTelemetryClone(opponentModel)
  };
@@ -5406,9 +5408,17 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   ahTelemetryStateVector(state,p)
  );
  const routeAffinity=route=>{
-  if(route.id==='score-race')return Number(vectorStack?.composite?.scoreRace||0);
-  if(route.id==='pressure')return Math.max(Number(vectorStack?.composite?.pressure||0),Number(vectorStack?.composite?.counterplay||0)*.92);
-  if(route.id==='survival-race')return Number(vectorStack?.composite?.stability||0);
+  const pv=vectorStack?.purpose||{},sv=vectorStack?.state||{},cv=vectorStack?.composite||{};
+  const scoreUrgency=Math.max(0,Math.min(1,
+   Math.max(0,-Number(sv.scoreGap||0))*.55+Number(pv.scoreRace||0)*.28+Number(cv.scoreRace||0)*.17));
+  const pressureUrgency=Math.max(0,Math.min(1,
+   Number(cv.pressure||0)*.30+Number(cv.counterplay||0)*.24+Number(sv.battleThreat||0)*.20+Number(pv.denial||0)*.16+Number(sv.interaction||0)*.10));
+  const survivalUrgency=Math.max(0,Math.min(1,
+   Math.max(0,-Number(sv.scoreGap||0))*.20+Math.max(0,1-Number(sv.boardControl||0))*.24+Number(sv.battleThreat||0)*.18+
+   Math.max(0,1-Number(sv.ownAnts||0)/Math.max(1,Number(sv.oppAnts||0)+1))*.20+Number(cv.stability||0)*.18));
+  if(route.id==='score-race')return scoreUrgency;
+  if(route.id==='pressure')return pressureUrgency;
+  if(route.id==='survival-race')return survivalUrgency;
   return 0;
  };
  const routePlans=routes.map(route=>{
@@ -5428,7 +5438,9 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   const nextProgress=best?best.progress:currentProgress;
   const routeDistance=1-nextProgress;
   const affinity=routeAffinity(route);
-  const selectionScore=Number((nextProgress*.62+affinity*.26+Number(route.feasibility||0)*.12).toFixed(4));
+  const urgencyFloor=route.id==='survival-race'?Math.max(0,Math.min(1,(1-Number(route.feasibility||0))*.18)):0;
+  const routeSpecificUrgency=route.id==='score-race'?scoreUrgency:route.id==='pressure'?pressureUrgency:survivalUrgency;
+  const selectionScore=Number((nextProgress*.54+affinity*.22+Number(route.feasibility||0)*.10+urgencyFloor+routeSpecificUrgency*.08).toFixed(4));
   return {...route,requirement,currentRequirementGap:ahTelemetryStrategyCurveDistance(current,requirement),
    bestAction:best?.action?ahTelemetryClone(best.action):null,
    bestProgress:Number((best?.delta||0).toFixed(4)),
