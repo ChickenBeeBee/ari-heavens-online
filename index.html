@@ -5407,15 +5407,15 @@ function ahTelemetryStrategyCurve(state,player,options={}){
   ahTelemetryStrategicVector(state,p),
   ahTelemetryStateVector(state,p)
  );
+ const pv=vectorStack?.purpose||{},sv=vectorStack?.state||{},cv=vectorStack?.composite||{};
+ const scoreUrgency=Math.max(0,Math.min(1,
+  Math.max(0,-Number(sv.scoreGap||0))*.55+Number(pv.scoreRace||0)*.28+Number(cv.scoreRace||0)*.17));
+ const pressureUrgency=Math.max(0,Math.min(1,
+  Number(cv.pressure||0)*.30+Number(cv.counterplay||0)*.24+Number(sv.battleThreat||0)*.20+Number(pv.denial||0)*.16+Number(sv.interaction||0)*.10));
+ const survivalUrgency=Math.max(0,Math.min(1,
+  Math.max(0,-Number(sv.scoreGap||0))*.20+Math.max(0,1-Number(sv.boardControl||0))*.24+Number(sv.battleThreat||0)*.18+
+  Math.max(0,1-Number(sv.ownAnts||0)/Math.max(1,Number(sv.oppAnts||0)+1))*.20+Number(cv.stability||0)*.18));
  const routeAffinity=route=>{
-  const pv=vectorStack?.purpose||{},sv=vectorStack?.state||{},cv=vectorStack?.composite||{};
-  const scoreUrgency=Math.max(0,Math.min(1,
-   Math.max(0,-Number(sv.scoreGap||0))*.55+Number(pv.scoreRace||0)*.28+Number(cv.scoreRace||0)*.17));
-  const pressureUrgency=Math.max(0,Math.min(1,
-   Number(cv.pressure||0)*.30+Number(cv.counterplay||0)*.24+Number(sv.battleThreat||0)*.20+Number(pv.denial||0)*.16+Number(sv.interaction||0)*.10));
-  const survivalUrgency=Math.max(0,Math.min(1,
-   Math.max(0,-Number(sv.scoreGap||0))*.20+Math.max(0,1-Number(sv.boardControl||0))*.24+Number(sv.battleThreat||0)*.18+
-   Math.max(0,1-Number(sv.ownAnts||0)/Math.max(1,Number(sv.oppAnts||0)+1))*.20+Number(cv.stability||0)*.18));
   if(route.id==='score-race')return scoreUrgency;
   if(route.id==='pressure')return pressureUrgency;
   if(route.id==='survival-race')return survivalUrgency;
