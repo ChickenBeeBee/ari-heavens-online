@@ -3655,6 +3655,33 @@ function ahTelemetryPrepareThinkingBudget(state,player){
  AH_AI_THINKING_PREV_STATE=ahTelemetryClone(state);
  return AH_AI_THINKING_REMAINING;
 }
+function ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,previous,route,pilotEvidence){
+ const c=Math.max(0,Math.min(1,Number(complexity)||0));
+ const margin=runner?Number(leader?.value||0)-Number(runner?.value||0):Infinity;
+ const prevLeader=previous?.leader||null;
+ const firstKey=a=>a?[a.type,a.player||'',a.from||'',a.to||'',a.candyId==null?'':String(a.candyId),a.card||''].join('|'):'';
+ const firstStable=!!prevLeader&&firstKey(leader?.seq?.[0])===firstKey(prevLeader.seq?.[0]);
+ const valueDelta=prevLeader?Math.abs(Number(leader?.value||0)-Number(prevLeader.value||0)):Infinity;
+ const marginDelta=previous&&Number.isFinite(previous.margin)&&Number.isFinite(margin)?Math.abs(margin-previous.margin):Infinity;
+ const valueStable=Number.isFinite(valueDelta)&&valueDelta<=.025;
+ const marginStable=Number.isFinite(marginDelta)&&marginDelta<=Math.max(.018,.032-c*.008);
+ const routeSeparation=Number(route?.routeSeparation||0),routeSwitches=Number(route?.routeSwitches||0);
+ const routeStable=routeSeparation>=.015&&routeSwitches<3;
+ const leaderVector=leader?.state?ahTelemetryStrategicVector(leader.state,leader.state.currentPlayer||null):null;
+ const prevVector=prevLeader?.state?ahTelemetryStrategicVector(prevLeader.state,prevLeader.state.currentPlayer||null):null;
+ const vectorDelta=prevLeader&&leaderVector&&prevVector?Math.abs(Number(leaderVector?.strategicValue||0)-Number(prevVector?.strategicValue||0)):Infinity;
+ const vectorStable=Number.isFinite(vectorDelta)&&vectorDelta<=.035;
+ const pilotStable=!!pilotEvidence&&!!pilotEvidence.marginEarlyStopEligible&&!!pilotEvidence.rankStable&&!!pilotEvidence.topKStable&&!!pilotEvidence.scoreStable&&!pilotEvidence.counterexample&&!pilotEvidence.routeUnstable;
+ const pressure=Math.max(0,Math.min(1,c*.30+Number(route?.routeInstability||0)*.18+(routeSeparation<.015?.12:0)+(pilotEvidence?.counterexample?.10:0)));
+ const danger=Math.max(0,Math.min(1,Number(route?.routeInstability||0)*.24+(pilotEvidence?.counterexample?.34:0)+(Number(pilotEvidence?.opponentChangedCount||0)>0?.10:0)+c*.16));
+ const threshold=Number(Math.max(.54,Math.min(.88,.62+pressure*.14+danger*.08)).toFixed(3));
+ const score=Number(((firstStable?.25:0)+(marginStable?.20:0)+(valueStable?.15:0)+(routeStable?.10:0)+(vectorStable?.10:0)+(pilotStable?.10:0)+(!pilotEvidence?.counterexample?.10:0)).toFixed(3));
+ return {score,threshold,pressure,danger,firstActionStable:firstStable,marginStable,valueStable,routeStable,vectorStable,pilotStable,
+  margin:Number(Number.isFinite(margin)?margin:1),marginDelta:Number(Number.isFinite(marginDelta)?marginDelta:0),valueDelta:Number(Number.isFinite(valueDelta)?valueDelta:0),
+  vectorDelta:Number(Number.isFinite(vectorDelta)?vectorDelta:0),routeSeparation,routeSwitches,
+  stopEligible:score>=threshold&&firstStable&&routeStable&&!pilotEvidence?.counterexample};
+}
+
 function ahTelemetrySearchTargetFloor(complexity,remainingTurns){
  const c=Math.max(0,Math.min(1,Number(complexity)||0));
  const r=Math.max(0,Math.min(1,Number(remainingTurns)||0));
@@ -4189,6 +4216,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   let expansions=0;
   let previousStablePlanKey=null;
   let previousStablePlanValue=null;
+  let previousStablePlanLeader=null;
+  let previousStablePlanMargin=null;
   let stablePlanDepths=0;
   let earlyStopUsed=false;
   const pilotEvidence=options?.pilotEvidence||null;
@@ -4259,30 +4288,30 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     frontier=next.slice(0,beamWidth);
     lastFrontierSize=frontier.length;
 
-    /* Rollout Early Stop v0.1: stable current-player turn plans can stop
-     * before the global node cap. Opponent stages stay fully exploratory. */
+    /* Rollout Early Stop v0.3: strategic convergence, not exact plan repetition.
+     * Complexity and danger dynamically raise the proof threshold. */
     if(earlyStopAllowed&&completed.length>=2&&depth>=1&&!skepticFoundBetter){
-      const rankedCompleted=completed.slice().sort((a,b)=>b.value-a.value);
+      const rankedCompleted=completed.slice(-Math.max(2,beamWidth)).sort((a,b)=>b.value-a.value);
       const leader=rankedCompleted[0],runner=rankedCompleted[1]||null;
+      const route=ahTelemetryStrategyCurve(leader?.state||startState,turnActor)||{};
+      const conv=ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,
+       previousStablePlanValue==null?null:{leader:previousStablePlanLeader,margin:previousStablePlanMargin},route,pilotEvidence);
       const leaderKey=leader?.seq?.map(actionKey).join('>')||'';
       const margin=runner?Number(leader.value)-Number(runner.value):Infinity;
-      const route=ahTelemetryStrategyCurve(leader?.state||startState,turnActor)||{};
-      const routeStable=Number(route.routeSeparation||0)>=.015&&Number(route.routeSwitches||0)<3;
-      const valueStable=previousStablePlanValue!=null&&Math.abs(Number(leader.value)-Number(previousStablePlanValue))<=.025;
-      const rankStable=previousStablePlanKey===leaderKey;
-      const pilotAssist=pilotStablePrior&&pilotTopMatches(leader)&&rankStable;
-      if((rankStable&&valueStable&&margin>=earlyStopMargin&&routeStable)||
-         (pilotAssist&&valueStable&&margin>=earlyStopMargin&&routeStable))stablePlanDepths++;else stablePlanDepths=0;
-      previousStablePlanKey=leaderKey;
-      previousStablePlanValue=Number(leader.value);
+      const pilotAssist=conv.pilotStable&&conv.firstActionStable&&conv.valueStable&&conv.routeStable;
+      const hardSafe=conv.firstActionStable&&conv.routeStable&&!skepticFoundBetter;
+      if((conv.stopEligible&&hardSafe)||pilotAssist)stablePlanDepths++;else stablePlanDepths=0;
+      previousStablePlanKey=leaderKey;previousStablePlanValue=Number(leader.value);
+      previousStablePlanLeader=leader;previousStablePlanMargin=Number.isFinite(margin)?margin:null;
       if(stablePlanDepths>=1){
-        earlyStopUsed=true;
-        stopReason='turn-plan-converged';
-        stopDetail={stage:'depth-convergence',reason:'stable-plan',depth,expansions,nodes,maxNodes,
-          frontierRemaining:frontier.length,completedPlans,margin:Number(margin.toFixed(4)),
-          earlyStopMargin:Number(earlyStopMargin.toFixed(4)),routeSeparation:Number(route.routeSeparation||0),
-          routeSwitches:Number(route.routeSwitches||0)};
-        break;
+       earlyStopUsed=true;stopReason='turn-plan-converged';
+       stopDetail={stage:'depth-convergence',reason:'strategic-stability',depth,expansions,nodes,maxNodes,frontierRemaining:frontier.length,completedPlans,
+        margin:Number((Number.isFinite(margin)?margin:0).toFixed(4)),earlyStopMargin:Number(earlyStopMargin.toFixed(4)),
+        convergenceScore:conv.score,convergenceThreshold:conv.threshold,convergencePressure:conv.pressure,convergenceDanger:conv.danger,
+        firstActionStable:conv.firstActionStable,marginStable:conv.marginStable,valueStable:conv.valueStable,
+        routeStable:conv.routeStable,vectorStable:conv.vectorStable,pilotStable:conv.pilotStable,
+        routeSeparation:Number(route.routeSeparation||0),routeSwitches:Number(route.routeSwitches||0)};
+       break;
       }
     }
   }
