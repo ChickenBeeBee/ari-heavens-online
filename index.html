@@ -4233,6 +4233,56 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    .045+Number(complexity||0)*.025+
    (Number(earlyStopCurve?.routeSeparation||0)<.015?0.012:0)
   ));
+  /*
+   * Node-cap diagnostic only.
+   *
+   * Do not change the search decision here.  When the global node cap fires,
+   * inspect the evidence that was already available at that exact moment.
+   * This separates "we could have converged but were cut off" from
+   * "we still had an unstable comparison".
+   */
+  const nodeCapDiagnostic=()=>{
+   const rankedCompleted=completed.slice(-Math.max(2,beamWidth)).sort((a,b)=>b.value-a.value);
+   const leader=rankedCompleted[0]||null,runner=rankedCompleted[1]||null;
+   const margin=runner?Number(leader.value)-Number(runner.value):Infinity;
+   const route=leader?ahTelemetryStrategyCurve(leader.state||startState,turnActor)||{}:{};
+   const conv=leader&&runner?ahTelemetryRolloutConvergenceProfile(
+    complexity,leader,runner,
+    previousStablePlanValue==null?null:{leader:previousStablePlanLeader,margin:previousStablePlanMargin},
+    route,pilotEvidence,skepticFoundBetter
+   ):null;
+   const firstActionStable=!!conv?.firstActionStable;
+   const routeStable=!!conv?.routeStable;
+   const hypotheticalConverged=!!conv&&!!conv.stopEligible&&firstActionStable&&routeStable&&!skepticFoundBetter;
+   return {
+    stage:'node-cap-diagnostic',
+    depth,
+    nodes,
+    maxNodes,
+    expansions,
+    completedPlans,
+    frontierRemaining:frontier.length,
+    completedCandidates:rankedCompleted.length,
+    bestFirstAction:leader?.seq?.[0]?actionKey(leader.seq[0]):null,
+    runnerUpFirstAction:runner?.seq?.[0]?actionKey(runner.seq[0]):null,
+    margin:Number((Number.isFinite(margin)?margin:0).toFixed(4)),
+    routeSeparation:Number(route?.routeSeparation||0),
+    routeSwitches:Number(route?.routeSwitches||0),
+    firstActionStable,
+    routeStable,
+    skepticFoundBetter:!!skepticFoundBetter,
+    convergenceScore:conv?.score??0,
+    convergenceThreshold:conv?.threshold??null,
+    convergencePressure:conv?.pressure??null,
+    convergenceDanger:conv?.danger??null,
+    marginStable:!!conv?.marginStable,
+    valueStable:!!conv?.valueStable,
+    vectorStable:!!conv?.vectorStable,
+    pilotStable:!!conv?.pilotStable,
+    stablePlanDepths,
+    hypotheticalConverged
+   };
+  };
   for(let depth=0;depth<maxActions&&frontier.length;depth++){
     const next=[];
     for(const item of frontier){
@@ -4256,7 +4306,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
         if(nodes>=maxNodes){
          truncated=true;
          stopReason='global-node-cap';
-         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget};
+         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget,
+          nodeCapDiagnostic:nodeCapDiagnostic()};
          break;
         }
         expansions++;nodes++;
@@ -4264,7 +4315,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
         if(nodes>=maxNodes){
          truncated=true;
          stopReason='global-node-cap';
-         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget};
+         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget,
+          nodeCapDiagnostic:nodeCapDiagnostic()};
          break;
         }
         const prev=item.seq[item.seq.length-1];
