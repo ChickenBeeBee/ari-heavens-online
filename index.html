@@ -3655,7 +3655,7 @@ function ahTelemetryPrepareThinkingBudget(state,player){
  AH_AI_THINKING_PREV_STATE=ahTelemetryClone(state);
  return AH_AI_THINKING_REMAINING;
 }
-function ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,previous,route,pilotEvidence){
+function ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,previous,route,pilotEvidence,skepticFoundBetter=false){
  const c=Math.max(0,Math.min(1,Number(complexity)||0));
  const margin=runner?Number(leader?.value||0)-Number(runner?.value||0):Infinity;
  const prevLeader=previous?.leader||null;
@@ -3674,9 +3674,12 @@ function ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,previous,
  const pilotStable=!!pilotEvidence&&!!pilotEvidence.marginEarlyStopEligible&&!!pilotEvidence.rankStable&&!!pilotEvidence.topKStable&&!!pilotEvidence.scoreStable&&!pilotEvidence.counterexample&&!pilotEvidence.routeUnstable;
  const pressure=Math.max(0,Math.min(1,c*.30+Number(route?.routeInstability||0)*.18+(routeSeparation<.015?0.12:0)+(pilotEvidence?.counterexample?0.10:0)));
  const danger=Math.max(0,Math.min(1,Number(route?.routeInstability||0)*.24+(pilotEvidence?.counterexample?0.34:0)+(Number(pilotEvidence?.opponentChangedCount||0)>0?0.10:0)+c*.16));
- const threshold=Number(Math.max(.54,Math.min(.88,.62+pressure*.14+danger*.08)).toFixed(3));
- const score=Number(((firstStable?0.25:0)+(marginStable?0.20:0)+(valueStable?0.15:0)+(routeStable?0.10:0)+(vectorStable?0.10:0)+(pilotStable?0.10:0)+(!pilotEvidence?.counterexample?0.10:0)).toFixed(3));
- return {score,threshold,pressure,danger,firstActionStable:firstStable,marginStable,valueStable,routeStable,vectorStable,pilotStable,
+ const skepticRisk=!!skepticFoundBetter;
+ const threshold=Number(Math.max(.54,Math.min(.92,.62+pressure*.14+danger*.08+(skepticRisk?0.04:0))).toFixed(3));
+ const score=Number(Math.max(0,Math.min(1,
+  (firstStable?0.25:0)+(marginStable?0.20:0)+(valueStable?0.15:0)+(routeStable?0.10:0)+(vectorStable?0.10:0)+(pilotStable?0.10:0)+(!pilotEvidence?.counterexample?0.10:0)-(skepticRisk?0.08:0)
+ )).toFixed(3));
+ return {score,threshold,pressure,danger,skepticRisk,firstActionStable:firstStable,marginStable,valueStable,routeStable,vectorStable,pilotStable,
   margin:Number(Number.isFinite(margin)?margin:1),marginDelta:Number(Number.isFinite(marginDelta)?marginDelta:0),valueDelta:Number(Number.isFinite(valueDelta)?valueDelta:0),
   vectorDelta:Number(Number.isFinite(vectorDelta)?vectorDelta:0),routeSeparation,routeSwitches,
   stopEligible:score>=threshold&&firstStable&&routeStable&&!pilotEvidence?.counterexample};
@@ -4295,7 +4298,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       const leader=rankedCompleted[0],runner=rankedCompleted[1]||null;
       const route=ahTelemetryStrategyCurve(leader?.state||startState,turnActor)||{};
       const conv=ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,
-       previousStablePlanValue==null?null:{leader:previousStablePlanLeader,margin:previousStablePlanMargin},route,pilotEvidence);
+       previousStablePlanValue==null?null:{leader:previousStablePlanLeader,margin:previousStablePlanMargin},route,pilotEvidence,skepticFoundBetter);
       const leaderKey=leader?.seq?.map(actionKey).join('>')||'';
       const margin=runner?Number(leader.value)-Number(runner.value):Infinity;
       const pilotAssist=conv.pilotStable&&conv.firstActionStable&&conv.valueStable&&conv.routeStable;
@@ -4303,14 +4306,14 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       if((conv.stopEligible&&hardSafe)||pilotAssist)stablePlanDepths++;else stablePlanDepths=0;
       previousStablePlanKey=leaderKey;previousStablePlanValue=Number(leader.value);
       previousStablePlanLeader=leader;previousStablePlanMargin=Number.isFinite(margin)?margin:null;
-      if(stablePlanDepths>=1){
+      if(stablePlanDepths>=2 || (pilotAssist&&stablePlanDepths>=1)){
        earlyStopUsed=true;stopReason='turn-plan-converged';
        stopDetail={stage:'depth-convergence',reason:'strategic-stability',depth,expansions,nodes,maxNodes,frontierRemaining:frontier.length,completedPlans,
         margin:Number((Number.isFinite(margin)?margin:0).toFixed(4)),earlyStopMargin:Number(earlyStopMargin.toFixed(4)),
         convergenceScore:conv.score,convergenceThreshold:conv.threshold,convergencePressure:conv.pressure,convergenceDanger:conv.danger,
         firstActionStable:conv.firstActionStable,marginStable:conv.marginStable,valueStable:conv.valueStable,
         routeStable:conv.routeStable,vectorStable:conv.vectorStable,pilotStable:conv.pilotStable,
-        routeSeparation:Number(route.routeSeparation||0),routeSwitches:Number(route.routeSwitches||0)};
+        skepticRisk:!!conv.skepticRisk,routeSeparation:Number(route.routeSeparation||0),routeSwitches:Number(route.routeSwitches||0)};
        break;
       }
     }
