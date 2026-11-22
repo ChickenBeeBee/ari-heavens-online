@@ -3675,7 +3675,7 @@ function ahTelemetryRolloutConvergenceProfile(complexity,leader,runner,previous,
  const pressure=Math.max(0,Math.min(1,c*.30+Number(route?.routeInstability||0)*.18+(routeSeparation<.015?0.12:0)+(pilotEvidence?.counterexample?0.10:0)));
  const danger=Math.max(0,Math.min(1,Number(route?.routeInstability||0)*.24+(pilotEvidence?.counterexample?0.34:0)+(Number(pilotEvidence?.opponentChangedCount||0)>0?0.10:0)+c*.16));
  const threshold=Number(Math.max(.54,Math.min(.88,.62+pressure*.14+danger*.08)).toFixed(3));
- const score=Number(((firstStable?0.25:0)+(marginStable?0.20:0)+(valueStable?0.15:0)+(routeStable?0.10:0)+(vectorStable?0.10:0)+(pilotStable?0.10:0)+(!pilotEvidence?.counterexample?.10:0)).toFixed(3));
+ const score=Number(((firstStable?0.25:0)+(marginStable?0.20:0)+(valueStable?0.15:0)+(routeStable?0.10:0)+(vectorStable?0.10:0)+(pilotStable?0.10:0)+(!pilotEvidence?.counterexample?0.10:0)).toFixed(3));
  return {score,threshold,pressure,danger,firstActionStable:firstStable,marginStable,valueStable,routeStable,vectorStable,pilotStable,
   margin:Number(Number.isFinite(margin)?margin:1),marginDelta:Number(Number.isFinite(marginDelta)?marginDelta:0),valueDelta:Number(Number.isFinite(valueDelta)?valueDelta:0),
   vectorDelta:Number(Number.isFinite(vectorDelta)?vectorDelta:0),routeSeparation,routeSwitches,
