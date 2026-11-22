@@ -4191,6 +4191,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   let previousStablePlanValue=null;
   let stablePlanDepths=0;
   let earlyStopUsed=false;
+  const pilotEvidence=options?.pilotEvidence||null;
+  const pilotTopAction=pilotEvidence?.branches?.[0]?.action||null;
+  const pilotTopMatches=!!pilotTopAction&&JSON.stringify(pilotTopAction)===JSON.stringify(frontier[0]?.seq?.[0]||null);
+  const pilotStablePrior=!!pilotEvidence&&!!pilotEvidence.marginEarlyStopEligible&&!!pilotEvidence.rankStable&&!!pilotEvidence.topKStable&&!!pilotEvidence.scoreStable&&!pilotEvidence.counterexample&&!pilotEvidence.routeUnstable;
   const earlyStopAllowed=turnActor===p;
   const earlyStopCurve=ahTelemetryStrategyCurve(startState,turnActor)||{};
   const earlyStopMargin=Math.max(.035,Math.min(.095,
@@ -4260,7 +4264,9 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       const routeStable=Number(route.routeSeparation||0)>=.015&&Number(route.routeSwitches||0)<3;
       const valueStable=previousStablePlanValue!=null&&Math.abs(Number(leader.value)-Number(previousStablePlanValue))<=.025;
       const rankStable=previousStablePlanKey===leaderKey;
-      if(rankStable&&valueStable&&margin>=earlyStopMargin&&routeStable)stablePlanDepths++;else stablePlanDepths=0;
+      const pilotAssist=pilotStablePrior&&pilotTopMatches&&rankStable;
+      if((rankStable&&valueStable&&margin>=earlyStopMargin&&routeStable)||
+         (pilotAssist&&valueStable&&margin>=earlyStopMargin&&routeStable))stablePlanDepths++;else stablePlanDepths=0;
       previousStablePlanKey=leaderKey;
       previousStablePlanValue=Number(leader.value);
       if(stablePlanDepths>=1){
@@ -6305,7 +6311,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    if(rec<=160)return Math.min(fallback,192);
    return fallback;
   })();
-  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:pilotBudget,opponentHistoryEvents:shadowActionEvents});
+  const choice=ahTelemetryVeryHardShadowChoose(state,p,searchDepth,{maxNodes:pilotBudget,opponentHistoryEvents:shadowActionEvents,pilotEvidence:pilotPre});
 
   /*
    * Strategy Curve v0.4 transition audit:
