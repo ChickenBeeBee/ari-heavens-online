@@ -6073,7 +6073,7 @@ function ahTelemetryAuditCompactStep(row){
    error:ca.predictionError??null,
    actionSignature:ca.predictionAuditContext?.actionSignature??null
   },
-  search:{rolloutNodes:ca.rolloutNodes??null,rolloutBudget:ca.rolloutBudget??null,truncated:!!ca.rolloutTruncated,stopReason:ca.rolloutStopReason??null,stopDetail:ca.rolloutStopDetail??null,frontierRemaining:ca.rolloutFrontierRemaining??null,completedPlans:ca.rolloutCompletedPlans??null,pilotBudget:ca.pilotRolloutBudget??null,pilotStopReason:ca.pilotSearch?.stopReason??ca.rolloutBudgetReason??null,skepticFoundBetter:!!ca.skepticFoundBetter},
+  search:{rolloutNodes:ca.rolloutNodes??null,rolloutBudget:ca.rolloutBudget??null,truncated:!!ca.rolloutTruncated,stopReason:ca.rolloutStopReason??null,stopDetail:ca.rolloutStopDetail??null,frontierRemaining:ca.rolloutFrontierRemaining??null,completedPlans:ca.rolloutCompletedPlans??null,pilotBudget:ca.pilotRolloutBudget??null,pilotStopReason:ca.pilotSearch?.stopReason??ca.rolloutBudgetReason??null,skepticFoundBetter:!!ca.skepticFoundBetter,convergence:ca.rolloutStopDetail?.convergenceScore!=null?{score:ca.rolloutStopDetail.convergenceScore,threshold:ca.rolloutStopDetail.convergenceThreshold,pressure:ca.rolloutStopDetail.convergencePressure,danger:ca.rolloutStopDetail.convergenceDanger,stablePlanDepths:ca.rolloutStopDetail.stablePlanDepths,firstActionStable:ca.rolloutStopDetail.firstActionStable,marginStable:ca.rolloutStopDetail.marginStable,valueStable:ca.rolloutStopDetail.valueStable,routeStable:ca.rolloutStopDetail.routeStable,vectorStable:ca.rolloutStopDetail.vectorStable,pilotStable:ca.rolloutStopDetail.pilotStable,skepticRisk:ca.rolloutStopDetail.skepticRisk}:null},
   candidateTopK:(ca.candidateComparison?.topK||[]).map(x=>({
    rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
    score:x.quickScore??null,margin:x.scoreMarginFromBest??null,
@@ -6098,7 +6098,7 @@ function ahTelemetryAuditAggregate(runs){
   ranks:{selectedSamples:0,rankSum:0,marginSum:0},
   future:{samples:0,sum:0,positive:0,negative:0},
   purpose:{immediateSamples:0,immediateSum:0,reachableSamples:0,reachableSum:0},
-  search:{samples:0,truncated:0,skepticBetter:0},
+  search:{samples:0,truncated:0,skepticBetter:0,stopReasons:{},converged:0,convergenceScoreSum:0,convergenceSamples:0,stableDepthSum:0,stableDepthSamples:0},
   findings:[]
  };
  const ensure=(obj,key,base)=>obj[key]||(obj[key]={...base});
@@ -6134,6 +6134,12 @@ function ahTelemetryAuditAggregate(runs){
    out.search.samples++;
    if(s.rolloutTruncated)out.search.truncated++;
    if(s.searchExpansion?.skepticFoundBetter)out.search.skepticBetter++;
+   const sr=s.rolloutStopReason||'unknown';
+   out.search.stopReasons[sr]=(out.search.stopReasons[sr]||0)+1;
+   const cv=s.rolloutConvergence||null;
+   if(sr==='turn-plan-converged')out.search.converged++;
+   if(Number.isFinite(Number(cv?.score))){out.search.convergenceScoreSum+=Number(cv.score);out.search.convergenceSamples++;}
+   if(Number.isFinite(Number(cv?.stablePlanDepths))){out.search.stableDepthSum+=Number(cv.stablePlanDepths);out.search.stableDepthSamples++;}
    const card=s.chosen?.type==='useCard'?(s.chosen?.card||s.candidateComparison?.selectedSignature||'unknown'):null;
    if(card){
     const ca=ensure(out.cards,card,{samples:0,rankSamples:0,rankSum:0,marginSum:0,futureSum:0,purposeSum:0,reachablePurposeSum:0});
@@ -6167,6 +6173,9 @@ function ahTelemetryAuditAggregate(runs){
  out.purpose.avgReachable=avg(out.purpose.reachableSum,out.purpose.reachableSamples);
  out.search.truncatedRate=out.search.samples?Number((out.search.truncated/out.search.samples).toFixed(3)):null;
  out.search.skepticBetterRate=out.search.samples?Number((out.search.skepticBetter/out.search.samples).toFixed(3)):null;
+ out.search.convergedRate=out.search.samples?Number((out.search.converged/out.search.samples).toFixed(3)):null;
+ out.search.avgConvergenceScore=out.search.convergenceSamples?Number((out.search.convergenceScoreSum/out.search.convergenceSamples).toFixed(3)):null;
+ out.search.avgStablePlanDepths=out.search.stableDepthSamples?Number((out.search.stableDepthSum/out.search.stableDepthSamples).toFixed(3)):null;
 
  const attach=out.actions.attachAnt;
  if(attach&&out.steps>=12&&attach.samples/out.steps>.28)out.findings.push({severity:'high',type:'attach-bias',message:'attachAnt is selected unusually often; inspect whether future opportunity is over-rewarding attachment.'});
@@ -6678,6 +6687,22 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
    chosenRootAction:x.chosenAudit?.action?.type||null,
    rolloutNodes:x.chosenAudit?.rolloutNodes??null,
    rolloutTruncated:!!x.chosenAudit?.rolloutTruncated,
+   rolloutStopReason:x.chosenAudit?.rolloutStopReason??null,
+   rolloutStopDetail:x.chosenAudit?.rolloutStopDetail??null,
+   rolloutConvergence:{
+    score:x.chosenAudit?.rolloutStopDetail?.convergenceScore??null,
+    threshold:x.chosenAudit?.rolloutStopDetail?.convergenceThreshold??null,
+    pressure:x.chosenAudit?.rolloutStopDetail?.convergencePressure??null,
+    danger:x.chosenAudit?.rolloutStopDetail?.convergenceDanger??null,
+    stablePlanDepths:x.chosenAudit?.rolloutStopDetail?.stablePlanDepths??null,
+    firstActionStable:x.chosenAudit?.rolloutStopDetail?.firstActionStable??null,
+    marginStable:x.chosenAudit?.rolloutStopDetail?.marginStable??null,
+    valueStable:x.chosenAudit?.rolloutStopDetail?.valueStable??null,
+    routeStable:x.chosenAudit?.rolloutStopDetail?.routeStable??null,
+    vectorStable:x.chosenAudit?.rolloutStopDetail?.vectorStable??null,
+    pilotStable:x.chosenAudit?.rolloutStopDetail?.pilotStable??null,
+    skepticRisk:x.chosenAudit?.rolloutStopDetail?.skepticRisk??null
+   },
    rootPlayer:x.chosenAudit?.rootPlayer||null,
    opponentPlayer:x.chosenAudit?.opponentPlayer||null,
    opponentReply:x.chosenAudit?.opponentReply?.type||null,
