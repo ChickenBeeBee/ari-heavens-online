@@ -6739,6 +6739,7 @@ window.AH_AI_TELEMETRY.selfPlayAuditBatch=ahTelemetrySelfPlayAuditBatch;
 window.AH_AI_TELEMETRY.selfPlayAuditHistory=ahTelemetrySelfPlayAuditHistory;
 window.AH_AI_TELEMETRY.selfPlayAuditAnalyzeStored=ahTelemetrySelfPlayAuditAnalyzeStored;
 window.AH_AI_TELEMETRY.selfPlayHistory=ahTelemetrySelfPlayHistory;
+window.AH_AI_TELEMETRY.auditConsoleSummary=ahTelemetryAuditConsoleSummary;
 
 /* ---------- end AI telemetry ---------- */
 
@@ -10373,8 +10374,7 @@ async function run(games){
   const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
  }finally{btn.disabled=false;}
 }
-window.AH_AI_TELEMETRY.auditConsoleSummary=ahTelemetryAuditConsoleSummary;
- auditViewerVersion='1.1';
+auditViewerVersion='1.1';
 window.AH_AI_TELEMETRY.openAuditViewer=open;
 window.AH_AI_TELEMETRY.runAudit=run;
 })();
