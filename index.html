@@ -4306,7 +4306,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     stopDetail={stage:'finalize',reason:'depth-limit',nodes,maxNodes,frontierRemaining:frontier.length,completedPlans};
    }
   }
-  return completed.slice(0,beamWidth);
+  const result=completed.slice(0,beamWidth);
+  result.earlyStopUsed=earlyStopUsed;
+  result.earlyStopMargin=Number(earlyStopMargin.toFixed(4));
+  return result;
  };
 
  const evaluateOpponentAndNext=(selfPlan,opponentBudget,nextSelfBudget)=>{
@@ -4341,6 +4344,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   */
  const rootEnded=action?.type==='endTurn';
  const total=Math.max(1,maxNodes);
+ let earlyStopUsed=false;
+ let earlyStopMargin=.045;
  const currentBudget=Math.max(8,Math.floor(total*(.42+.08*complexity)));
  /* Prediction strength shifts work away from blind opponent branching.  The
   * saved nodes remain available to the self/continuation stages. */
@@ -4349,6 +4354,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const plans=rootEnded
    ?[{state:after,seq:[],value:turnPlanScore(after,after.currentPlayer,before),turnEnded:true}]
    :buildTurnPlans(after,p,currentBudget,5,4);
+ if(plans&&plans.earlyStopUsed){
+  earlyStopUsed=true;
+  earlyStopMargin=Number(plans.earlyStopMargin||earlyStopMargin);
+ }
 
  let best=null;
  if(rootEnded){
