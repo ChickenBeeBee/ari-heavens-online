@@ -4192,9 +4192,10 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   let stablePlanDepths=0;
   let earlyStopUsed=false;
   const earlyStopAllowed=turnActor===p;
+  const earlyStopCurve=ahTelemetryStrategyCurve(startState,turnActor)||{};
   const earlyStopMargin=Math.max(.035,Math.min(.095,
    .045+Number(complexity||0)*.025+
-   (Number(curve?.routeSeparation||0)<.015?0.012:0)
+   (Number(earlyStopCurve?.routeSeparation||0)<.015?0.012:0)
   ));
   for(let depth=0;depth<maxActions&&frontier.length;depth++){
     const next=[];
