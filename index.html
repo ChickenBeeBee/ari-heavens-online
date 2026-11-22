@@ -4025,8 +4025,9 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const before=rootState?ahTelemetryClone(rootState):ahTelemetryState(),p=actor||CPU;
  const budget=Number(options?.maxNodes);
  const maxNodes=Math.max(1,Number.isFinite(budget)?budget:Math.max(96,maxDepth*96));
- let nodes=0,truncated=false,stopReason=null;
+ let nodes=0,truncated=false,stopReason=null,stopDetail=null;
  let opponentBranchesBefore=0,opponentBranchesAfter=0;
+ let lastFrontierSize=0,completedPlans=0;
  const rootValue=ahTelemetryShadowUtility(before,p);
  const complexity=ahTelemetryBoardComplexity(before,options?.previousState||null,p);
  const predictionProfile=options?.predictionProfile||ahTelemetryPredictionProfile(before,p);
@@ -4200,10 +4201,20 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       }
       const ranked=[];
       for(const a of acts){
-        if(expansions>=stageBudget){truncated=true;stopReason=stopReason||'turn-plan-budget';break;}
+        if(expansions>=stageBudget){
+         truncated=true;
+         stopReason=stopReason||'turn-plan-budget';
+         stopDetail=stopDetail||{stage:'expand-action',reason:'stage-budget',depth,expansions,maxNodes,stageBudget};
+         break;
+        }
         expansions++;nodes++;
         if(a.__ahSearchClass==='skeptic')skepticNodes++;else if(turnActor!==p)predictionNodes++;
-        if(nodes>maxNodes){truncated=true;stopReason='global-node-cap';break;}
+        if(nodes>maxNodes){
+         truncated=true;
+         stopReason='global-node-cap';
+         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget};
+         break;
+        }
         const prev=item.seq[item.seq.length-1];
         if(immediateInverse(prev,a))continue;
         if(configCount(item.seq,a)>=2)continue;
@@ -4216,6 +4227,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
         ranked.push({state:ns,seq,value:v});
         if(a.type==='endTurn'){
           completed.push({state:ns,seq,value:v,turnEnded:true});
+          completedPlans++;
         }
       }
       ranked.sort((a,b)=>b.value-a.value);
@@ -4225,6 +4237,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     if(truncated&&stopReason==='global-node-cap')break;
     next.sort((a,b)=>b.value-a.value);
     frontier=next.slice(0,beamWidth);
+    lastFrontierSize=frontier.length;
   }
   if(!completed.length){
     const end=frontier.map(item=>(ahTelemetryShadowLegalActions(item.state,turnActor)||[]).find(a=>a.type==='endTurn')).find(Boolean);
@@ -4238,15 +4251,25 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
           value:turnPlanScore(ahTelemetryShadowApply(item.state,end),turnActor,startState),
           turnEnded:true
         });
+        completedPlans++;
       }
     }
   }
   completed.sort((a,b)=>b.value-a.value);
   if(!stopReason){
-   if(truncated)stopReason='budget-exhausted';
-   else if(frontier.length===0)stopReason=completed.length?'search-exhausted-after-completion':'search-exhausted';
-   else if(completed.length)stopReason='depth-limit-after-completion';
-   else stopReason='depth-limit';
+   if(truncated){
+    stopReason='budget-exhausted';
+    stopDetail=stopDetail||{stage:'finalize',reason:'truncated-without-detail',nodes,maxNodes,frontierRemaining:frontier.length,completedPlans};
+   }else if(frontier.length===0){
+    stopReason=completed.length?'search-exhausted-after-completion':'search-exhausted';
+    stopDetail={stage:'finalize',reason:stopReason,nodes,maxNodes,frontierRemaining:0,completedPlans};
+   }else if(completed.length){
+    stopReason='depth-limit-after-completion';
+    stopDetail={stage:'finalize',reason:'depth-limit',nodes,maxNodes,frontierRemaining:frontier.length,completedPlans};
+   }else{
+    stopReason='depth-limit';
+    stopDetail={stage:'finalize',reason:'depth-limit',nodes,maxNodes,frontierRemaining:frontier.length,completedPlans};
+   }
   }
   return completed.slice(0,beamWidth);
  };
@@ -4300,7 +4323,12 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   for(const plan of plans){
     const r=evaluateOpponentAndNext(plan,opponentBudget,nextSelfBudget);
     if(!best||r.value>best.value)best=r;
-    if(nodes>=maxNodes){truncated=true;stopReason=stopReason||'global-node-cap';break;}
+    if(nodes>=maxNodes){
+     truncated=true;
+     stopReason=stopReason||'global-node-cap';
+     stopDetail=stopDetail||{stage:'evaluate-plan',reason:'node-cap',nodes,maxNodes,planIndex:plans.indexOf(plan)+1,planCount:plans.length};
+     break;
+    }
   }
  }
 
@@ -4336,8 +4364,12 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   nextTurnPlan:ahTelemetryClone(best?.nextPlan?.seq||[]),
   after:ahTelemetryClone(after),
   nodes,
+  maxNodes,
   truncated,
   stopReason,
+  stopDetail,
+  frontierRemaining:lastFrontierSize,
+  completedPlans,
   turnBudgets:[currentBudget,opponentBudget,nextSelfBudget],
   complexity:Number(complexity.toFixed(3)),
   predictionStrength:Number((Number(predictionProfile?.strength)||0).toFixed(3)),
@@ -5023,11 +5055,16 @@ function ahTelemetryAuditConsoleSummary(seed='console-audit',options={}){
  for(const row of run?.steps||[]){
   const ca=row.chosenAudit||{},sr=ca.rolloutStopReason||'unknown',ps=ca.pilotSearch?.stopReason||ca.rolloutBudgetReason||'unknown';
   stops[sr]=(stops[sr]||0)+1;pilotStops[ps]=(pilotStops[ps]||0)+1;
-  for(const x of ca.candidateComparison?.topK||[])if(x.action?.type==='detachAnt')detaches.push({turn:row.turn,player:row.player,rank:x.rank,score:x.quickScore,margin:x.scoreMarginFromBest,purpose:x.purposeDelta,reachablePurpose:x.reachablePurposeDelta,futureStrategic:x.futureStrategicValueDelta,detachPurpose:x.detachPurpose||null,selected:!!x.selected});
+  for(const x of ca.candidateComparison?.detachCandidates||[])detaches.push({turn:row.turn,player:row.player,rank:x.rank,score:x.quickScore,margin:x.scoreMarginFromBest,purpose:x.purposeDelta,reachablePurpose:x.reachablePurposeDelta,futureStrategic:x.futureStrategicValueDelta,detachPurpose:x.detachPurpose||null,selected:!!x.selected});
  }
  console.group('AI Audit — rollout / detach');
  console.log('run',run.seed,'steps',run.steps?.length||0);
  console.table(Object.entries(stops).map(([reason,count])=>({reason,count})));
+ console.log('rollout stop details');
+ console.table((run?.steps||[]).map(row=>{
+  const ca=row.chosenAudit||{},d=ca.rolloutStopDetail||{};
+  return {turn:row.turn,player:row.player,stopReason:ca.rolloutStopReason||null,stage:d.stage||null,detailReason:d.reason||null,nodes:ca.rolloutNodes??null,maxNodes:ca.rolloutBudget??null,frontier:d.frontierRemaining??ca.rolloutFrontierRemaining??null,completedPlans:d.completedPlans??ca.rolloutCompletedPlans??null};
+ }).filter(x=>x.stopReason));
  console.log('pilot stop reasons');console.table(Object.entries(pilotStops).map(([reason,count])=>({reason,count})));
  console.log('detach purpose control');console.table(detaches);
  console.log('full run',run);console.groupEnd();
@@ -5946,13 +5983,19 @@ function ahTelemetryAuditCompactStep(row){
    error:ca.predictionError??null,
    actionSignature:ca.predictionAuditContext?.actionSignature??null
   },
-  search:{rolloutNodes:ca.rolloutNodes??null,truncated:!!ca.rolloutTruncated,stopReason:ca.rolloutStopReason??null,pilotBudget:ca.pilotRolloutBudget??null,pilotStopReason:ca.pilotSearch?.stopReason??ca.rolloutBudgetReason??null,skepticFoundBetter:!!ca.skepticFoundBetter},
+  search:{rolloutNodes:ca.rolloutNodes??null,rolloutBudget:ca.rolloutBudget??null,truncated:!!ca.rolloutTruncated,stopReason:ca.rolloutStopReason??null,stopDetail:ca.rolloutStopDetail??null,frontierRemaining:ca.rolloutFrontierRemaining??null,completedPlans:ca.rolloutCompletedPlans??null,pilotBudget:ca.pilotRolloutBudget??null,pilotStopReason:ca.pilotSearch?.stopReason??ca.rolloutBudgetReason??null,skepticFoundBetter:!!ca.skepticFoundBetter},
   candidateTopK:(ca.candidateComparison?.topK||[]).map(x=>({
    rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
    score:x.quickScore??null,margin:x.scoreMarginFromBest??null,
    purpose:x.purposeDelta??null,reachablePurpose:x.reachablePurposeDelta??null,
    futureStrategic:x.futureStrategicValueDelta??null,
-   attachPurpose:x.attachPurpose??null
+   attachPurpose:x.attachPurpose??null,detachPurpose:x.detachPurpose??null
+  })),
+  detachCandidates:(ca.candidateComparison?.detachCandidates||[]).map(x=>({
+   rank:x.rank,selected:!!x.selected,score:x.quickScore??null,
+   purpose:x.purposeDelta??null,reachablePurpose:x.reachablePurposeDelta??null,
+   futureStrategic:x.futureStrategicValueDelta??null,
+   detachPurpose:x.detachPurpose??null
   })),
   cardAudit:ca.cardAudit??null
  };
@@ -6279,9 +6322,25 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     };
    });
    const selectedCandidate=candidateTopK.find(x=>x.selected)||null;
+   const detachCandidates=quick
+    .filter(item=>item.type==='detachAnt')
+    .map((item,index)=>({
+     rank:index+1,
+     action:{signature:ahTelemetryActionSignature(item),type:item.type||null,node:item.node||null,from:item.from||null,to:item.to||null,candyId:item.candyId??null,cardId:item.cardId??item.card??item.id??null},
+     quickScore:item.score??null,
+     purposeDelta:Number(item.purposeDelta||0),
+     reachablePurposeDelta:Number(item.reachablePurposeDelta||0),
+     futureStrategicValueDelta:Number(item.futureStrategicValueDelta||0),
+     vectorBreakdown:item.vectorBreakdown||null,
+     purposeReachability:item.purposeReachability||null,
+     detachPurpose:item.detachPurpose||null,
+     actionPurposeControl:item.actionPurposeControl||null,
+     selected:!!choice?.action&&ahTelemetryActionMatches(item,choice.action)
+    }));
    const candidateComparison={
-    schema:'candidate-comparison-v0.2-attach-route',
+    schema:'candidate-comparison-v0.3-detach-audit',
     topK:candidateTopK,
+    detachCandidates,
     selectedRank:selectedCandidate?.rank??null,
     selectedScore:selectedCandidate?.quickScore??null,
     selectedVsBestMargin:selectedCandidate?.scoreMarginFromBest??null,
@@ -6337,9 +6396,12 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
       :(rollout?.principalVariation||[]),
      rolloutDepth:rollout?.depth??null,
      rolloutNodes:rollout?.nodes??null,
-     rolloutBudget:pilotBudget,
+     rolloutBudget:rollout?.maxNodes??pilotBudget,
      rolloutBudgetReason:pilotPre?.stopReason||null,
      rolloutStopReason:rollout?.stopReason??null,
+     rolloutStopDetail:rollout?.stopDetail??null,
+     rolloutFrontierRemaining:rollout?.frontierRemaining??null,
+     rolloutCompletedPlans:rollout?.completedPlans??null,
      rolloutTruncated:!!rollout?.truncated,
      predictionStrength:rollout?.predictionStrength??null,
      predictionPhase:rollout?.predictionPhase??null,
