@@ -4193,7 +4193,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   let earlyStopUsed=false;
   const pilotEvidence=options?.pilotEvidence||null;
   const pilotTopAction=pilotEvidence?.branches?.[0]?.action||null;
-  const pilotTopMatches=!!pilotTopAction&&JSON.stringify(pilotTopAction)===JSON.stringify(frontier[0]?.seq?.[0]||null);
+  const pilotTopMatches=leader=>!!pilotTopAction&&!!leader?.seq?.[0]&&JSON.stringify(pilotTopAction)===JSON.stringify(leader.seq[0]);
   const pilotStablePrior=!!pilotEvidence&&!!pilotEvidence.marginEarlyStopEligible&&!!pilotEvidence.rankStable&&!!pilotEvidence.topKStable&&!!pilotEvidence.scoreStable&&!pilotEvidence.counterexample&&!pilotEvidence.routeUnstable;
   const earlyStopAllowed=turnActor===p;
   const earlyStopCurve=ahTelemetryStrategyCurve(startState,turnActor)||{};
@@ -4221,9 +4221,15 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
          stopDetail=stopDetail||{stage:'expand-action',reason:'stage-budget',depth,expansions,maxNodes,stageBudget};
          break;
         }
+        if(nodes>=maxNodes){
+         truncated=true;
+         stopReason='global-node-cap';
+         stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget};
+         break;
+        }
         expansions++;nodes++;
         if(a.__ahSearchClass==='skeptic')skepticNodes++;else if(turnActor!==p)predictionNodes++;
-        if(nodes>maxNodes){
+        if(nodes>=maxNodes){
          truncated=true;
          stopReason='global-node-cap';
          stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget};
@@ -4264,7 +4270,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
       const routeStable=Number(route.routeSeparation||0)>=.015&&Number(route.routeSwitches||0)<3;
       const valueStable=previousStablePlanValue!=null&&Math.abs(Number(leader.value)-Number(previousStablePlanValue))<=.025;
       const rankStable=previousStablePlanKey===leaderKey;
-      const pilotAssist=pilotStablePrior&&pilotTopMatches&&rankStable;
+      const pilotAssist=pilotStablePrior&&pilotTopMatches(leader)&&rankStable;
       if((rankStable&&valueStable&&margin>=earlyStopMargin&&routeStable)||
          (pilotAssist&&valueStable&&margin>=earlyStopMargin&&routeStable))stablePlanDepths++;else stablePlanDepths=0;
       previousStablePlanKey=leaderKey;
