@@ -4187,6 +4187,15 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const completed=[];
   let frontier=[{state:startState,seq:[],value:turnPlanScore(startState,turnActor,startState)}];
   let expansions=0;
+  let previousStablePlanKey=null;
+  let previousStablePlanValue=null;
+  let stablePlanDepths=0;
+  let earlyStopUsed=false;
+  const earlyStopAllowed=turnActor===p;
+  const earlyStopMargin=Math.max(.035,Math.min(.095,
+   .045+Number(complexity||0)*.025+
+   (Number(curve?.routeSeparation||0)<.015?.012:0)
+  ));
   for(let depth=0;depth<maxActions&&frontier.length;depth++){
     const next=[];
     for(const item of frontier){
@@ -4238,6 +4247,31 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     next.sort((a,b)=>b.value-a.value);
     frontier=next.slice(0,beamWidth);
     lastFrontierSize=frontier.length;
+
+    /* Rollout Early Stop v0.1: stable current-player turn plans can stop
+     * before the global node cap. Opponent stages stay fully exploratory. */
+    if(earlyStopAllowed&&completed.length>=2&&depth>=1&&!skepticFoundBetter){
+      const rankedCompleted=completed.slice().sort((a,b)=>b.value-a.value);
+      const leader=rankedCompleted[0],runner=rankedCompleted[1]||null;
+      const leaderKey=leader?.seq?.map(actionKey).join('>')||'';
+      const margin=runner?Number(leader.value)-Number(runner.value):Infinity;
+      const route=ahTelemetryStrategyCurve(leader?.state||startState,turnActor)||{};
+      const routeStable=Number(route.routeSeparation||0)>=.015&&Number(route.routeSwitches||0)<3;
+      const valueStable=previousStablePlanValue!=null&&Math.abs(Number(leader.value)-Number(previousStablePlanValue))<=.025;
+      const rankStable=previousStablePlanKey===leaderKey;
+      if(rankStable&&valueStable&&margin>=earlyStopMargin&&routeStable)stablePlanDepths++;else stablePlanDepths=0;
+      previousStablePlanKey=leaderKey;
+      previousStablePlanValue=Number(leader.value);
+      if(stablePlanDepths>=1){
+        earlyStopUsed=true;
+        stopReason='turn-plan-converged';
+        stopDetail={stage:'depth-convergence',reason:'stable-plan',depth,expansions,nodes,maxNodes,
+          frontierRemaining:frontier.length,completedPlans,margin:Number(margin.toFixed(4)),
+          earlyStopMargin:Number(earlyStopMargin.toFixed(4)),routeSeparation:Number(route.routeSeparation||0),
+          routeSwitches:Number(route.routeSwitches||0)};
+        break;
+      }
+    }
   }
   if(!completed.length){
     const end=frontier.map(item=>(ahTelemetryShadowLegalActions(item.state,turnActor)||[]).find(a=>a.type==='endTurn')).find(Boolean);
@@ -4370,6 +4404,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   stopDetail,
   frontierRemaining:lastFrontierSize,
   completedPlans,
+  earlyStopUsed,
+  earlyStopMargin:Number(earlyStopMargin.toFixed(4)),
   turnBudgets:[currentBudget,opponentBudget,nextSelfBudget],
   complexity:Number(complexity.toFixed(3)),
   predictionStrength:Number((Number(predictionProfile?.strength)||0).toFixed(3)),
