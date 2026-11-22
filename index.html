@@ -4242,6 +4242,12 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     }
   }
   completed.sort((a,b)=>b.value-a.value);
+  if(!stopReason){
+   if(truncated)stopReason='budget-exhausted';
+   else if(frontier.length===0)stopReason=completed.length?'search-exhausted-after-completion':'search-exhausted';
+   else if(completed.length)stopReason='depth-limit-after-completion';
+   else stopReason='depth-limit';
+  }
   return completed.slice(0,beamWidth);
  };
 
@@ -4643,6 +4649,7 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
    score:Number((raw?.value??0).toFixed(4)),
    nodes:Number(raw?.nodes||0),
    truncated:!!raw?.truncated,
+   stopReason:raw?.stopReason??null,
    principalVariation:ahTelemetryClone(raw?.principalVariation||[]),
    rolloutDepth:raw?.depth??null,
    predictionStrength:raw?.predictionStrength??profile?.strength??null,
@@ -5010,6 +5017,23 @@ function ahTelemetryPilotSearchAudit(state,player,options={}){
   }
  };
 }
+function ahTelemetryAuditConsoleSummary(seed='console-audit',options={}){
+ const run=ahTelemetrySelfPlayAudit(seed,{...options,maxSteps:options.maxSteps??12});
+ const stops={},pilotStops={},detaches=[];
+ for(const row of run?.steps||[]){
+  const ca=row.chosenAudit||{},sr=ca.rolloutStopReason||'unknown',ps=ca.pilotSearch?.stopReason||ca.rolloutBudgetReason||'unknown';
+  stops[sr]=(stops[sr]||0)+1;pilotStops[ps]=(pilotStops[ps]||0)+1;
+  for(const x of ca.candidateComparison?.topK||[])if(x.action?.type==='detachAnt')detaches.push({turn:row.turn,player:row.player,rank:x.rank,score:x.quickScore,margin:x.scoreMarginFromBest,purpose:x.purposeDelta,reachablePurpose:x.reachablePurposeDelta,futureStrategic:x.futureStrategicValueDelta,detachPurpose:x.detachPurpose||null,selected:!!x.selected});
+ }
+ console.group('AI Audit — rollout / detach');
+ console.log('run',run.seed,'steps',run.steps?.length||0);
+ console.table(Object.entries(stops).map(([reason,count])=>({reason,count})));
+ console.log('pilot stop reasons');console.table(Object.entries(pilotStops).map(([reason,count])=>({reason,count})));
+ console.log('detach purpose control');console.table(detaches);
+ console.log('full run',run);console.groupEnd();
+ return {run,stopReasons:stops,pilotStopReasons:pilotStops,detachCandidates:detaches};
+}
+
 function ahTelemetryLiveSearchStep(){
  if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU||S.over)return false;
  const legal=getLegalActions(CPU);
@@ -5777,6 +5801,33 @@ function ahTelemetryAttachPurposeScore(state,action,actor){
  return {score:Number(score.toFixed(4)),reason:reasons.join('+')||'none',reasons,redundant,missing,need,own,enemy,immediate:Number(immediate.toFixed(4)),reachable:Number(reachable.toFixed(4))};
 }
 
+function ahTelemetryDetachPurposeScore(state,action,actor){
+ const s=state||{},p=actor||s.currentPlayer||'B',q=opp(p),c=(s.candies||[]).find(x=>String(x.id)===String(action?.candyId));
+ if(action?.type!=='detachAnt'||!c)return {score:0,reason:'not-detach',immediate:0,reachable:0,freedAnt:0,freedAntReachable:0,antCanReposition:false};
+ const own=Math.max(0,Number(c.attached?.[p]||0)),enemy=Math.max(0,Number(c.attached?.[q]||0)),need=Math.max(1,Number(c.need||1)),pts=Math.max(0,Number(c.points||0));
+ if(own<=0)return {score:0,reason:'no-own-ant',immediate:0,reachable:0,freedAnt:0,freedAntReachable:0,antCanReposition:false};
+ const next=ahTelemetryShadowApply(s,action);if(!next)return {score:0,reason:'invalid',immediate:0,reachable:0,freedAnt:0,freedAntReachable:0,antCanReposition:false};
+ const purpose=ahTelemetryPurposeProgress(s,next,p),reach=ahTelemetryPurposeReachability(s,action,p,{maxDepth:2,beamWidth:3});
+ const immediate=Math.max(0,Number(purpose?.delta?.total||0)),reachable=Math.max(0,Number(reach?.reachableDelta||0));
+ const freeBefore=Number(s.free?.[c.node]?.[p]||0),freeAfter=Number(next.free?.[c.node]?.[p]||0),freedAnt=Math.max(0,freeAfter-freeBefore);
+ let freedAntReachable=0;
+ if(freedAnt>0)for(const a of (ahTelemetryShadowLegalActions(next,p)||[]).slice(0,12)){
+  if(a.type!=='moveAnt'&&a.type!=='carryCandy'&&a.type!=='placeAnt'&&a.type!=='attachAnt')continue;
+  const ns=ahTelemetryShadowApply(next,a);if(!ns)continue;
+  const rp=ahTelemetryPurposeProgress(next,ns,p)?.delta?.total||0,rr=ahTelemetryPurposeReachability(next,a,p,{maxDepth:1,beamWidth:2})?.reachableDelta||0;
+  freedAntReachable=Math.max(freedAntReachable,Math.max(0,Number(rp)+Number(rr)*.5));
+ }
+ const reasons=[];
+ if(own>=need&&enemy<=0)reasons.push('free-for-reposition');
+ if(enemy>0)reasons.push('battle-escape');
+ if(own>0&&own<need)reasons.push('release-underfilled-candy');
+ if(s.typhoon||s.effects?.typhoon||s.typhoonLocked?.[p])reasons.push('typhoon-mobility');
+ if(freedAntReachable>.06)reasons.push('future-purpose');
+ const redundant=freedAntReachable<.025&&reachable<.025&&enemy<=0&&own<need&&!s.typhoon&&!s.effects?.typhoon&&!s.typhoonLocked?.[p];
+ const score=Math.max(-.16,Math.min(.38,Math.min(.22,freedAntReachable*.42)+Math.min(.16,reachable*.28)+Math.min(.08,immediate*.18)+(enemy>0?Math.min(.10,enemy/need*.08):0)-(redundant?0.08:0)));
+ return {score:Number(score.toFixed(4)),reason:reasons.join('+')||'none',reasons,redundant,immediate:Number(immediate.toFixed(4)),reachable:Number(reachable.toFixed(4)),freedAnt,freedAntReachable:Number(freedAntReachable.toFixed(4)),antCanReposition:freedAntReachable>.06,own,enemy,need,points:pts};
+}
+
 function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
  const legal=ahTelemetryShadowLegalActions(state,player);
  if(!legal.length)return null;
@@ -5796,6 +5847,9 @@ function ahTelemetryVeryHardShadowChoose(state,player,depth=3,options={}){
   }else if(action.type==='attachAnt'){
    /* Attach is a means, not a goal. Candy points alone never reward attachment. */
    setup=ahTelemetryAttachPurposeScore(state,action,player).score;
+  }else if(action.type==='detachAnt'){
+   /* Detach is a means: reward only the purpose that becomes possible after freeing the ant. */
+   setup=ahTelemetryDetachPurposeScore(state,action,player).score;
   }else if(action.type==='placeAnt'){
    setup=action.node===player+'1'?0.25:action.node===player+'w'?0.18:0;
   }else if(action.type==='startBattle'){
@@ -5892,7 +5946,7 @@ function ahTelemetryAuditCompactStep(row){
    error:ca.predictionError??null,
    actionSignature:ca.predictionAuditContext?.actionSignature??null
   },
-  search:{rolloutNodes:ca.rolloutNodes??null,truncated:!!ca.rolloutTruncated,pilotBudget:ca.pilotRolloutBudget??null,skepticFoundBetter:!!ca.skepticFoundBetter},
+  search:{rolloutNodes:ca.rolloutNodes??null,truncated:!!ca.rolloutTruncated,stopReason:ca.rolloutStopReason??null,pilotBudget:ca.pilotRolloutBudget??null,pilotStopReason:ca.pilotSearch?.stopReason??ca.rolloutBudgetReason??null,skepticFoundBetter:!!ca.skepticFoundBetter},
   candidateTopK:(ca.candidateComparison?.topK||[]).map(x=>({
    rank:x.rank,selected:!!x.selected,type:x.action?.type??null,card:x.action?.cardId??null,
    score:x.quickScore??null,margin:x.scoreMarginFromBest??null,
@@ -6122,6 +6176,8 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
     strategicVectorProgress,
     futureStrategicValueDelta:Number(strategicVectorProgress?.delta?.strategicValue||0),
     attachPurpose:action.type==='attachAnt'?ahTelemetryAttachPurposeScore(state,action,p):null,
+    detachPurpose:action.type==='detachAnt'?ahTelemetryDetachPurposeScore(state,action,p):null,
+    actionPurposeControl:action.type==='attachAnt'?ahTelemetryAttachPurposeScore(state,action,p):action.type==='detachAnt'?ahTelemetryDetachPurposeScore(state,action,p):null,
     vectorBreakdown:(()=>{
       const v=strategicVectorProgress||{},b=v.before||{},a=v.after||{},pd={},gd={},sd={};
       const pkeys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning','futureOpportunity','scoreRace'];
@@ -6217,7 +6273,9 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      futureStrategicValueDelta:Number(item.futureStrategicValueDelta||0),
      vectorBreakdown:item.vectorBreakdown||null,
      purposeReachability:item.purposeReachability||null,
-     attachPurpose:item.attachPurpose||null
+     attachPurpose:item.attachPurpose||null,
+     detachPurpose:item.detachPurpose||null,
+     actionPurposeControl:item.actionPurposeControl||null
     };
    });
    const selectedCandidate=candidateTopK.find(x=>x.selected)||null;
@@ -6281,6 +6339,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
      rolloutNodes:rollout?.nodes??null,
      rolloutBudget:pilotBudget,
      rolloutBudgetReason:pilotPre?.stopReason||null,
+     rolloutStopReason:rollout?.stopReason??null,
      rolloutTruncated:!!rollout?.truncated,
      predictionStrength:rollout?.predictionStrength??null,
      predictionPhase:rollout?.predictionPhase??null,
@@ -10314,7 +10373,8 @@ async function run(games){
   const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
  }finally{btn.disabled=false;}
 }
-window.AH_AI_TELEMETRY.auditViewerVersion='1.1';
+window.AH_AI_TELEMETRY.auditConsoleSummary:ahTelemetryAuditConsoleSummary,
+ auditViewerVersion='1.1';
 window.AH_AI_TELEMETRY.openAuditViewer=open;
 window.AH_AI_TELEMETRY.runAudit=run;
 })();
