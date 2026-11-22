@@ -4241,7 +4241,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    * This separates "we could have converged but were cut off" from
    * "we still had an unstable comparison".
    */
-  const nodeCapDiagnostic=()=>{
+  const nodeCapDiagnostic=(currentDepth)=>{
    const rankedCompleted=completed.slice(-Math.max(2,beamWidth)).sort((a,b)=>b.value-a.value);
    const leader=rankedCompleted[0]||null,runner=rankedCompleted[1]||null;
    const margin=runner?Number(leader.value)-Number(runner.value):Infinity;
@@ -4256,7 +4256,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    const hypotheticalConverged=!!conv&&!!conv.stopEligible&&firstActionStable&&routeStable&&!skepticFoundBetter;
    return {
     stage:'node-cap-diagnostic',
-    depth,
+    depth:currentDepth,
     nodes,
     maxNodes,
     expansions,
@@ -4307,7 +4307,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
          truncated=true;
          stopReason='global-node-cap';
          stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget,
-          nodeCapDiagnostic:nodeCapDiagnostic()};
+          nodeCapDiagnostic:nodeCapDiagnostic(depth)};
          break;
         }
         expansions++;nodes++;
