@@ -5998,7 +5998,29 @@ async function ahTelemetrySelfPlayAuditBatch(games=50,options={}){
  const n=Math.max(1,Math.min(200,Number(games)||50));
  const seedBase=String(options.seed||'audit-'+Date.now());
  const started=performance.now(),runs=[];
+ const yieldMs=Math.max(0,Math.min(50,Number(options.yieldMs??0)));
+ const emitProgress=options.progress!==false;
+ const yieldToBrowser=()=>new Promise(resolve=>{
+  if(yieldMs>0){setTimeout(resolve,yieldMs);return;}
+  setTimeout(resolve,0);
+ });
+ const report=(i,phase)=>{
+  if(!emitProgress)return;
+  const payload={
+   runId:seedBase,phase,game:i,games:n,
+   completed:i/n,elapsedMs:Math.round(performance.now()-started)
+  };
+  try{window.dispatchEvent(new CustomEvent('ah-ai-audit-progress',{detail:payload}));}catch(_){}
+  try{if(typeof options.onProgress==='function')options.onProgress(payload);}catch(_){}
+ };
+ report(0,'started');
  for(let i=0;i<n;i++){
+  /*
+   * Each self-play summary is intentionally synchronous and CPU-heavy.
+   * Yield between EVERY game, not every two games, so the browser can
+   * process paint, console output, input and pending microtasks.
+   */
+  await yieldToBrowser();
   const seed=seedBase+'-'+i;
   const out=ahTelemetrySelfPlayAuditSummary(seed,{
    ...options,
@@ -6006,7 +6028,7 @@ async function ahTelemetrySelfPlayAuditBatch(games=50,options={}){
    depth:options.depth??2
   });
   runs.push(out);
-  if(i%2===1)await new Promise(r=>setTimeout(r,0));
+  report(i+1,'game-complete');
  }
  const analysis=ahTelemetryAuditAggregate(runs);
  const batch={
