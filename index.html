@@ -5878,7 +5878,7 @@ function ahTelemetryPredictionCalibration(){
 function ahTelemetryFinish(winner,reason){if(!AH_AI_TELEMETRY)return;ahTelemetryUpdateFuture(true);ahTelemetryRecord('matchEnd',{actor:'system',action:{type:'matchEnd',winner,reason},immediate:{winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}}});AH_AI_TELEMETRY.finishedAt=new Date().toISOString();AH_AI_TELEMETRY.outcome={winner,reason,score:ahTelemetryClone(S?.score||{}),alive:{A:alive('A'),B:alive('B')}};try{const old=JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]');old.push(ahTelemetryClone(AH_AI_TELEMETRY));while(old.length>AH_AI_TELEMETRY_MAX_MATCHES)old.shift();localStorage.setItem(AH_AI_TELEMETRY_STORAGE,JSON.stringify(old));}catch(_){}}
 function ahTelemetryExport(){try{return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,exportedAt:new Date().toISOString(),current:AH_AI_TELEMETRY,history:JSON.parse(localStorage.getItem(AH_AI_TELEMETRY_STORAGE)||'[]')},null,2);}catch(_){return JSON.stringify({schema:AH_AI_TELEMETRY_SCHEMA,current:AH_AI_TELEMETRY},null,2);}}
 window.__AH_AI_BOOT.stage='telemetry-api-building';
-window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,selfPlayAuditBatch:ahTelemetrySelfPlayAuditBatch,selfPlayAuditAnalyzeStored:ahTelemetrySelfPlayAuditAnalyzeStored,selfPlayAuditHistory:ahTelemetrySelfPlayAuditHistory,openAuditViewer:ahTelemetryOpenAuditViewer,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);localStorage.removeItem(AH_AI_AUDIT_STORAGE);localStorage.removeItem(AH_AI_SELFPLAY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
+window.AH_AI_TELEMETRY={get current(){return ahTelemetryClone(AH_AI_TELEMETRY);},getLegalActions:()=>ahTelemetryClone(getLegalActions(cur())),export:ahTelemetryExport,calibration:ahTelemetryPredictionCalibration,selfPlayAuditBatch:ahTelemetrySelfPlayAuditBatch,selfPlayAuditAnalyzeStored:ahTelemetrySelfPlayAuditAnalyzeStored,selfPlayAuditHistory:ahTelemetrySelfPlayAuditHistory,clearHistory(){try{localStorage.removeItem(AH_AI_TELEMETRY_STORAGE);localStorage.removeItem(AH_AI_AUDIT_STORAGE);localStorage.removeItem(AH_AI_SELFPLAY_STORAGE);}catch(_){ }},setEnabled(v){AH_AI_TELEMETRY_ENABLED=!!v;return AH_AI_TELEMETRY_ENABLED;}};
 /*
  * CPU self-play lab.
  * This is deliberately shadow-state based: it never touches the visible board,
@@ -11070,7 +11070,7 @@ async function run(games){
   const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
  }finally{btn.disabled=false;}
 }
-auditViewerVersion='1.1';
+const auditViewerVersion='1.1';
 window.AH_AI_TELEMETRY.openAuditViewer=open;
 window.AH_AI_TELEMETRY.runAudit=run;
 })();
