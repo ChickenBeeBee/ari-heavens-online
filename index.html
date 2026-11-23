@@ -3487,6 +3487,45 @@ function ahTelemetryStrategicVectorProgress(before,after,actor){
  return {before:{purpose:bP,strategic:bG,state:bS,composite:bC.composite},after:{purpose:aP,strategic:aG,state:aS,composite:aC.composite},delta};
 }
 
+function ahTelemetryOptionPreservation(before,after,actor){
+ const b=before||{},a=after||{},p=actor||(b.currentPlayer||'B');
+ const meaningfulTypes=st=>{
+  const legal=ahTelemetryShadowLegalActions(st,p)||[],types=new Set();
+  for(const x of legal)if(x?.type&&x.type!=='endTurn')types.add(x.type);
+  return types.size;
+ };
+ const legalCount=st=>(ahTelemetryShadowLegalActions(st,p)||[]).length;
+ const bp=ahTelemetryPurposeProfile(b,p),ap=ahTelemetryPurposeProfile(a,p);
+ const bOpp=Math.max(0,Number(ahTelemetryShadowFutureOpportunityValue(b,p)||0));
+ const aOpp=Math.max(0,Number(ahTelemetryShadowFutureOpportunityValue(a,p)||0));
+ const bRisk=Number(ahTelemetryStateVector(b,p).battleThreat||0);
+ const aRisk=Number(ahTelemetryStateVector(a,p).battleThreat||0);
+ const bFlex=Math.max(0,Math.min(1,
+   meaningfulTypes(b)/6+bOpp/1.5*.34+Math.max(0,Number(bp.total||0))/1.8*.24
+ ));
+ const aFlex=Math.max(0,Math.min(1,
+   meaningfulTypes(a)/6+aOpp/1.5*.34+Math.max(0,Number(ap.total||0))/1.8*.24
+ ));
+ const flexibilityDelta=Number((aFlex-bFlex).toFixed(4));
+ const opportunityDelta=Number((aOpp-bOpp).toFixed(4));
+ const purposeDelta=Number((Number(ap.total||0)-Number(bp.total||0)).toFixed(4));
+ const dangerAvoided=Number(Math.max(-1,Math.min(1,bRisk-aRisk)).toFixed(4));
+ const optionValue=Number((
+   flexibilityDelta*.34+
+   Math.max(-1,Math.min(1,opportunityDelta/.22))*.30+
+   Math.max(-1,Math.min(1,purposeDelta/.30))*.18+
+   dangerAvoided*.18
+ ).toFixed(4));
+ return {
+  schema:'option-preservation-v1',actor:p,
+  before:{legalActions:legalCount(b),meaningfulTypes:meaningfulTypes(b),futureOpportunity:bOpp,purposeTotal:Number(bp.total||0),battleThreat:bRisk},
+  after:{legalActions:legalCount(a),meaningfulTypes:meaningfulTypes(a),futureOpportunity:aOpp,purposeTotal:Number(ap.total||0),battleThreat:aRisk},
+  flexibilityDelta,opportunityDelta,purposeDelta,dangerAvoided,
+  optionOpened:Number(Math.max(0,aFlex-bFlex).toFixed(4)),
+  optionClosed:Number(Math.max(0,bFlex-aFlex).toFixed(4)),
+  optionValue
+ };
+}
 function ahTelemetryPurposeProgress(before,after,actor){
  const b=ahTelemetryPurposeProfile(before,actor),a=ahTelemetryPurposeProfile(after,actor);
  const keys=['delivery','denial','typhoonProtection','transportEfficiency','battlePreparation','positioning'];
@@ -3778,6 +3817,7 @@ function ahTelemetryStrategicObservationClassify(before,after,action,actor,conte
 function ahTelemetryActionRequirement(before,after,action,actor){
  const p=actor||(before?.currentPlayer||'B'),a=action||{};
  const purpose=ahTelemetryPurposeProgress(before,after,p);
+ const option=ahTelemetryOptionPreservation(before,after,p);
  const curve=ahTelemetryStrategyCurveTransition(before,p,a,ahTelemetryStrategyCurve(before,p));
  const req={delivery:0,denial:0,typhoonProtection:0,transportEfficiency:0,battlePreparation:0,positioning:0,score:0,interaction:0,route:0};
  const pd=purpose?.delta||{};
@@ -3804,7 +3844,7 @@ function ahTelemetryActionRequirement(before,after,action,actor){
    Math.min(1,Math.abs(Number(req.score||0))/.15)*.10+
    (active.length?0.08:0)
  )).toFixed(3));
- return {actionType,targetPurposes:target,activePurposes:active,requirement:req,purposeDelta:Number(pd.total||0),necessity,
+ return {actionType,targetPurposes:target,activePurposes:active,requirement:req,purposeDelta:Number(pd.total||0),optionValue:Number(option?.optionValue||0),optionOpened:Number(option?.optionOpened||0),optionClosed:Number(option?.optionClosed||0),necessity,
   progressDelta:Number(curve?.progressDelta||0),distanceDelta:Number(curve?.distanceDelta||0),routeAfter:curve?.routeAfter||null,routeChanged:!!curve?.routeChanged};
 }
 function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
@@ -4172,7 +4212,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const baseOpp=baseState?ahTelemetryShadowFutureOpportunityValue(baseState,turnActor):opp;
   const baseWin=baseState?ahTelemetryWinProbability(baseState,p):win;
   const intent=baseState?ahTelemetryPurposeProgress(baseState,state,turnActor):null;
-  const vectorProgress=baseState?ahTelemetryStrategicVectorProgress(baseState,state,turnActor):null;
+  const vectorProgress=baseState?ahTelemetryStrategicVectorProgress(baseState,state,turnActor):null;\n  const optionProgress=baseState?ahTelemetryOptionPreservation(baseState,state,turnActor):null;
   /*
    * Purpose progress explains why a low-level action is useful without
    * turning attach/detach itself into a goal.
@@ -4184,12 +4224,14 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
    */
   const intentDelta=Number(intent?.delta?.total||0);
   const futureStrategicDelta=Number(vectorProgress?.delta?.strategicValue||0);
+  const optionDelta=Number(optionProgress?.optionValue||0);
   return Number((
     (ahTelemetryShadowUtility(state,p)||0)+
     (opp-baseOpp)*.55+
     (win-baseWin)*.18+
     intentDelta*.32+
-    futureStrategicDelta*.12
+    futureStrategicDelta*.12+
+    optionDelta*.16
   ).toFixed(5));
  };
  const actionKey=a=>{
@@ -4939,7 +4981,14 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
   if(c)b.setup=(pts/need)*.35;
  }else if(action.type==='detachAnt'){
   const c=getC(action.candyId);
-  if(c)b.survival=(c.att?.[p]||0)>0?0.15:0;
+  if(c){
+   const beforeState=ahTelemetryState(),afterState=ahTelemetryShadowApply(beforeState,action);
+   if(afterState){
+    const option=ahTelemetryOptionPreservation(beforeState,afterState,p);
+    b.survival+=Number(option?.optionValue||0)*.30;
+    b.setup+=Number(option?.optionOpened||0)*.08;
+   }
+  }
  }else if(action.type==='moveAnt'){
   const from=action.from,to=action.to;
   let nearest=99;
@@ -4966,6 +5015,7 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
    b.rolloutCalibration=correction;
    b.rolloutDepth=rollout.depth;
    b.principalVariation=rollout.principalVariation;
+   b.optionPreservation=ahTelemetryOptionPreservation(before,rollout.after,p);
    b.immediate+=calibratedRollout*.10;
   }
  }
