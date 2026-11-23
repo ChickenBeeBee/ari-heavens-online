@@ -5244,50 +5244,140 @@ function ahTelemetryLiveSearchStep(){
  if(!legal.length)return false;
  const turnBudget=ahTelemetryPrepareThinkingBudget(ahTelemetryState(),CPU);
  if(turnBudget<=0)return false;
- // Cheap pass first: keep only the most promising actions before doing rollout.
+
+ /*
+  * Depth tuning v0.1:
+  *
+  * Do not divide the thinking budget equally across every legal action.
+  * The cheap score is only a gate.  A close runner-up deserves a second
+  * look, while a clearly inferior action should not consume nodes that the
+  * leader needs for opponent/next-turn search.
+  *
+  * The allocation therefore has three layers:
+  *   1) cheap pass over every legal action;
+  *   2) small verification rollouts for the runners-up;
+  *   3) most remaining nodes for the best few candidates.
+  *
+  * This is intentionally an allocation change, not a heuristic preference:
+  * attach/detach/carry/battle/card/endTurn remain peers in the same search.
+  */
  const shortlist=legal.map((action,index)=>{
   const e=ahTelemetryCandidateScore(action,false);
   return {index,action,score:e.score,breakdown:e.breakdown};
  }).sort((a,b)=>b.score-a.score).slice(0,6);
+
  const remaining=Math.max(1,Math.ceil((MAXTURN-Number(S.turnCount||0))/2));
  const complexity=ahTelemetryBoardComplexity(ahTelemetryState(),AH_AI_THINKING_PREV_STATE,CPU);
  const predictionProfile=ahTelemetryPredictionProfile(ahTelemetryState(),CPU);
  const opponentModel=ahTelemetryOpponentActionModel(ahTelemetryState(),opp(CPU),predictionProfile);
- const depth=Math.min(5,Math.max(3,predictionProfile.horizon+1));
+ const depthBase=Math.min(5,Math.max(3,predictionProfile.horizon+1));
+ const totalSearchBudget=Math.max(24,Math.floor(AH_AI_THINKING_REMAINING));
+ const targetFloor=ahTelemetrySearchTargetFloor(complexity,remaining);
+
+ /*
+  * Rank-aware allocation.
+  *
+  * A close cheap score means "this action could plausibly be best", so give
+  * it more depth.  A large cheap-score gap means the candidate only needs a
+  * shallow sanity check.  The minimum reserve prevents one attractive branch
+  * from starving all alternatives.
+  */
+ const topScore=Number(shortlist[0]?.score||0);
+ const gaps=shortlist.map((x,i)=>i===0?0:Math.max(0,topScore-Number(x.score||0)));
+ const maxGap=Math.max(.001,...gaps);
+ const closeness=(i)=>i===0?1:Math.max(0,Math.min(1,1-gaps[i]/Math.max(.045,maxGap*.72)));
+ const weights=shortlist.map((_,i)=>{
+  const c=closeness(i);
+  if(i===0)return 2.9+complexity*.7;
+  if(i===1)return 1.9+c*.8;
+  if(i===2)return 1.25+c*.55;
+  return .62+c*.28;
+ });
+ const minBudget=Math.min(18,Math.max(8,Math.floor(totalSearchBudget/Math.max(1,shortlist.length*2))));
+ const reserve=minBudget*shortlist.length;
+ const distributable=Math.max(0,totalSearchBudget-reserve);
+ const weightSum=weights.reduce((a,b)=>a+b,0);
+
  let best=null;
  let spentThisStep=0;
  let examinedEndTurn=false;
- const targetFloor=ahTelemetrySearchTargetFloor(complexity,remaining);
+
  for(let si=0;si<shortlist.length;si++){
   const item=shortlist[si];
   const branchesLeft=Math.max(1,shortlist.length-si);
-  /* Spend less per branch on simple positions.  The saved budget remains
-   * available to later turns through the thinking bank. */
-  const complexityScale=0.72+complexity*0.28;
-  const nodeBudget=Math.max(12,Math.floor(AH_AI_THINKING_REMAINING*complexityScale/branchesLeft));
-  const raw=ahTelemetryRollout(item.action,CPU,depth,null,{maxNodes:nodeBudget,predictionProfile,opponentModel});
+  const reserveForRemaining=minBudget*(branchesLeft-1);
+  const weightedShare=distributable*(weights[si]/Math.max(.001,weightSum));
+  const nodeBudget=Math.max(minBudget,
+   Math.min(
+    totalSearchBudget,
+    Math.floor(minBudget+weightedShare+(
+      si===0?Math.max(0,AH_AI_THINKING_REMAINING-totalSearchBudget)*.18:0
+    ))
+   )
+  );
+
+  /*
+   * The top candidate gets the deepest pass.  Close alternatives still get
+   * enough nodes to expose a counterexample, but clearly separated actions
+   * are deliberately shallow.
+   */
+  const candidateDepth=Math.min(
+   5,
+   Math.max(3,
+    depthBase-
+    (si>=3&&closeness(si)<.35?1:0)
+   )
+  );
+
+  const raw=ahTelemetryRollout(
+   item.action,
+   CPU,
+   candidateDepth,
+   null,
+   {
+    maxNodes:Math.max(minBudget,nodeBudget),
+    predictionProfile,
+    opponentModel
+   }
+  );
+
   if(raw)spentThisStep+=Number(raw.nodes||0);
   if(!raw)continue;
+
   const correction=ahTelemetryPredictionCorrection(item.action);
   const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
+
   /* Future value is deliberately strong enough to reward multi-action setup
    * lines while the cheap shortlist keeps runtime bounded. */
   const futureWeight=item.action.type==='endTurn'?0.16:0.42;
   const finalScore=item.score+value*futureWeight;
-  if(item.action.type==='endTurn')examinedEndTurn=true;
-  if(!best||finalScore>best.score)best={...item,score:finalScore,rawRollout:raw,correction};
 
-  /* On a simple board, stop once the current leader is comfortably above
-   * the remaining cheap alternatives.  We never use this shortcut before
-   * examining endTurn, because handing the turn to the opponent is a
-   * structural branch that must remain visible to the search. */
+  if(item.action.type==='endTurn')examinedEndTurn=true;
+  if(!best||finalScore>best.score){
+   best={...item,score:finalScore,rawRollout:raw,correction};
+  }
+
+  /*
+   * Once the leader is comfortably ahead, stop spending depth on the tail.
+   * Keep at least one endTurn candidate in view because yielding the turn is
+   * strategically structural rather than merely another low-level action.
+   */
   const nextItem=shortlist[si+1];
   const nextCheap=nextItem?.score;
   const leaderMargin=best?best.score-(Number(nextCheap)||-Infinity):0;
-  if(examinedEndTurn&&best&&leaderMargin>=targetFloor)break;
+  const leaderStableEnough=!!best&&
+   Number(best.rawRollout?.earlyStopMargin||0)<=targetFloor*1.25;
+  const tailClearlyBehind=si>=2&&closeness(si)<.22;
+
+  if(examinedEndTurn&&best&&leaderMargin>=targetFloor&&
+     (leaderStableEnough||tailClearlyBehind))break;
+
+  if(spentThisStep>=totalSearchBudget)break;
  }
+
  ahTelemetrySpendThinking(spentThisStep);
  if(!best)return false;
+
  const a=best.action;
  let executed=false;
  if(a.type==='placeAnt')executed=!!placeAt(a.node);
@@ -5298,6 +5388,7 @@ function ahTelemetryLiveSearchStep(){
  else if(a.type==='startBattle'){doBattle(a.candyId,'search');executed=true;}
  else if(a.type==='useCard')executed=!!useCard(CPU,a.card);
  else if(a.type==='endTurn')return false;
+
  if(executed&&AH_AI_TELEMETRY){
   ahTelemetryRecord('searchDecision',{
    actor:CPU,
@@ -5305,16 +5396,32 @@ function ahTelemetryLiveSearchStep(){
    before:ahTelemetryClone(ahTelemetryState()),
    after:ahTelemetryState(),
    availableActions:ahTelemetryLegalActions(),
-   immediate:{depth,score:best.score,rawRollout:best.rawRollout,calibration:best.correction,predictionProfile,opponentModel,searchEfficiency:{
-       predictionStrength:best.rawRollout?.predictionStrength??predictionProfile.strength,
-       opponentBranchesBefore:best.rawRollout?.opponentBranchesBefore??0,
-       opponentBranchesAfter:best.rawRollout?.opponentBranchesAfter??0,
-       opponentBranchesPruned:best.rawRollout?.opponentBranchesPruned??0,
-       rolloutNodes:best.rawRollout?.nodes??0,
-       truncated:!!best.rawRollout?.truncated
-      },shortlist:shortlist.map(x=>({action:x.action,score:x.score}))}
+   immediate:{
+    depth:best.rawRollout?.depth??candidateDepth,
+    score:best.score,
+    rawRollout:best.rawRollout,
+    calibration:best.correction,
+    predictionProfile,
+    opponentModel,
+    searchEfficiency:{
+     predictionStrength:best.rawRollout?.predictionStrength??predictionProfile.strength,
+     opponentBranchesBefore:best.rawRollout?.opponentBranchesBefore??0,
+     opponentBranchesAfter:best.rawRollout?.opponentBranchesAfter??0,
+     opponentBranchesPruned:best.rawRollout?.opponentBranchesPruned??0,
+     rolloutNodes:best.rawRollout?.nodes??0,
+     truncated:!!best.rawRollout?.truncated
+    },
+    shortlist:shortlist.map((x,i)=>({
+     action:x.action,
+     score:x.score,
+     cheapGap:gaps[i],
+     closeness:Number(closeness(i).toFixed(3)),
+     allocatedNodes:i===0?null:null
+    }))
+   }
   });
  }
+
  if(executed){
   const snap=ahTelemetryState();
   if(a.type==='endTurn')ahTelemetryUpdateThinkingSnapshot(snap);
@@ -5322,7 +5429,6 @@ function ahTelemetryLiveSearchStep(){
  }
  return executed;
 }
-
 function ahTelemetryCpuCandidates(){
  if(!AH_AI_TELEMETRY||!S||mode!=='cpu'||cur()!==CPU)return null;
  const legal=getLegalActions(CPU);
