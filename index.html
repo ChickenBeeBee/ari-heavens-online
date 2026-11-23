@@ -5299,6 +5299,7 @@ function ahTelemetryLiveSearchStep(){
  const weightSum=weights.reduce((a,b)=>a+b,0);
 
  let best=null;
+ let bestDepth=depthBase;
  let spentThisStep=0;
  let examinedEndTurn=false;
 
@@ -5355,6 +5356,7 @@ function ahTelemetryLiveSearchStep(){
   if(item.action.type==='endTurn')examinedEndTurn=true;
   if(!best||finalScore>best.score){
    best={...item,score:finalScore,rawRollout:raw,correction};
+   bestDepth=candidateDepth;
   }
 
   /*
@@ -5397,7 +5399,7 @@ function ahTelemetryLiveSearchStep(){
    after:ahTelemetryState(),
    availableActions:ahTelemetryLegalActions(),
    immediate:{
-    depth:best.rawRollout?.depth??candidateDepth,
+    depth:best.rawRollout?.depth??bestDepth,
     score:best.score,
     rawRollout:best.rawRollout,
     calibration:best.correction,
@@ -5416,7 +5418,7 @@ function ahTelemetryLiveSearchStep(){
      score:x.score,
      cheapGap:gaps[i],
      closeness:Number(closeness(i).toFixed(3)),
-     allocatedNodes:i===0?null:null
+     allocatedNodes:i===0?Math.max(minBudget,Math.floor(minBudget+distributable*(weights[0]/Math.max(.001,weightSum)))):null
     }))
    }
   });
