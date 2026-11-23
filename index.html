@@ -4221,7 +4221,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const baseOpp=baseState?ahTelemetryShadowFutureOpportunityValue(baseState,turnActor):opp;
   const baseWin=baseState?ahTelemetryWinProbability(baseState,p):win;
   const intent=baseState?ahTelemetryPurposeProgress(baseState,state,turnActor):null;
-  const vectorProgress=baseState?ahTelemetryStrategicVectorProgress(baseState,state,turnActor):null;\n  const optionProgress=baseState?ahTelemetryOptionPreservation(baseState,state,turnActor):null;
+  const vectorProgress=baseState?ahTelemetryStrategicVectorProgress(baseState,state,turnActor):null;
+  const optionProgress=baseState?ahTelemetryOptionPreservation(baseState,state,turnActor):null;
   /*
    * Purpose progress explains why a low-level action is useful without
    * turning attach/detach itself into a goal.
