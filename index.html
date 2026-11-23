@@ -4064,6 +4064,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
  const opponentModel=options?.opponentModel||ahTelemetryOpponentActionModel(before,opp(p),predictionProfile,options?.opponentHistoryEvents||null);
  let predictionNodes=0,skepticNodes=0,predictionCandidates=0,skepticCandidates=0,wideningSteps=0;
  let skepticFoundBetter=false,predictionBest=-Infinity,skepticBest=-Infinity;
+ const branchBudgetAudit=[];
  const opponentSearchReason=[];
  const quickOpponentValue=(state,turnActor)=>{
   if(!state)return -Infinity;
@@ -4527,6 +4528,9 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     const branchBudget=Math.max(1,Math.floor(remaining*branchShare));
     const oppSlice=Math.max(1,Math.min(opponentBudget,Math.floor(branchBudget*.58)));
     const nextSlice=Math.max(0,Math.min(nextSelfBudget,branchBudget-oppSlice));
+    const branchNodesBefore=nodes;
+    const branchFutureBefore=ahTelemetryShadowFutureOpportunityValue(selfPlan.state,p);
+    const branchPurposeBefore=ahTelemetryPurposeProgress(before,selfPlan.state,p);
 
     const nextSelf=opPlan.state?.currentPlayer===p&&nextSlice>0
       ?buildTurnPlans(opPlan.state,p,nextSlice,3,3)
@@ -4535,6 +4539,27 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     const terminalState=next?.state||opPlan.state;
     const value=turnPlanScore(terminalState,p,before);
     const line=selfPlan.seq.concat(opPlan.seq).concat(next?.seq||[]);
+
+    const branchNodesUsed=Math.max(0,nodes-branchNodesBefore);
+    const branchFutureAfter=ahTelemetryShadowFutureOpportunityValue(terminalState,p);
+    const branchPurposeAfter=ahTelemetryPurposeProgress(before,terminalState,p);
+    const branchFutureDelta=Number((Number(branchFutureAfter||0)-Number(branchFutureBefore||0)).toFixed(4));
+    const branchPurposeDelta=Number((Number(branchPurposeAfter?.delta?.total||0)-Number(branchPurposeBefore?.delta?.total||0)).toFixed(4));
+    branchBudgetAudit.push({
+      branchIndex:branchIndex,
+      action:ahTelemetryClone(opPlan.seq?.[0]||null),
+      dangerScore:Number(Number(dangerRow.dangerScore||0).toFixed(4)),
+      allocatedNodes:branchBudget,
+      oppSlice,
+      nextSlice,
+      nodesUsed:branchNodesUsed,
+      budgetUtilization:Number((branchNodesUsed/Math.max(1,branchBudget)).toFixed(3)),
+      truncatedDuringBranch:!!(truncated&&nodes>=maxNodes),
+      futureOpportunityDelta:branchFutureDelta,
+      purposeDelta:branchPurposeDelta,
+      collapseRisk:null,
+      stability:null
+    });
 
     const opponentAction=opPlan.seq[0]||null;
     const prior=Number(opponentModel?.priors?.[JSON.stringify(opponentAction)]||0);
@@ -4627,6 +4652,12 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     branch.stability=Number(Math.max(0,Math.min(1,
       1-(Math.max(0,expectedValue-v)/.30)*.65-branch.collapseRisk*.35
     )).toFixed(4));
+    const auditRow=branchBudgetAudit.find(x=>x.branchIndex===branch.index);
+    if(auditRow){
+      auditRow.collapseRisk=branch.collapseRisk;
+      auditRow.stability=branch.stability;
+      auditRow.value=Number(v.toFixed(4));
+    }
   });
 
   if(best){
@@ -4759,6 +4790,17 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   skepticBudgetShare:Number((1-(.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0)))).toFixed(3)),
   searchExpansionReason:ahTelemetryClone(opponentSearchReason),
   dangerBranchPriority:ahTelemetryClone(best?.forecastTree?.summary?.dangerBranchPriority||null),
+  branchBudgetAudit:ahTelemetryClone(branchBudgetAudit),
+  branchBudgetSummary:{
+    branches:branchBudgetAudit.length,
+    allocatedNodes:branchBudgetAudit.reduce((n,b)=>n+Number(b.allocatedNodes||0),0),
+    usedNodes:branchBudgetAudit.reduce((n,b)=>n+Number(b.nodesUsed||0),0),
+    dangerBranches:branchBudgetAudit.filter(b=>Number(b.dangerScore||0)>=.34).length,
+    dangerNodes:branchBudgetAudit.filter(b=>Number(b.dangerScore||0)>=.34).reduce((n,b)=>n+Number(b.nodesUsed||0),0),
+    avgBudgetUtilization:branchBudgetAudit.length?Number((branchBudgetAudit.reduce((n,b)=>n+Number(b.budgetUtilization||0),0)/branchBudgetAudit.length).toFixed(3)):0,
+    avgFutureOpportunityDelta:branchBudgetAudit.length?Number((branchBudgetAudit.reduce((n,b)=>n+Number(b.futureOpportunityDelta||0),0)/branchBudgetAudit.length).toFixed(4)):0,
+    avgPurposeDelta:branchBudgetAudit.length?Number((branchBudgetAudit.reduce((n,b)=>n+Number(b.purposeDelta||0),0)/branchBudgetAudit.length).toFixed(4)):0
+  },
   opponentActionModel:ahTelemetryClone(opponentModel)
  };
 }
