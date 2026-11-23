@@ -4758,7 +4758,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   predictionBudgetShare:Number((.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0))).toFixed(3)),
   skepticBudgetShare:Number((1-(.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0)))).toFixed(3)),
   searchExpansionReason:ahTelemetryClone(opponentSearchReason),
-  dangerBranchPriority:ahTelemetryClone(dangerBranchPriority),
+  dangerBranchPriority:ahTelemetryClone(best?.forecastTree?.summary?.dangerBranchPriority||null),
   opponentActionModel:ahTelemetryClone(opponentModel)
  };
 }
