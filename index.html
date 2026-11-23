@@ -5449,12 +5449,17 @@ function ahTelemetryLiveSearchStep(){
  });
  const minBudget=Math.min(18,Math.max(8,Math.floor(totalSearchBudget/Math.max(1,shortlist.length*2))));
  const reserve=minBudget*shortlist.length;
- const distributable=Math.max(0,totalSearchBudget-reserve);
+ /* Keep a small protected reserve for branches whose Forecast Tree proves fragile. */
+ const dangerReserve=Math.max(0,Math.min(Math.floor(totalSearchBudget*.15),Math.max(0,totalSearchBudget-reserve)));
+ const distributable=Math.max(0,totalSearchBudget-reserve-dangerReserve);
  const weightSum=weights.reduce((a,b)=>a+b,0);
 
  let best=null;
  let bestDepth=depthBase;
  let spentThisStep=0;
+ let dangerReserveUsed=0;
+ let dangerSecondPasses=0;
+ let dangerTriggered=0;
  let examinedEndTurn=false;
 
  for(let si=0;si<shortlist.length;si++){
@@ -5484,7 +5489,7 @@ function ahTelemetryLiveSearchStep(){
    )
   );
 
-  const raw=ahTelemetryRollout(
+  let raw=ahTelemetryRollout(
    item.action,
    CPU,
    candidateDepth,
@@ -5498,6 +5503,23 @@ function ahTelemetryLiveSearchStep(){
 
   if(raw)spentThisStep+=Number(raw.nodes||0);
   if(!raw)continue;
+
+  /* Danger-branch priority: only fragile Forecast Tree branches receive a deeper second pass. */
+  const fs=raw.forecastTree?.summary||null;
+  const dangerTrigger=!!fs&&(Number(fs.collapseRisk||0)>=.34||Number(fs.downside||0)>=.075||Number(fs.stability||1)<=.58||Number(fs.branchBattleRisk||0)>=.42);
+  const remainingDanger=Math.max(0,dangerReserve-dangerReserveUsed);
+  if(dangerTrigger&&remainingDanger>=4&&spentThisStep<totalSearchBudget){
+   dangerTriggered++;
+   const extra=Math.max(4,Math.min(remainingDanger,Math.max(6,Math.floor(Math.max(minBudget,nodeBudget)*.55))));
+   if(extra>0){
+    const deeper=ahTelemetryRollout(item.action,CPU,Math.min(5,candidateDepth+1),null,{maxNodes:Math.max(minBudget,nodeBudget)+extra,predictionProfile,opponentModel});
+    const deeperNodes=Number(deeper?.nodes||0);
+    dangerReserveUsed+=Math.min(extra,deeperNodes);
+    spentThisStep+=deeperNodes;
+    dangerSecondPasses++;
+    if(deeper&&(Number(deeper.value||-Infinity)>Number(raw.value||-Infinity)||Number(deeper.forecastTree?.summary?.stability||0)>Number(fs?.stability||0)))raw=deeper;
+   }
+  }
 
   const correction=ahTelemetryPredictionCorrection(item.action);
   const value=raw.value*correction.multiplier+correction.bias*correction.confidence;
@@ -5565,7 +5587,8 @@ function ahTelemetryLiveSearchStep(){
      opponentBranchesAfter:best.rawRollout?.opponentBranchesAfter??0,
      opponentBranchesPruned:best.rawRollout?.opponentBranchesPruned??0,
      rolloutNodes:best.rawRollout?.nodes??0,
-     truncated:!!best.rawRollout?.truncated
+     truncated:!!best.rawRollout?.truncated,
+     dangerBranchPriority:{reserve:Number(dangerReserve),used:Number(dangerReserveUsed),triggered:Number(dangerTriggered),secondPasses:Number(dangerSecondPasses)}
     },
     shortlist:shortlist.map((x,i)=>({
      action:x.action,
