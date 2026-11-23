@@ -4316,7 +4316,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
          truncated=true;
          stopReason='global-node-cap';
          stopDetail={stage:'expand-action',reason:'node-cap',depth,expansions,nodes,maxNodes,stageBudget,
-          nodeCapDiagnostic:nodeCapDiagnostic()};
+          nodeCapDiagnostic:nodeCapDiagnostic(depth)};
          break;
         }
         const prev=item.seq[item.seq.length-1];
@@ -4412,14 +4412,39 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   const oppActor=selfPlan.state?.currentPlayer;
   if(!oppActor||oppActor===p){
     return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};  }
-  const oppPlans=buildTurnPlans(selfPlan.state,oppActor,opponentBudget,4,3);
+
+  /*
+   * All three rollout stages share one global node counter.  Previously the
+   * full opponent/next-self budgets were reused for every opponent branch,
+   * so nested searches multiplied the nominal budget and exhausted the global
+   * cap before meaningful depth could be reached.
+   *
+   * Give each opponent branch a slice of the remaining global budget, then
+   * split that slice between the opponent response and our continuation.
+   */
+  let best=null;
+  const maxBranchPlans=4;
+  const oppPreviewBudget=Math.max(1,Math.min(opponentBudget,Math.max(1,maxNodes-nodes)));
+  const oppPlans=buildTurnPlans(selfPlan.state,oppActor,oppPreviewBudget,4,3);
   if(!oppPlans.length){
     return {value:turnPlanScore(selfPlan.state,p,before),line:selfPlan.seq,opponentReply:null,nextPlan:null};
   }
-  let best=null;
-  for(const opPlan of oppPlans){
-    const nextSelf=opPlan.state?.currentPlayer===p
-      ?buildTurnPlans(opPlan.state,p,nextSelfBudget,3,3)
+
+  for(let branchIndex=0;branchIndex<Math.min(maxBranchPlans,oppPlans.length);branchIndex++){
+    const opPlan=oppPlans[branchIndex];
+    const remaining=Math.max(0,maxNodes-nodes);
+    if(remaining<=0){
+      truncated=true;
+      stopReason=stopReason||'global-node-cap';
+      break;
+    }
+    const branchesLeft=Math.max(1,Math.min(maxBranchPlans,oppPlans.length-branchIndex));
+    const branchBudget=Math.max(1,Math.floor(remaining/branchesLeft));
+    const oppSlice=Math.max(1,Math.min(opponentBudget,Math.floor(branchBudget*.58)));
+    const nextSlice=Math.max(0,Math.min(nextSelfBudget,branchBudget-oppSlice));
+
+    const nextSelf=opPlan.state?.currentPlayer===p&&nextSlice>0
+      ?buildTurnPlans(opPlan.state,p,nextSlice,3,3)
       :[];
     const next=nextSelf[0]||null;
     const terminalState=next?.state||opPlan.state;
