@@ -4465,17 +4465,66 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     };
   }
 
+  /*
+   * Danger-branch priority v0.2 — apply the forecast idea inside the rollout
+   * itself, not only in the live-search controller.
+   *
+   * The opponent plans already have a shallow value estimate. Use that as a
+   * root-player risk proxy, add battle pressure, then spend the shared branch
+   * budget in danger-first order. This is deliberately a priority/allocation
+   * change, not a hard-coded action preference: any action can become the
+   * dangerous branch depending on the resulting state.
+   */
+  const dangerPlanRows=oppPlans.slice(0,Math.max(maxBranchPlans,oppPlans.length)).map((plan,index)=>{
+    const state=plan?.state;
+    const rootUtility=state?ahTelemetryShadowUtility(state,p):0;
+    const future=state?ahTelemetryShadowFutureOpportunityValue(state,p):0;
+    const compression=state?ahTelemetryStrategicCompression(state,p):null;
+    const battle=Number(compression?.battleThreat||0);
+    const quickRootValue=Number((rootUtility+future*.18).toFixed(5));
+    return {plan,index,quickRootValue,battle};
+  });
+  const minQuick=dangerPlanRows.length?Math.min(...dangerPlanRows.map(x=>x.quickRootValue)):0;
+  const maxQuick=dangerPlanRows.length?Math.max(...dangerPlanRows.map(x=>x.quickRootValue)):0;
+  const quickRange=Math.max(.001,maxQuick-minQuick);
+  dangerPlanRows.forEach(x=>{
+    const valueRisk=Math.max(0,Math.min(1,(maxQuick-x.quickRootValue)/quickRange));
+    x.dangerScore=Number(Math.max(0,Math.min(1,valueRisk*.78+x.battle*.22)).toFixed(4));
+  });
+  dangerPlanRows.sort((a,b)=>Number(b.dangerScore)-Number(a.dangerScore));
+  const dangerBranchPriority={
+    triggered:dangerPlanRows.filter(x=>x.dangerScore>=.34).length,
+    maxRisk:Number((dangerPlanRows[0]?.dangerScore||0).toFixed(4)),
+    ordered:dangerPlanRows.slice(0,maxBranchPlans).map(x=>({
+      index:x.index,
+      action:ahTelemetryClone(x.plan?.seq?.[0]||null),
+      dangerScore:x.dangerScore,
+      quickRootValue:x.quickRootValue,
+      battleThreat:x.battle
+    }))
+  };
+
   const forecastBranches=[];
-  for(let branchIndex=0;branchIndex<Math.min(maxBranchPlans,oppPlans.length);branchIndex++){
-    const opPlan=oppPlans[branchIndex];
+  const branchPlanCount=Math.min(maxBranchPlans,dangerPlanRows.length);
+  for(let branchIndex=0;branchIndex<branchPlanCount;branchIndex++){
+    const dangerRow=dangerPlanRows[branchIndex];
+    const opPlan=dangerRow.plan;
     const remaining=Math.max(0,maxNodes-nodes);
     if(remaining<=0){
       truncated=true;
       stopReason=stopReason||'global-node-cap';
       break;
     }
-    const branchesLeft=Math.max(1,Math.min(maxBranchPlans,oppPlans.length-branchIndex));
-    const branchBudget=Math.max(1,Math.floor(remaining/branchesLeft));
+    const branchesLeft=Math.max(1,branchPlanCount-branchIndex);
+    /*
+     * Keep a protected share for every remaining branch, then give the
+     * current dangerous branch a risk-weighted bonus. The total still comes
+     * from the same remaining node budget, so this does not inflate the cap.
+     */
+    const baseShare=1/branchesLeft;
+    const dangerShare=Math.max(0.0,Math.min(.22,Number(dangerRow.dangerScore||0)*.22));
+    const branchShare=Math.min(1,baseShare+dangerShare);
+    const branchBudget=Math.max(1,Math.floor(remaining*branchShare));
     const oppSlice=Math.max(1,Math.min(opponentBudget,Math.floor(branchBudget*.58)));
     const nextSlice=Math.max(0,Math.min(nextSelfBudget,branchBudget-oppSlice));
 
@@ -4598,6 +4647,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
         dangerValue,
         dangerAction:ahTelemetryClone(dangerAction),
         confidence:forecastConfidence,
+        dangerBranchPriority:ahTelemetryClone(dangerBranchPriority),
         expectedShare:Number(expectedShare.toFixed(3)),
         worstShare:Number(worstShare.toFixed(3)),
         bestShare:Number(bestShare.toFixed(3))
@@ -4708,6 +4758,7 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
   predictionBudgetShare:Number((.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0))).toFixed(3)),
   skepticBudgetShare:Number((1-(.48+.12*Math.max(0,Math.min(1,Number(predictionProfile?.strength)||0)))).toFixed(3)),
   searchExpansionReason:ahTelemetryClone(opponentSearchReason),
+  dangerBranchPriority:ahTelemetryClone(dangerBranchPriority),
   opponentActionModel:ahTelemetryClone(opponentModel)
  };
 }
