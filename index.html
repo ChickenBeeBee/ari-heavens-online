@@ -3517,6 +3517,122 @@ function ahTelemetryStrategicVectorProgress(before,after,actor){
  return {before:{purpose:bP,strategic:bG,state:bS,composite:bC.composite},after:{purpose:aP,strategic:aG,state:aS,composite:aC.composite},delta};
 }
 
+/*
+ * Strategic Plan Observation v0.1
+ *
+ * Diagnostic layer only.  It does not assign a special value to attach/detach.
+ * A plan is reconstructed from the resulting state so the audit can tell
+ * whether an action advanced the current plan, switched to a better one, or
+ * merely churned between equivalent configurations.
+ */
+function ahTelemetryStrategicPlanSnapshot(state,actor){
+ const s=state||{},p=actor||(s.currentPlayer||'B'),comp=ahTelemetryStrategicCompression(s,p)||{},curve=ahTelemetryStrategyCurve(s,p)||{};
+ const purpose=ahTelemetryPurposeProfile(s,p)||{};
+ const candies=Array.isArray(s.candies)?s.candies.filter(c=>c&&c.node):[];
+ const valueOf=c=>Number(c?.bomb?4:(c?.points||0));
+ const myNest=p+'1',q=p==='A'?'B':'A';
+ const contested=candies.filter(c=>Number(c?.attached?.[p]||0)>0&&Number(c?.attached?.[q]||0)>0)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const carrying=candies.filter(c=>Number(c?.attached?.[p]||0)>0&&c.node!==myNest)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const ready=candies.filter(c=>c.node===myNest&&Number(c?.attached?.[p]||0)>0)
+   .sort((a,b)=>valueOf(b)-valueOf(a));
+ const target=contested[0]||carrying[0]||ready[0]||candies.sort((a,b)=>valueOf(b)-valueOf(a))[0]||null;
+ let goal='positioning';
+ if(Number(purpose.delivery||0)>=Number(purpose.positioning||0)&&Number(purpose.delivery||0)>=Number(purpose.denial||0))goal='delivery';
+ else if(Number(purpose.denial||0)>=Number(purpose.battlePreparation||0)&&Number(purpose.denial||0)>=Number(purpose.positioning||0))goal='denial';
+ else if(Number(purpose.battlePreparation||0)>=Number(purpose.positioning||0))goal='battlePreparation';
+ if(Number(comp.battleThreat||0)>=.38)goal='battle';
+ if(Number(comp.cardPressure||0)>=.42&&Number(comp.interaction||0)>=.35)goal='cardPressure';
+ if(Number(comp.scoreLead||0)<-1.5&&Number(purpose.delivery||0)>.08)goal='scoreRace';
+ const targetId=target?.id!=null?String(target.id):null;
+ const route=curve.selectedRoute||comp.route||'neutral';
+ const key=[goal,targetId,route].join('|');
+ return {
+  schema:'strategic-plan-v0.1',
+  actor:p,goal,targetId,targetValue:target?valueOf(target):0,route,
+  primaryTheme:comp.themes?.[0]||goal,
+  phase:comp.phase||null,
+  battleThreat:Number(comp.battleThreat||0),
+  interaction:Number(comp.interaction||0),
+  futureOpportunity:Number(ahTelemetryShadowFutureOpportunityValue(s,p)||0),
+  purposeTotal:Number(purpose.total||0),
+  progress:Number(curve.bestTurnProgress||0),
+  victoryDistance:Number(curve.directToVictoryDistance||0),
+  stability:Number(curve.stability||0),
+  key
+ };
+}
+function ahTelemetryStrategicPlanTransition(before,after,actor){
+ const b=ahTelemetryStrategicPlanSnapshot(before,actor),a=ahTelemetryStrategicPlanSnapshot(after,actor);
+ const targetChanged=String(b.targetId||'')!==String(a.targetId||'');
+ const goalChanged=b.goal!==a.goal,routeChanged=b.route!==a.route;
+ const planChanged=goalChanged||targetChanged||routeChanged;
+ const progressDelta=Number((a.progress-b.progress).toFixed(4));
+ const distanceDelta=Number((b.victoryDistance-a.victoryDistance).toFixed(4));
+ const purposeDelta=Number((a.purposeTotal-b.purposeTotal).toFixed(4));
+ const opportunityDelta=Number((a.futureOpportunity-b.futureOpportunity).toFixed(4));
+ const stabilityDelta=Number((a.stability-b.stability).toFixed(4));
+ const oldPlanQuality=Number((b.progress*.34+Math.max(0,Math.min(1,b.purposeTotal/1.5))*.18+Math.max(0,Math.min(1,b.futureOpportunity/1.5))*.18+b.stability*.12+Math.max(0,Math.min(1,distanceDelta/2))*.18).toFixed(4));
+ const newPlanQuality=Number((a.progress*.34+Math.max(0,Math.min(1,a.purposeTotal/1.5))*.18+Math.max(0,Math.min(1,a.futureOpportunity/1.5))*.18+a.stability*.12).toFixed(4));
+ const switchGain=planChanged?Number((newPlanQuality-oldPlanQuality).toFixed(4)):0;
+ return {
+  schema:'strategic-plan-transition-v0.1',
+  before:b,after:a,planChanged,goalChanged,targetChanged,routeChanged,
+  progressDelta,distanceDelta,purposeDelta,opportunityDelta,stabilityDelta,
+  oldPlanQuality,newPlanQuality,switchGain
+ };
+}
+function ahTelemetryActionEvaluationBreakdown(before,after,action,actor,rollout=null){
+ const p=actor||(before?.currentPlayer||'B'),a=action||{};
+ const purpose=ahTelemetryPurposeProgress(before,after,p)||{};
+ const option=ahTelemetryOptionPreservation(before,after,p)||{};
+ const curve=ahTelemetryStrategyCurveTransition(before,p,a,ahTelemetryStrategyCurve(before,p))||{};
+ const plan=ahTelemetryStrategicPlanTransition(before,after,p)||{};
+ const opp=p==='A'?'B':'A';
+ const oppPlan=ahTelemetryStrategicPlanTransition(before,after,opp)||{};
+ const immediatePurpose=Number(purpose?.delta?.total||0);
+ const reconfiguration=Number(purpose?.delta?.reconfiguration||0);
+ const futureOpportunity=Number(option?.opportunityDelta||0);
+ const optionValue=Number(option?.optionValue||0);
+ const dangerAvoided=Number(option?.dangerAvoided||0);
+ const strategicVectorDelta=Number(curve?.progressDelta||0)*.45+
+   Number(curve?.distanceDelta||0)*.30+
+   Number(curve?.stabilityDelta||0)*.15+
+   Number(curve?.routeSeparationDelta||0)*.10;
+ const opponentPlanDisruption=Number(Math.max(-1,Math.min(1,
+   (Number(oppPlan.before?.purposeTotal||0)-Number(oppPlan.after?.purposeTotal||0))*.55+
+   (Number(oppPlan.before?.futureOpportunity||0)-Number(oppPlan.after?.futureOpportunity||0))*.30+
+   (Number(oppPlan.before?.progress||0)-Number(oppPlan.after?.progress||0))*.15
+ )).toFixed(4));
+ const line=Array.isArray(rollout?.principalVariation)?rollout.principalVariation:[];
+ let inverseCount=0,configCount=0;
+ for(let i=1;i<line.length;i++){
+  const x=line[i-1],y=line[i];
+  if(x?.candyId!=null&&y?.candyId!=null&&String(x.candyId)===String(y.candyId)&&
+    ((x.type==='attachAnt'&&y.type==='detachAnt')||(x.type==='detachAnt'&&y.type==='attachAnt')))inverseCount++;
+  if((x?.type==='attachAnt'||x?.type==='detachAnt')&&(y?.type===x.type)&&String(x?.candyId??'')===String(y?.candyId??''))configCount++;
+ }
+ const cyclePenalty=Number(Math.min(.20,inverseCount*.045+Math.max(0,configCount-1)*.025).toFixed(4));
+ const switchCost=Number(Math.max(0,plan.planChanged?Math.abs(plan.purposeDelta)*.10+cyclePenalty:cyclePenalty).toFixed(4));
+ const planProgress=Number((plan.progressDelta*.55+Math.max(0,plan.distanceDelta)*.25+Math.max(0,plan.opportunityDelta)*.20).toFixed(4));
+ const rawFinal=Number((planProgress+Math.max(0,plan.switchGain)*.45+
+   opponentPlanDisruption*.28+dangerAvoided*.16+optionValue*.12-cyclePenalty-switchCost).toFixed(4));
+ const forecast=rollout?.forecastTree?.summary||null;
+ return {
+  schema:'action-evaluation-breakdown-v0.1',actor:p,actionType:a.type||'unknown',
+  immediatePurpose, reconfiguration, futureOpportunity, optionValue, dangerAvoided,
+  strategicVectorDelta:Number(strategicVectorDelta.toFixed(4)),
+  opponentPlanDisruption, planProgress, planSwitchGain:Number(plan.switchGain||0),
+  planSwitchCost:switchCost, planChurn:cyclePenalty,
+  planChanged:!!plan.planChanged, planBefore:ahTelemetryClone(plan.before),planAfter:ahTelemetryClone(plan.after),
+  forecastValue:Number(forecast?.expectedValue||rollout?.value||0),
+  finalStrategicEstimate:rawFinal,
+  inverseConfigCount:inverseCount,configRepeatCount:configCount,
+  rolloutStopReason:rollout?.stopReason||null,
+  rolloutTruncated:!!rollout?.truncated
+ };
+}
 function ahTelemetryOptionPreservation(before,after,actor){
  const b=before||{},a=after||{},p=actor||(b.currentPlayer||'B');
  const meaningfulTypes=st=>{
@@ -3882,7 +3998,7 @@ function ahTelemetryActionRequirement(before,after,action,actor){
    Math.min(1,Math.abs(Number(req.score||0))/.15)*.10+
    (active.length?0.08:0)
  )).toFixed(3));
- return {actionType,targetPurposes:target,activePurposes:active,requirement:req,purposeDelta:Number(pd.total||0),reconfigDelta:Number(option?.reconfigDelta||0),optionValue:Number(option?.optionValue||0),optionOpened:Number(option?.optionOpened||0),optionClosed:Number(option?.optionClosed||0),necessity,
+ return {actionType,targetPurposes:target,activePurposes:active,requirement:req,purposeDelta:Number(pd.total||0),reconfigDelta:Number(option?.reconfigDelta||0),optionValue:Number(option?.optionValue||0),optionOpened:Number(option?.optionOpened||0),optionClosed:Number(option?.optionClosed||0),planTransition:ahTelemetryStrategicPlanTransition(before,after,p),necessity,
   progressDelta:Number(curve?.progressDelta||0),distanceDelta:Number(curve?.distanceDelta||0),routeAfter:curve?.routeAfter||null,routeChanged:!!curve?.routeChanged};
 }
 function ahTelemetryStrategicObservationReconstruct(events,actor,options={}){
@@ -4882,7 +4998,8 @@ function ahTelemetryRollout(action,actor,maxDepth=3,rootState=null,options={}){
     avgFutureOpportunityDelta:branchBudgetAudit.length?Number((branchBudgetAudit.reduce((n,b)=>n+Number(b.futureOpportunityDelta||0),0)/branchBudgetAudit.length).toFixed(4)):0,
     avgPurposeDelta:branchBudgetAudit.length?Number((branchBudgetAudit.reduce((n,b)=>n+Number(b.purposeDelta||0),0)/branchBudgetAudit.length).toFixed(4)):0
   },
-  opponentActionModel:ahTelemetryClone(opponentModel)
+  opponentActionModel:ahTelemetryClone(opponentModel),
+  actionEvaluation:ahTelemetryActionEvaluationBreakdown(before,after,action,p,best)
  };
 }
 function ahTelemetryRecordOpponentPredictionOutcome(actor,action,before){
@@ -5055,6 +5172,7 @@ function ahTelemetryCandidateScore(action,includeRollout=true){
    b.rolloutDepth=rollout.depth;
    b.principalVariation=rollout.principalVariation;
    b.optionPreservation=ahTelemetryOptionPreservation(before,rollout.after,p);
+   b.actionEvaluation=ahTelemetryActionEvaluationBreakdown(before,rollout.after,action,p,rollout);
    b.immediate+=calibratedRollout*.10;
   }
  }
