@@ -6779,7 +6779,7 @@ function ahTelemetryAuditAggregate(runs){
   for(const s of run?.steps||[]){
    out.steps++;
    const type=s.chosen||'unknown';
-   const a=ensure(out.actions,type,{samples:0,scoreSum:0,rankSamples:0,rankSum:0,marginSum:0,purposeSum:0,reachablePurposeSum:0,futureSum:0,positiveFuture:0,negativeFuture:0});
+   const a=ensure(out.actions,type,{samples:0,scoreSum:0,rankSamples:0,rankSum:0,marginSum:0,purposeSum:0,reachablePurposeSum:0,futureSum:0,positiveFuture:0,negativeFuture:0,evaluationSamples:0,actionEvaluationSums:{immediatePurpose:0,reconfiguration:0,futureOpportunity:0,optionValue:0,dangerAvoided:0,strategicVectorDelta:0,opponentPlanDisruption:0,planProgress:0,planSwitchGain:0,planSwitchCost:0,planChurn:0,finalStrategicEstimate:0,forecastValue:0},evaluationPlanChanged:0,evaluationTruncated:0});
    a.samples++;
    const score=Number(s.candidateComparison?.selectedScore||0);a.scoreSum+=score;
    const rank=s.candidateComparison?.selectedRank;
@@ -6799,6 +6799,17 @@ function ahTelemetryAuditAggregate(runs){
     av.planSwitchGainSum+=Number(ae.planSwitchGain||0);av.planSwitchCostSum+=Number(ae.planSwitchCost||0);
     av.planChurnSum+=Number(ae.planChurn||0);av.finalStrategicEstimateSum+=Number(ae.finalStrategicEstimate||0);
     av.forecastValueSum+=Number(ae.forecastValue||0);if(ae.planChanged)av.planChanged++;if(ae.rolloutTruncated)av.truncated++;
+    a.evaluationSamples++;
+    const aes=a.actionEvaluationSums;
+    aes.immediatePurpose+=Number(ae.immediatePurpose||0);aes.reconfiguration+=Number(ae.reconfiguration||0);
+    aes.futureOpportunity+=Number(ae.futureOpportunity||0);aes.optionValue+=Number(ae.optionValue||0);
+    aes.dangerAvoided+=Number(ae.dangerAvoided||0);aes.strategicVectorDelta+=Number(ae.strategicVectorDelta||0);
+    aes.opponentPlanDisruption+=Number(ae.opponentPlanDisruption||0);aes.planProgress+=Number(ae.planProgress||0);
+    aes.planSwitchGain+=Number(ae.planSwitchGain||0);aes.planSwitchCost+=Number(ae.planSwitchCost||0);
+    aes.planChurn+=Number(ae.planChurn||0);aes.finalStrategicEstimate+=Number(ae.finalStrategicEstimate||0);
+    aes.forecastValue+=Number(ae.forecastValue||0);
+    if(ae.planChanged)a.evaluationPlanChanged++;
+    if(ae.rolloutTruncated)a.evaluationTruncated++;
    }
    out.future.samples++;out.future.sum+=fv;if(fv>0)out.future.positive++;else if(fv<0)out.future.negative++;
    if(Number.isFinite(Number(rank))){out.ranks.selectedSamples++;out.ranks.rankSum+=Number(rank);}
@@ -6832,7 +6843,22 @@ function ahTelemetryAuditAggregate(runs){
   v.avgScore=avg(v.scoreSum,v.samples);v.avgSelectedRank=avg(v.rankSum,v.rankSamples);
   v.avgMargin=avg(v.marginSum,v.samples);v.avgPurpose=avg(v.purposeSum,v.samples);
   v.avgReachablePurpose=avg(v.reachablePurposeSum,v.samples);v.avgFutureStrategic=avg(v.futureSum,v.samples);
-  delete v.scoreSum;delete v.rankSum;delete v.marginSum;delete v.purposeSum;delete v.reachablePurposeSum;delete v.futureSum;
+  v.avgImmediatePurpose=avg(v.actionEvaluationSums.immediatePurpose,v.evaluationSamples);
+  v.avgReconfiguration=avg(v.actionEvaluationSums.reconfiguration,v.evaluationSamples);
+  v.avgFutureOpportunity=avg(v.actionEvaluationSums.futureOpportunity,v.evaluationSamples);
+  v.avgOptionValue=avg(v.actionEvaluationSums.optionValue,v.evaluationSamples);
+  v.avgDangerAvoided=avg(v.actionEvaluationSums.dangerAvoided,v.evaluationSamples);
+  v.avgStrategicVectorDelta=avg(v.actionEvaluationSums.strategicVectorDelta,v.evaluationSamples);
+  v.avgOpponentPlanDisruption=avg(v.actionEvaluationSums.opponentPlanDisruption,v.evaluationSamples);
+  v.avgPlanProgress=avg(v.actionEvaluationSums.planProgress,v.evaluationSamples);
+  v.avgPlanSwitchGain=avg(v.actionEvaluationSums.planSwitchGain,v.evaluationSamples);
+  v.avgPlanSwitchCost=avg(v.actionEvaluationSums.planSwitchCost,v.evaluationSamples);
+  v.avgPlanChurn=avg(v.actionEvaluationSums.planChurn,v.evaluationSamples);
+  v.avgFinalStrategicEstimate=avg(v.actionEvaluationSums.finalStrategicEstimate,v.evaluationSamples);
+  v.avgForecastValue=avg(v.actionEvaluationSums.forecastValue,v.evaluationSamples);
+  v.planChangedRate=avg(v.evaluationPlanChanged,v.evaluationSamples);
+  v.evaluationTruncatedRate=avg(v.evaluationTruncated,v.evaluationSamples);
+  delete v.scoreSum;delete v.rankSum;delete v.marginSum;delete v.purposeSum;delete v.reachablePurposeSum;delete v.futureSum;delete v.actionEvaluationSums;delete v.evaluationPlanChanged;delete v.evaluationTruncated;
  }
  for(const v of Object.values(out.cards)){
   v.avgSelectedRank=avg(v.rankSum,v.rankSamples);v.avgMargin=avg(v.marginSum,v.samples);
