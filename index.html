@@ -6874,6 +6874,7 @@ function ahTelemetryAuditAggregate(runs){
    out.steps++;
    const type=s.chosen||'unknown';
    const a=ensure(out.actions,type,{samples:0,scoreSum:0,rankSamples:0,rankSum:0,marginSum:0,purposeSum:0,reachablePurposeSum:0,futureSum:0,positiveFuture:0,negativeFuture:0,evaluationSamples:0,actionEvaluationSums:{immediatePurpose:0,reconfiguration:0,futureOpportunity:0,optionValue:0,dangerAvoided:0,opponentThreatReduction:0,strategicVectorDelta:0,opponentPlanDisruption:0,planProgress:0,planSwitchGain:0,planSwitchCost:0,planChurn:0,finalStrategicEstimate:0,forecastValue:0},evaluationPlanChanged:0,evaluationTruncated:0});
+   a.actionEvaluationSums ||= {immediatePurpose:0,reconfiguration:0,futureOpportunity:0,optionValue:0,dangerAvoided:0,opponentThreatReduction:0,opponentThreatBefore:0,opponentThreatAfter:0,opponentThreatSamples:0,strategicVectorDelta:0,opponentPlanDisruption:0,planProgress:0,planSwitchGain:0,planSwitchCost:0,planChurn:0,finalStrategicEstimate:0,forecastValue:0};
    a.samples++;
    const score=Number(s.candidateComparison?.selectedScore||0);a.scoreSum+=score;
    const rank=s.candidateComparison?.selectedRank;
@@ -6885,6 +6886,7 @@ function ahTelemetryAuditAggregate(runs){
    a.futureSum+=fv;if(fv>0)a.positiveFuture++;else if(fv<0)a.negativeFuture++;
    const ae=s.actionEvaluation||null;
    if(ae){
+    const aes=a.actionEvaluationSums ||= {immediatePurpose:0,reconfiguration:0,futureOpportunity:0,optionValue:0,dangerAvoided:0,opponentThreatReduction:0,opponentThreatBefore:0,opponentThreatAfter:0,opponentThreatSamples:0,strategicVectorDelta:0,opponentPlanDisruption:0,planProgress:0,planSwitchGain:0,planSwitchCost:0,planChurn:0,finalStrategicEstimate:0,forecastValue:0};
     const av=out.actionEvaluation;av.samples++;
     av.immediatePurposeSum+=Number(ae.immediatePurpose||0);av.reconfigurationSum+=Number(ae.reconfiguration||0);
     av.futureOpportunitySum+=Number(ae.futureOpportunity||0);av.optionValueSum+=Number(ae.optionValue||0);
@@ -6894,7 +6896,6 @@ function ahTelemetryAuditAggregate(runs){
     av.planChurnSum+=Number(ae.planChurn||0);av.finalStrategicEstimateSum+=Number(ae.finalStrategicEstimate||0);
     av.forecastValueSum+=Number(ae.forecastValue||0);if(ae.planChanged)av.planChanged++;if(ae.rolloutTruncated)av.truncated++;
     a.evaluationSamples++;
-    const aes=a.actionEvaluationSums;
     aes.immediatePurpose+=Number(ae.immediatePurpose||0);aes.reconfiguration+=Number(ae.reconfiguration||0);
     aes.futureOpportunity+=Number(ae.futureOpportunity||0);aes.optionValue+=Number(ae.optionValue||0);
     aes.dangerAvoided+=Number(ae.dangerAvoided||0);aes.opponentThreatReduction+=Number(ae.opponentThreatReduction||0);aes.opponentThreatBefore+=(Number(ae.opponentThreatBefore)||0);aes.opponentThreatAfter+=(Number(ae.opponentThreatAfter)||0);aes.opponentThreatSamples+=(ae.opponentThreatBefore!=null||ae.opponentThreatAfter!=null)?1:0;aes.strategicVectorDelta+=Number(ae.strategicVectorDelta||0);
