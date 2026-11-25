@@ -7421,10 +7421,7 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    };
   }
 
-  if(chosenAudit&&stateBeforeChosen&&stateAfterChosen)pendingOutcomeValidations.push({
-   row,actor:p,before:stateBeforeChosen,startTurn:Number(stateBeforeChosen.turn||0),
-   predicted:Number(chosenAudit.actionEvaluation?.finalStrategicEstimate||0),resolved:{1:false,2:false,3:false}
-  });
+  if(chosenAudit&&stateBeforeChosen&&stateAfterChosen)pendingOutcomeValidations.push({\n   row,actor:p,before:stateBeforeChosen,startTurn:Number(stateBeforeChosen.turn||0),\n   predicted:Number(chosenAudit.actionEvaluation?.finalStrategicEstimate||0),\n   resolved:{1:false,2:false,3:false}\n  });
   state=stateAfterChosen;
   ahTelemetrySelfPlayTerminal(state);
   if(choice.action.type==='endTurn')continue;
@@ -7548,9 +7545,7 @@ function ahTelemetrySelfPlayAuditSummary(seed='audit',options={}){
     reachability:x.chosenAudit?.purposeReachability??null,
     rollout:x.chosenAudit?.rolloutPurposeDelta??null
    },
-   candidateComparison:x.chosenAudit?.candidateComparison??null,
-   actionEvaluation:x.chosenAudit?.actionEvaluation??null,
-   strategicVector:{
+   candidateComparison:x.chosenAudit?.candidateComparison??null,\n   actionEvaluation:x.chosenAudit?.actionEvaluation??null,\n   outcomeValidation:x.chosenAudit?.outcomeValidation??null,\n   strategicVector:{
     progress:x.chosenAudit?.strategicVectorProgress??null,
     futureStrategicValueDelta:x.chosenAudit?.futureStrategicValueDelta??null,
     actionEvaluation:x.chosenAudit?.actionEvaluation??null,
@@ -11383,7 +11378,7 @@ async function run(games){
   const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
  }finally{btn.disabled=false;}
 }
-const auditViewerVersion='1.4';
+const auditViewerVersion='1.5';
 window.AH_AI_TELEMETRY.openAuditViewer=open;
 window.AH_AI_TELEMETRY.runAudit=run;
 })();
