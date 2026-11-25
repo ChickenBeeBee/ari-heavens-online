@@ -6787,10 +6787,27 @@ function ahTelemetryAuditCompactStep(row){
    detachPurpose:x.detachPurpose??null
   })),
   actionEvaluation:ca.actionEvaluation??null,
-  cardAudit:ca.cardAudit??null
+  cardAudit:ca.cardAudit??null,
+  outcomeValidation:ca.outcomeValidation??null
  };
 }
 
+function ahTelemetryAuditOutcomeValidationSnapshot(before,after,actor,predicted=null,horizon=0){
+ const p=actor||before?.currentPlayer||'B',q=p==='A'?'B':'A',b=before||{},a=after||{};
+ const utilityBefore=Number(ahTelemetryShadowUtility(b,p)||0),utilityAfter=Number(ahTelemetryShadowUtility(a,p)||0);
+ const winBefore=Number(ahTelemetryWinProbability(b,p)||0),winAfter=Number(ahTelemetryWinProbability(a,p)||0);
+ const scoreBefore=Number(b.score?.[p]||0)-Number(b.score?.[q]||0),scoreAfter=Number(a.score?.[p]||0)-Number(a.score?.[q]||0);
+ const futureBefore=Number(ahTelemetryShadowFutureOpportunityValue(b,p)||0),futureAfter=Number(ahTelemetryShadowFutureOpportunityValue(a,p)||0);
+ const purposeBefore=Number(ahTelemetryPurposeProfile(b,p)?.total||0),purposeAfter=Number(ahTelemetryPurposeProfile(a,p)?.total||0);
+ return {schema:'outcome-validation-v0.1',actor:p,horizon,
+  realizedUtilityDelta:Number((utilityAfter-utilityBefore).toFixed(4)),
+  realizedWinProbabilityDelta:Number((winAfter-winBefore).toFixed(4)),
+  realizedScoreGapDelta:Number((scoreAfter-scoreBefore).toFixed(4)),
+  realizedFutureOpportunityDelta:Number((futureAfter-futureBefore).toFixed(4)),
+  realizedPurposeDelta:Number((purposeAfter-purposeBefore).toFixed(4)),
+  predictedFinalStrategicEstimate:predicted==null?null:Number(predicted.toFixed(4))
+ };
+}
 function ahTelemetryAuditAggregate(runs){
  const out={
   schema:'ai-audit-analysis-v1',runs:runs.length,steps:0,
@@ -6800,6 +6817,8 @@ function ahTelemetryAuditAggregate(runs){
   purpose:{immediateSamples:0,immediateSum:0,reachableSamples:0,reachableSum:0},
   actionEvaluation:{samples:0,immediatePurposeSum:0,reconfigurationSum:0,futureOpportunitySum:0,optionValueSum:0,dangerAvoidedSum:0,opponentThreatReductionSum:0,opponentThreatBeforeSum:0,opponentThreatAfterSum:0,opponentThreatSamples:0,strategicVectorDeltaSum:0,opponentPlanDisruptionSum:0,planProgressSum:0,planSwitchGainSum:0,planSwitchCostSum:0,planChurnSum:0,finalStrategicEstimateSum:0,forecastValueSum:0,planChanged:0,truncated:0},
   search:{samples:0,truncated:0,skepticBetter:0,stopReasons:{},converged:0,convergenceScoreSum:0,convergenceSamples:0,stableDepthSum:0,stableDepthSamples:0},
+  outcomeValidation:{samples:0,horizons:{1:{samples:0,utilitySum:0,winProbSum:0,scoreGapSum:0,futureOpportunitySum:0,purposeSum:0,predictionSum:0,predSq:0,realSq:0,cross:0},2:{samples:0,utilitySum:0,winProbSum:0,scoreGapSum:0,futureOpportunitySum:0,purposeSum:0,predictionSum:0,predSq:0,realSq:0,cross:0},3:{samples:0,utilitySum:0,winProbSum:0,scoreGapSum:0,futureOpportunitySum:0,purposeSum:0,predictionSum:0,predSq:0,realSq:0,cross:0}}},
+
   findings:[]
  };
  const ensure=(obj,key,base)=>obj[key]||(obj[key]={...base});
@@ -6845,6 +6864,15 @@ function ahTelemetryAuditAggregate(runs){
     aes.forecastValue+=Number(ae.forecastValue||0);
     if(ae.planChanged)a.evaluationPlanChanged++;
     if(ae.rolloutTruncated)a.evaluationTruncated++;
+   const ov=s.outcomeValidation?.horizons||{};
+   for(const hk of ['1','2','3']){
+    const o=ov[hk];if(!o)continue;const hv=out.outcomeValidation.horizons[Number(hk)];
+    hv.samples++;out.outcomeValidation.samples++;
+    hv.utilitySum+=Number(o.realizedUtilityDelta||0);hv.winProbSum+=Number(o.realizedWinProbabilityDelta||0);
+    hv.scoreGapSum+=Number(o.realizedScoreGapDelta||0);hv.futureOpportunitySum+=Number(o.realizedFutureOpportunityDelta||0);
+    hv.purposeSum+=Number(o.realizedPurposeDelta||0);
+    if(o.predictedFinalStrategicEstimate!=null){const x=Number(o.predictedFinalStrategicEstimate),y=Number(o.realizedUtilityDelta||0);hv.predictionSum+=x;hv.predSq+=x*x;hv.realSq+=y*y;hv.cross+=x*y;}
+   }
    }
    out.future.samples++;out.future.sum+=fv;if(fv>0)out.future.positive++;else if(fv<0)out.future.negative++;
    if(Number.isFinite(Number(rank))){out.ranks.selectedSamples++;out.ranks.rankSum+=Number(rank);}
@@ -6916,6 +6944,12 @@ function ahTelemetryAuditAggregate(runs){
  out.actionEvaluation.avgPlanChurn=avg(out.actionEvaluation.planChurnSum,out.actionEvaluation.samples);
  out.actionEvaluation.avgFinalStrategicEstimate=avg(out.actionEvaluation.finalStrategicEstimateSum,out.actionEvaluation.samples);
  out.actionEvaluation.avgForecastValue=avg(out.actionEvaluation.forecastValueSum,out.actionEvaluation.samples);
+ const corr=h=>{if(!h||h.samples<2)return null;const n=h.samples,den=Math.sqrt(Math.max(0,(n*h.predSq-h.predictionSum*h.predictionSum)*(n*h.realSq-h.utilitySum*h.utilitySum)));return den?Number(((n*h.cross-h.predictionSum*h.utilitySum)/den).toFixed(3)):null;};
+ for(const hk of ['1','2','3']){const h=out.outcomeValidation.horizons[Number(hk)],n=h.samples;
+  h.avgRealizedUtilityDelta=avg(h.utilitySum,n);h.avgRealizedWinProbabilityDelta=avg(h.winProbSum,n);h.avgRealizedScoreGapDelta=avg(h.scoreGapSum,n);
+  h.avgRealizedFutureOpportunityDelta=avg(h.futureOpportunitySum,n);h.avgRealizedPurposeDelta=avg(h.purposeSum,n);h.finalEstimateUtilityCorrelation=corr(h);
+  delete h.utilitySum;delete h.winProbSum;delete h.scoreGapSum;delete h.futureOpportunitySum;delete h.purposeSum;delete h.predictionSum;delete h.predSq;delete h.realSq;delete h.cross;
+ }
  out.actionEvaluation.planChangedRate=avg(out.actionEvaluation.planChanged,out.actionEvaluation.samples);
  out.actionEvaluation.truncatedRate=avg(out.actionEvaluation.truncated,out.actionEvaluation.samples);
  delete out.actionEvaluation.immediatePurposeSum;delete out.actionEvaluation.reconfigurationSum;delete out.actionEvaluation.futureOpportunitySum;
@@ -7023,9 +7057,20 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
  const rows=[];
  const curvePredictionAudit=ahTelemetryStrategyCurvePredictionAuditStats();
  const shadowActionEvents=[];
+ const pendingOutcomeValidations=[];
  let pendingCurveObservation=null;
  let guard=0;
  while(!state.result&&guard++<maxSteps){
+  if(pendingOutcomeValidations.length){
+   for(const item of pendingOutcomeValidations){
+    const elapsed=Math.max(0,Number(state.turn||0)-Number(item.startTurn||0));
+    for(const h of [1,2,3])if(!item.resolved[h]&&elapsed>=h){
+     item.row.chosenAudit.outcomeValidation=item.row.chosenAudit.outcomeValidation||{schema:'outcome-validation-v0.1',actor:item.actor,horizons:{}};
+     item.row.chosenAudit.outcomeValidation.horizons[h]=ahTelemetryAuditOutcomeValidationSnapshot(item.before,state,item.actor,item.predicted,h);
+     item.resolved[h]=true;
+    }
+   }
+  }
   const p=state.currentPlayer;
   const legal=ahTelemetryShadowLegalActions(state,p);
   const counts={};
@@ -7376,9 +7421,23 @@ function ahTelemetrySelfPlayAudit(seed='audit',options={}){
    };
   }
 
+  if(chosenAudit&&stateBeforeChosen&&stateAfterChosen)pendingOutcomeValidations.push({
+   row,actor:p,before:stateBeforeChosen,startTurn:Number(stateBeforeChosen.turn||0),
+   predicted:Number(chosenAudit.actionEvaluation?.finalStrategicEstimate||0),resolved:{1:false,2:false,3:false}
+  });
   state=stateAfterChosen;
   ahTelemetrySelfPlayTerminal(state);
   if(choice.action.type==='endTurn')continue;
+ }
+ for(const item of pendingOutcomeValidations){
+  for(const h of [1,2,3])if(!item.resolved[h]){
+   const elapsed=Math.max(0,Number(state.turn||0)-Number(item.startTurn||0));
+   if(elapsed>=h){
+    item.row.chosenAudit.outcomeValidation=item.row.chosenAudit.outcomeValidation||{schema:'outcome-validation-v0.1',actor:item.actor,horizons:{}};
+    item.row.chosenAudit.outcomeValidation.horizons[h]=ahTelemetryAuditOutcomeValidationSnapshot(item.before,state,item.actor,item.predicted,h);
+    item.resolved[h]=true;
+   }
+  }
  }
  const out={
   schema:'selfplay-audit-summary-v11',
@@ -11291,6 +11350,7 @@ function findingDetail(x){
   '<h4>Composite Δ</h4><div class="ah-audit-kvs">'+rows(comp)+'</div>'+
   '<h4>Strategic Plan / Action Evaluation</h4>'+
   (ae?'<div class="ah-audit-subgrid"><div><b>Immediate Purpose</b><div>'+fmt(ae.immediatePurpose)+'</div></div><div><b>Reconfiguration</b><div>'+fmt(ae.reconfiguration)+'</div></div><div><b>Future Opportunity</b><div>'+fmt(ae.futureOpportunity)+'</div></div><div><b>Option Value</b><div>'+fmt(ae.optionValue)+'</div></div><div><b>Danger Avoided</b><div>'+fmt(ae.dangerAvoided)+'</div></div><div><b>Opponent Threat Before</b><div>'+fmt(ae.opponentThreatBefore)+'</div></div><div><b>Opponent Threat After</b><div>'+fmt(ae.opponentThreatAfter)+'</div></div><div><b>Threat Reduction</b><div>'+fmt(ae.opponentThreatReduction)+'</div></div><div><b>Threat Best Action Before</b><div>'+esc(actionLabel(ae.opponentThreatBeforeAction))+'</div></div><div><b>Threat Best Action After</b><div>'+esc(actionLabel(ae.opponentThreatAfterAction))+'</div></div><div><b>Opponent Plan Disruption</b><div>'+fmt(ae.opponentPlanDisruption)+'</div></div><div><b>Plan Progress</b><div>'+fmt(ae.planProgress)+'</div></div><div><b>Plan Switch Gain</b><div>'+fmt(ae.planSwitchGain)+'</div></div><div><b>Plan Switch Cost</b><div>'+fmt(ae.planSwitchCost)+'</div></div><div><b>Plan Churn</b><div>'+fmt(ae.planChurn)+'</div></div><div><b>Final Strategic Estimate</b><div>'+fmt(ae.finalStrategicEstimate)+'</div></div><div><b>Forecast Value</b><div>'+fmt(ae.forecastValue)+'</div></div></div><div class="ah-audit-note">Plan変更：'+(ae.planChanged?'YES':'NO')+' / inverse config '+esc(ae.inverseConfigCount??0)+' / repeat '+esc(ae.configRepeatCount??0)+' / '+esc(ae.rolloutStopReason||'—')+' / truncated '+(ae.rolloutTruncated?'YES':'NO')+'</div>':'<div class="ah-audit-note">この判断にはAction Evaluationがありません。</div>')+
+  '<h4>Outcome Validation</h4>'+(s.outcomeValidation?'<div class="ah-audit-subgrid">'+[1,2,3].map(h=>{const v=s.outcomeValidation.horizons?.[h];return v?'<div><b>'+h+'手番後</b><div>Utility Δ '+fmt(v.realizedUtilityDelta)+' / WinProb Δ '+fmt(v.realizedWinProbabilityDelta)+' / ScoreGap Δ '+fmt(v.realizedScoreGapDelta)+'</div></div>':'';}).join('')+'</div>':'<div class="ah-audit-note">未計測（対局がそこまで進んでいない可能性があります）。</div>')+
   '<h4>Prediction / Skeptic</h4>'+predBlock+
   '<div class="ah-audit-subgrid"><div><b>Skeptic</b><div>'+ (s.search?.skepticFoundBetter?'より良い候補あり':'なし') +'</div></div><div><b>Expansion</b><div>'+esc((s.search?.reasons||[]).join(' / ')||'—')+'</div></div></div>'+
   '<h4>Strategic Curve</h4><div>route '+esc(s.strategyCurve?.selectedRoute||'—')+' / separation '+fmt(s.strategyCurve?.routeSeparation)+' / switches '+esc(s.strategyCurve?.routeSwitches??'—')+' / curvature '+fmt(s.strategyCurve?.curvature)+'</div>'+
@@ -11310,6 +11370,7 @@ function render(analysis,runs){
  o.querySelector('#ahAuditSummary').innerHTML='<div class="ah-audit-grid"><div class="ah-audit-stat"><b>'+esc(r.runs||0)+'</b><span>対局</span></div><div class="ah-audit-stat"><b>'+esc(r.steps||0)+'</b><span>判断</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='high').length)+'</b><span>🔴 要調査</span></div><div class="ah-audit-stat"><b>'+esc(a.filter(x=>x.severity==='medium').length)+'</b><span>🟠 注意</span></div></div>'+
   '<div class="ah-audit-section"><h3>Strategic Plan / Action Evaluation</h3><div class="ah-audit-note">行動が何を改善・悪化させたかを監査します。現時点ではAIの選択重みは変更しません。</div><table class="ah-audit-table"><tr><th>行動</th><th>N</th><th>Trunc</th><th>Purpose</th><th>Reconfig</th><th>Future</th><th>Option</th><th>Danger Avoided</th><th>Strategic Δ</th><th>Threat Before</th><th>Threat After</th><th>Threat ↓</th><th>Opp Disrupt</th><th>Plan Δ</th><th>Switch Gain</th><th>Switch Cost</th><th>Churn</th><th>Final</th></tr>'+Object.entries(r.actions||{}).map(([k,v])=>'<tr><td>'+esc(actionLabel(k))+'</td><td>'+esc(v.evaluationSamples??0)+'</td><td>'+pct(v.evaluationTruncatedRate)+'</td><td>'+fmt(v.avgImmediatePurpose)+'</td><td>'+fmt(v.avgReconfiguration)+'</td><td>'+fmt(v.avgFutureOpportunity)+'</td><td>'+fmt(v.avgOptionValue)+'</td><td>'+fmt(v.avgDangerAvoided)+'</td><td>'+fmt(v.avgStrategicVectorDelta)+'</td><td>'+fmt(v.avgOpponentThreatBefore)+'</td><td>'+fmt(v.avgOpponentThreatAfter)+'</td><td>'+fmt(v.avgOpponentThreatReduction??v.avgDangerAvoided)+'</td><td>'+fmt(v.avgOpponentPlanDisruption)+'</td><td>'+fmt(v.avgPlanProgress)+'</td><td>'+fmt(v.avgPlanSwitchGain)+'</td><td>'+fmt(v.avgPlanSwitchCost)+'</td><td>'+fmt(v.avgPlanChurn)+'</td><td>'+fmt(v.avgFinalStrategicEstimate)+'</td></tr>').join('')+'</table></div>'+
   '<div class="ah-audit-section"><h3>Action Evaluation 全体平均</h3><div class="ah-audit-note">N='+esc(r.actionEvaluation?.samples??0)+'　Final='+fmt(r.actionEvaluation?.avgFinalStrategicEstimate)+'　Churn='+fmt(r.actionEvaluation?.avgPlanChurn)+'　Danger Avoided='+fmt(r.actionEvaluation?.avgDangerAvoided)+'　Strategic Δ='+fmt(r.actionEvaluation?.avgStrategicVectorDelta)+'　Threat Before='+fmt(r.actionEvaluation?.avgOpponentThreatBefore)+'　After='+fmt(r.actionEvaluation?.avgOpponentThreatAfter)+'　Threat ↓='+fmt(r.actionEvaluation?.avgOpponentThreatReduction??r.actionEvaluation?.avgDangerAvoided)+'　Opponent Disruption='+fmt(r.actionEvaluation?.avgOpponentPlanDisruption)+'　打ち切り='+pct(r.actionEvaluation?.truncatedRate)+'</div></div>'+
+  '<div class="ah-audit-section"><h3>Outcome Validation（実際の1〜3手番後）</h3><div class="ah-audit-note">選択時のAction Evaluationと、その後の実際の盤面変化を比較します。CorrelationはFinal Strategic Estimateと実現Utility Δの相関です。</div><table class="ah-audit-table"><tr><th>経過</th><th>N</th><th>実現 Utility Δ</th><th>WinProb Δ</th><th>ScoreGap Δ</th><th>Future Δ</th><th>Purpose Δ</th><th>Final↔実現 Utility</th></tr>'+[1,2,3].map(h=>{const v=r.outcomeValidation?.horizons?.[h]||{};return '<tr><td>'+h+'手番後</td><td>'+esc(v.samples??0)+'</td><td>'+fmt(v.avgRealizedUtilityDelta)+'</td><td>'+fmt(v.avgRealizedWinProbabilityDelta)+'</td><td>'+fmt(v.avgRealizedScoreGapDelta)+'</td><td>'+fmt(v.avgRealizedFutureOpportunityDelta)+'</td><td>'+fmt(v.avgRealizedPurposeDelta)+'</td><td>'+fmt(v.finalEstimateUtilityCorrelation)+'</td></tr>';}).join('')+'</table></div>'+
   '<div class="ah-audit-section"><h3>全体傾向</h3><table class="ah-audit-table"><tr><th>項目</th><th>値</th></tr><tr><td>平均選択順位</td><td>'+esc(fmt(r.ranks?.avgSelectedRank))+'</td></tr><tr><td>平均候補差</td><td>'+esc(fmt(r.ranks?.avgMargin))+'</td></tr><tr><td>平均Future Strategic Value</td><td>'+esc(fmt(r.future?.avg))+'</td></tr><tr><td>相手行動予測</td><td>'+pct(r.prediction?.actionAccuracy)+'（'+esc(r.prediction?.actionPairs??r.prediction?.pairs??0)+'比較可能）</td></tr><tr><td>Route予測</td><td>'+pct(r.prediction?.routeAccuracy)+'（'+esc(r.prediction?.routePairs??r.prediction?.pairs??0)+'比較可能）</td></tr><tr><td>Rollout打ち切り率</td><td>'+pct(r.search?.truncatedRate)+'</td></tr></table></div>'+
   predictionDiag(r)+
   '<div class="ah-audit-section"><h3>怪しい判断 '+a.length+'件</h3></div>';
@@ -11322,7 +11383,7 @@ async function run(games){
   const a=ahTelemetryAuditAggregate(runs);render(a,runs);o.querySelector('#ahAuditProgressTitle').textContent='AI監査完了';
  }finally{btn.disabled=false;}
 }
-const auditViewerVersion='1.3';
+const auditViewerVersion='1.4';
 window.AH_AI_TELEMETRY.openAuditViewer=open;
 window.AH_AI_TELEMETRY.runAudit=run;
 })();
